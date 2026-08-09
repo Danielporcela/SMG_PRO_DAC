@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block titulo %}Relatórios{% endblock %}
+{% block cabecalho %}Relatórios{% endblock %}
+{% block descricao %}Escolha o período e os filtros; baixe em PDF, Excel ou CSV.{% endblock %}
+
+{% block conteudo %}
+<div class="cartao mb-3">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-filter me-2" style="color:var(--petroleo)"></i>Filtros</h3></div>
+  <div class="cartao-corpo">
+    <div class="row g-3">
+      <div class="col-md-2"><label class="form-label" for="rInicio">Início</label>
+        <input type="date" class="form-control" id="rInicio" value="{{ inicio_periodo }}"></div>
+      <div class="col-md-2"><label class="form-label" for="rFim">Fim</label>
+        <input type="date" class="form-control" id="rFim" value="{{ hoje }}"></div>
+      <div class="col-md-3"><label class="form-label" for="rVeiculo">Veículo</label>
+        <select class="form-select" id="rVeiculo"><option value="">Todos</option></select></div>
+      <div class="col-md-3"><label class="form-label" for="rMotorista">Motorista</label>
+        <select class="form-select" id="rMotorista"><option value="">Todos</option></select></div>
+      <div class="col-md-2"><label class="form-label" for="rFornecedor">Oficina / posto</label>
+        <select class="form-select" id="rFornecedor"><option value="">Todos</option></select></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3" id="cartoesRelatorios"></div>
+
+<div class="cartao mt-3">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-database me-2" style="color:var(--petroleo)"></i>Cópia de segurança</h3></div>
+  <div class="cartao-corpo">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div style="max-width:60ch">Baixa todos os dados do sistema em um arquivo JSON.
+        Guarde antes de qualquer alteração grande — é o seu ponto de retorno.</div>
+      <a class="btn btn-primario" href="/relatorios/backup.json">
+        <i class="fa-solid fa-download me-1"></i> Baixar backup</a>
+    </div>
+
+    {% if session.perfil == 'admin' %}
+    <hr class="my-4">
+    <div class="faixa-sinalizacao mb-3" style="border-radius:3px"></div>
+    <h3 style="font-size:15px">Restaurar um backup</h3>
+    <p class="mt-2" style="font-size:13px;color:var(--texto-suave);max-width:70ch">
+      Recarrega veículos, motoristas, oficinas, ordens de serviço, abastecimentos, pneus,
+      peças e metas a partir de um arquivo baixado aqui. Os dados atuais desses módulos
+      são substituídos. Usuários e senhas não são alterados.
+    </p>
+    <div class="d-flex align-items-end gap-2 flex-wrap">
+      <div>
+        <label class="form-label" for="arquivoBackup">Arquivo de backup (.json)</label>
+        <input type="file" class="form-control" id="arquivoBackup" accept=".json,application/json" style="max-width:340px">
+      </div>
+      <button class="btn btn-contorno" id="botaoRestaurar" style="border-color:var(--alerta);color:var(--alerta)">
+        <i class="fa-solid fa-rotate-left me-1"></i> Restaurar dados
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RELATORIOS = [
+  { id: 'abastecimentos', nome: 'Abastecimentos', icone: 'fa-gas-pump',
+    texto: 'Cada abastecimento com km rodados, km/L e custo por km.' },
+  { id: 'manutencoes', nome: 'Ordens de serviço', icone: 'fa-screwdriver-wrench',
+    texto: 'OS do período com tipo, status, dias parado e custos abertos.' },
+  { id: 'custos', nome: 'Custos por veículo', icone: 'fa-sack-dollar',
+    texto: 'Consolidado de combustível, manutenção e custo por km.' },
+  { id: 'veiculos', nome: 'Frota cadastrada', icone: 'fa-truck-front',
+    texto: 'Situação, hodômetro e próxima troca de óleo de cada veículo.' },
+  { id: 'pneus', nome: 'Controle de pneus', icone: 'fa-circle-dot',
+    texto: 'Posição, sulco, vida e quais pneus precisam de troca.' },
+  { id: 'estoque', nome: 'Posição de estoque', icone: 'fa-boxes-stacked',
+    texto: 'Saldo, custo médio e itens abaixo do estoque mínimo.' },
+  { id: 'movimentos', nome: 'Movimentação de estoque', icone: 'fa-right-left',
+    texto: 'Entradas, saídas e ajustes registrados no período.' }
+];
+
+function parametros() {
+  const p = new URLSearchParams({
+    inicio: document.getElementById('rInicio').value,
+    fim: document.getElementById('rFim').value
+  });
+  ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id'].forEach(par => {
+    const [campo, chave] = par.split(':');
+    const v = document.getElementById(campo).value;
+    if (v) p.set(chave, v);
+  });
+  return p.toString();
+}
+
+function baixar(relatorio, formato) {
+  window.location = `/relatorios/${relatorio}.${formato}?${parametros()}`;
+}
+
+document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
+  <div class="col-lg-4 col-md-6">
+    <div class="cartao h-100">
+      <div class="cartao-corpo">
+        <h3 style="font-size:16px"><i class="fa-solid ${r.icone} me-2" style="color:var(--petroleo)"></i>${r.nome}</h3>
+        <p class="mt-2 mb-3" style="font-size:13px;color:var(--texto-suave)">${r.texto}</p>
+        <div class="d-flex gap-2">
+          <button class="btn btn-primario btn-sm" onclick="baixar('${r.id}','pdf')">
+            <i class="fa-solid fa-file-pdf me-1"></i> PDF</button>
+          <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','xlsx')">
+            <i class="fa-solid fa-file-excel me-1"></i> Excel</button>
+          <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
+            <i class="fa-solid fa-file-csv me-1"></i> CSV</button>
+        </div>
+      </div>
+    </div>
+  </div>`).join('');
+
+const botaoRestaurar = document.getElementById('botaoRestaurar');
+if (botaoRestaurar) {
+  botaoRestaurar.onclick = async () => {
+    const campo = document.getElementById('arquivoBackup');
+    if (!campo.files.length) return SGMF.aviso('Selecione o arquivo de backup primeiro.');
+
+    const confirmacao = await Swal.fire({
+      title: 'Restaurar o backup?',
+      html: `Os lançamentos atuais de veículos, ordens de serviço, abastecimentos, pneus,
+             peças e metas serão <strong>substituídos</strong> pelos do arquivo.<br><br>
+             Digite <strong>RESTAURAR</strong> para confirmar.`,
+      icon: 'warning', input: 'text', inputPlaceholder: 'RESTAURAR',
+      showCancelButton: true, confirmButtonText: 'Restaurar', cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#C4451D', cancelButtonColor: '#5F7080', reverseButtons: true,
+      inputValidator: (v) => v !== 'RESTAURAR' ? 'Digite RESTAURAR para continuar.' : undefined
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    const corpo = new FormData();
+    corpo.append('arquivo', campo.files[0]);
+    botaoRestaurar.disabled = true;
+    botaoRestaurar.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Restaurando…';
+    try {
+      const resposta = await fetch('/relatorios/restaurar', { method: 'POST', body: corpo,
+                                                             credentials: 'same-origin' });
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível restaurar.');
+      const r = dados.resumo;
+      Swal.fire({
+        icon: 'success', title: 'Backup restaurado',
+        html: `${r.veiculos || 0} veículos · ${r.ordens || 0} ordens de serviço ·
+               ${r.abastecimentos || 0} abastecimentos · ${r.pecas || 0} peças ·
+               ${r.pneus || 0} pneus.`,
+        confirmButtonColor: '#0F3D56'
+      });
+      campo.value = '';
+    } catch (e) {
+      SGMF.falha(e.message);
+    } finally {
+      botaoRestaurar.disabled = false;
+      botaoRestaurar.innerHTML = '<i class="fa-solid fa-rotate-left me-1"></i> Restaurar dados';
+    }
+  };
+}
+
+(async () => {
+  const preencher = async (id, recurso) => {
+    const lista = await SGMF.opcoes(recurso);
+    document.getElementById(id).innerHTML = '<option value="">Todos</option>' +
+      lista.map(o => `<option value="${o.valor}">${SGMF.esc(o.texto)}</option>`).join('');
+  };
+  await Promise.all([
+    preencher('rVeiculo', 'veiculos'),
+    preencher('rMotorista', 'motoristas'),
+    preencher('rFornecedor', 'fornecedores')
+  ]);
+})();
+</script>
+{% endblock %}
