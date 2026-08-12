@@ -1,0 +1,27 @@
+ATUALIZAÇÃO DO LANÇAMENTO DE NOTA FISCAL
+
+Esta atualização adiciona seleção pesquisável de peças já cadastradas e dados fiscais por item da nota.
+
+O cadastro de peça agora permite informar NCM, CFOP de entrada, CST ICMS, CST PIS, CST COFINS, CST IBS e CBS e classificação tributária.
+
+Ao selecionar uma peça existente na nota, esses dados são usados como sugestão e podem ser alterados somente naquele item.
+
+Cada item da nota possui base, alíquota e valor de ICMS, PIS e COFINS. Também foram preparados os campos de IBS e CBS.
+
+Os valores dos tributos ficam separados do valor dos produtos. O sistema não soma todos os tributos ao valor dos produtos porque a composição do total fiscal depende da operação e do documento recebido.
+
+A nota aberta permite editar e remover itens. Depois da finalização, o estoque é atualizado e os itens ficam travados.
+
+IMPORTANTE PARA NÃO PERDER DADOS
+
+Se você já possui um banco com peças, fornecedores, notas ou outros cadastros, não substitua seu banco de produção pelo arquivo database/sgmf.db do pacote completo.
+
+Para atualizar uma instalação existente, use o pacote de atualização sem banco e preserve seu banco atual.
+
+Depois de substituir os arquivos da aplicação, aplique a migração com o comando abaixo:
+
+flask db upgrade
+
+No projeto configurado para Render, a configuração já executa a migração antes de iniciar a aplicação.
+
+Faça uma cópia de segurança do banco antes de qualquer atualização em produção.
