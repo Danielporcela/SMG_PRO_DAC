@@ -6,7 +6,8 @@ from sqlalchemy import text
 from services.tempo import hoje
 
 from extensions import db
-from models import Abastecimento, ItemOS, MovimentoEstoque, OrdemServico, Peca, Veiculo
+from models import (Abastecimento, ItemNotaFiscal, ItemOS, MovimentoEstoque, NotaFiscal,
+                    OrdemServico, Peca, Pneu, Veiculo)
 from services.crud import ErroNegocio
 
 
@@ -115,6 +116,50 @@ def baixar_item_os(item: ItemOS):
         item.baixado_estoque = True
 
 
+def marcar_pneu_substituido(item: ItemOS):
+    """Quando um item de pneu é aplicado numa posição da OS, o pneu que
+    estava 'Em uso' naquela posição do veículo sai de circulação.
+
+    Sem isso, o cadastro de Pneus (Módulo 7) — de onde vem o alerta de
+    sulco baixo — nunca fica sabendo que a troca aconteceu: a OS e o
+    cadastro de Pneus são registros separados, e trocar o pneu só pela OS
+    não atualiza o pneu antigo. O alerta continuava ativo mesmo depois do
+    serviço feito.
+    """
+    if not item.posicao_pneu:
+        return
+    ordem = db.session.get(OrdemServico, item.ordem_servico_id)
+    if not ordem or not ordem.veiculo_id:
+        return
+    antigo = (Pneu.query
+              .filter(Pneu.veiculo_id == ordem.veiculo_id,
+                      Pneu.posicao == item.posicao_pneu,
+                      Pneu.status == "Em uso")
+              .first())
+    if antigo:
+        antigo.status = "Descartado"
+        item.pneu_substituido_id = antigo.id
+
+
+def reverter_pneu_substituido(item: ItemOS):
+    """Desfaz o que marcar_pneu_substituido fez, quando o item de troca é
+
+    removido da OS antes de qualquer outra coisa acontecer com o pneu: o
+    pneu antigo volta a "Em uso" na posição, e o alerta de sulco baixo
+    volta a aparecer se ele ainda estiver com sulco insuficiente.
+
+    Só reverte se o pneu ainda estiver "Descartado" — se alguém já mexeu
+    manualmente no cadastro dele (por exemplo, deu baixa definitiva), essa
+    reversão automática não pisa em cima da decisão manual.
+    """
+    if not item.pneu_substituido_id:
+        return
+    pneu = db.session.get(Pneu, item.pneu_substituido_id)
+    if pneu and pneu.status == "Descartado":
+        pneu.status = "Em uso"
+    item.pneu_substituido_id = None
+
+
 def desvincular_movimentos(os_id):
     """Solta o histórico de estoque antes de apagar a OS.
 
@@ -134,6 +179,55 @@ def devolver_item_os(item: ItemOS):
                            item.valor_unitario, os_id=item.ordem_servico_id,
                            observacao="Devolvida da OS")
         item.baixado_estoque = False
+
+
+# ---------------------------------------------------- notas fiscais de entrada
+def _documento_nf(nota: NotaFiscal):
+    return f"NF {nota.numero}" + (f"/{nota.serie}" if nota.serie else "")
+
+
+def finalizar_nota_fiscal(nota: NotaFiscal):
+    """Dá entrada no estoque de cada item lançado e trava a nota.
+
+    A consulta dos itens é feita diretamente no banco antes da validação.
+    Isso evita que uma coleção de relacionamento carregada anteriormente
+    como vazia faça o sistema ignorar itens que já foram persistidos.
+    """
+    if nota.status != "Aberta":
+        raise ErroNegocio("Esta nota já foi finalizada ou está cancelada.")
+
+    db.session.flush()
+    itens = (ItemNotaFiscal.query
+             .filter_by(nota_fiscal_id=nota.id)
+             .order_by(ItemNotaFiscal.id)
+             .all())
+    if not itens:
+        raise ErroNegocio("Lance ao menos um item antes de finalizar a nota.")
+
+    for item in itens:
+        movimentar_estoque(item.peca_id, "entrada", item.quantidade, item.valor_unitario,
+                           documento=_documento_nf(nota),
+                           observacao=f"Entrada pela nota fiscal {nota.numero}")
+        item.baixado_estoque = True
+    nota.status = "Finalizada"
+    nota.data_entrada = hoje()
+
+
+def estornar_nota_fiscal(nota: NotaFiscal):
+    """Reverte uma nota finalizada: tira do estoque o que ela havia dado entrada."""
+    if nota.status != "Finalizada":
+        raise ErroNegocio("Só é possível estornar uma nota finalizada.")
+    itens = (ItemNotaFiscal.query
+             .filter_by(nota_fiscal_id=nota.id)
+             .order_by(ItemNotaFiscal.id)
+             .all())
+    for item in itens:
+        if item.baixado_estoque:
+            movimentar_estoque(item.peca_id, "saida", item.quantidade, item.valor_unitario,
+                               documento=f"Estorno {_documento_nf(nota)}",
+                               observacao=f"Estorno da nota fiscal {nota.numero}")
+            item.baixado_estoque = False
+    nota.status = "Cancelada"
 
 
 # ------------------------------------------------------------- manutenção
@@ -173,9 +267,15 @@ def sincronizar_status_veiculo(os_obj: OrdemServico):
             os_obj.data_fechamento = hoje()
         if os_obj.tipo == "Preventiva":
             veiculo.data_ultima_preventiva = os_obj.data_fechamento
-        if os_obj.grupo == "Motor" and os_obj.km_veiculo:
-            # troca de óleo costuma ser lançada no grupo Motor
+        if os_obj.km_veiculo:
+            # Identifica troca de óleo pela descrição da OS OU pelas peças
+            # aplicadas (ex.: "Óleo motor 15W40"). Antes exigia também que o
+            # campo "Grupo" estivesse marcado como "Motor" — como esse campo
+            # não é obrigatório no formulário, muitas OS de troca de óleo
+            # ficavam sem marcar o grupo e o alerta nunca era limpo, mesmo
+            # com o serviço já feito.
             textos = f"{os_obj.descricao or ''}".lower()
+            textos += " " + " ".join((i.descricao or "") for i in os_obj.itens).lower()
             if "óleo" in textos or "oleo" in textos:
                 veiculo.km_ultima_troca_oleo = os_obj.km_veiculo
         if os_obj.km_veiculo and os_obj.km_veiculo > (veiculo.hodometro or 0):

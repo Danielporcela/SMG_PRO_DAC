@@ -306,6 +306,13 @@ class Peca(db.Model):
     custo_unitario = db.Column(db.Float, default=0)
     localizacao = db.Column(db.String(40))
     fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
+    ncm = db.Column(db.String(8))
+    cfop_entrada = db.Column(db.String(4))
+    cst_icms = db.Column(db.String(3))
+    cst_pis = db.Column(db.String(2))
+    cst_cofins = db.Column(db.String(2))
+    cst_ibs_cbs = db.Column(db.String(3))
+    classificacao_tributaria = db.Column(db.String(6))
     fornecedor = db.relationship("Fornecedor")
 
     def to_dict(self):
@@ -315,6 +322,10 @@ class Peca(db.Model):
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "localizacao": self.localizacao, "fornecedor_id": self.fornecedor_id,
                 "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
+                "ncm": self.ncm, "cfop_entrada": self.cfop_entrada,
+                "cst_icms": self.cst_icms, "cst_pis": self.cst_pis,
+                "cst_cofins": self.cst_cofins, "cst_ibs_cbs": self.cst_ibs_cbs,
+                "classificacao_tributaria": self.classificacao_tributaria,
                 "abaixo_minimo": (self.quantidade or 0) <= (self.estoque_minimo or 0),
                 "identificacao": f"{self.codigo} · {self.descricao}"}
 
@@ -341,6 +352,122 @@ class MovimentoEstoque(db.Model):
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "documento": self.documento, "ordem_servico_id": self.ordem_servico_id,
                 "observacao": self.observacao}
+
+
+class NotaFiscal(db.Model):
+    """Módulo 11 — lançamento de notas fiscais de entrada de peças.
+
+    A nota nasce em status 'Aberta': dá para lançar e remover itens à
+    vontade, sem afetar o estoque. Só ao finalizar (ação explícita) é que
+    cada item vira uma entrada em MovimentoEstoque e o saldo da peça sobe —
+    do jeito que acontece na prática, quando a nota chega e é conferida no
+    almoxarifado antes de dar entrada.
+    """
+    __tablename__ = "notas_fiscais"
+    id = db.Column(db.Integer, primary_key=True)
+    numero = db.Column(db.String(30), nullable=False, index=True)
+    serie = db.Column(db.String(10))
+    data_emissao = db.Column(db.Date, default=_hoje)
+    data_entrada = db.Column(db.Date)      # preenchida ao finalizar
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"), nullable=False)
+    status = db.Column(db.String(20), default="Aberta")  # Aberta | Finalizada | Cancelada
+    observacao = db.Column(db.String(200))
+    fornecedor = db.relationship("Fornecedor")
+    itens = db.relationship("ItemNotaFiscal", backref="nota", cascade="all, delete-orphan",
+                            lazy="selectin")
+
+    @property
+    def valor_total(self):
+        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0) for i in self.itens), 2)
+
+    def _total_fiscal(self, campo):
+        return round(sum(getattr(i, campo, 0) or 0 for i in self.itens), 2)
+
+    def to_dict(self, com_itens=False):
+        valor_icms = self._total_fiscal("valor_icms")
+        valor_pis = self._total_fiscal("valor_pis")
+        valor_cofins = self._total_fiscal("valor_cofins")
+        valor_ibs = self._total_fiscal("valor_ibs")
+        valor_cbs = self._total_fiscal("valor_cbs")
+        d = {
+            "id": self.id, "numero": self.numero, "serie": self.serie,
+            "data_emissao": self.data_emissao.isoformat() if self.data_emissao else None,
+            "data_entrada": self.data_entrada.isoformat() if self.data_entrada else None,
+            "fornecedor_id": self.fornecedor_id,
+            "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
+            "status": self.status, "observacao": self.observacao,
+            "valor_total": self.valor_total, "qtd_itens": len(self.itens),
+            "valor_icms": valor_icms, "valor_pis": valor_pis, "valor_cofins": valor_cofins,
+            "valor_ibs": valor_ibs, "valor_cbs": valor_cbs,
+            "valor_tributos": round(valor_icms + valor_pis + valor_cofins + valor_ibs + valor_cbs, 2),
+            "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else ""),
+        }
+        if com_itens:
+            d["itens"] = [i.to_dict() for i in self.itens]
+        return d
+
+
+class ItemNotaFiscal(db.Model):
+    __tablename__ = "itens_nota_fiscal"
+    id = db.Column(db.Integer, primary_key=True)
+    nota_fiscal_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais.id"), nullable=False)
+    peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False)
+    descricao = db.Column(db.String(160))
+    quantidade = db.Column(db.Float, default=1)
+    valor_unitario = db.Column(db.Float, default=0)
+    ncm = db.Column(db.String(8))
+    cfop = db.Column(db.String(4))
+    cst_icms = db.Column(db.String(3))
+    base_icms = db.Column(db.Float)
+    aliquota_icms = db.Column(db.Float)
+    valor_icms = db.Column(db.Float)
+    cst_pis = db.Column(db.String(2))
+    base_pis = db.Column(db.Float)
+    aliquota_pis = db.Column(db.Float)
+    valor_pis = db.Column(db.Float)
+    cst_cofins = db.Column(db.String(2))
+    base_cofins = db.Column(db.Float)
+    aliquota_cofins = db.Column(db.Float)
+    valor_cofins = db.Column(db.Float)
+    cst_ibs_cbs = db.Column(db.String(3))
+    classificacao_tributaria = db.Column(db.String(6))
+    base_ibs_cbs = db.Column(db.Float)
+    aliquota_ibs = db.Column(db.Float)
+    valor_ibs = db.Column(db.Float)
+    aliquota_cbs = db.Column(db.Float)
+    valor_cbs = db.Column(db.Float)
+    baixado_estoque = db.Column(db.Boolean, default=False)
+    peca = db.relationship("Peca")
+
+    @property
+    def subtotal(self):
+        return round((self.quantidade or 0) * (self.valor_unitario or 0), 2)
+
+    @property
+    def valor_tributos(self):
+        return round(sum((v or 0) for v in (self.valor_icms, self.valor_pis, self.valor_cofins,
+                                             self.valor_ibs, self.valor_cbs)), 2)
+
+    def to_dict(self):
+        return {"id": self.id, "nota_fiscal_id": self.nota_fiscal_id,
+                "peca_id": self.peca_id,
+                "peca_descricao": f"{self.peca.codigo} · {self.peca.descricao}" if self.peca else None,
+                "descricao": self.descricao, "quantidade": self.quantidade,
+                "valor_unitario": self.valor_unitario, "valor_total": self.subtotal,
+                "ncm": self.ncm, "cfop": self.cfop,
+                "cst_icms": self.cst_icms, "base_icms": self.base_icms or 0,
+                "aliquota_icms": self.aliquota_icms or 0, "valor_icms": self.valor_icms or 0,
+                "cst_pis": self.cst_pis, "base_pis": self.base_pis or 0,
+                "aliquota_pis": self.aliquota_pis or 0, "valor_pis": self.valor_pis or 0,
+                "cst_cofins": self.cst_cofins, "base_cofins": self.base_cofins or 0,
+                "aliquota_cofins": self.aliquota_cofins or 0, "valor_cofins": self.valor_cofins or 0,
+                "cst_ibs_cbs": self.cst_ibs_cbs,
+                "classificacao_tributaria": self.classificacao_tributaria,
+                "base_ibs_cbs": self.base_ibs_cbs or 0,
+                "aliquota_ibs": self.aliquota_ibs or 0, "valor_ibs": self.valor_ibs or 0,
+                "aliquota_cbs": self.aliquota_cbs or 0, "valor_cbs": self.valor_cbs or 0,
+                "valor_tributos": self.valor_tributos,
+                "baixado_estoque": self.baixado_estoque}
 
 
 class OrdemServico(db.Model):
@@ -416,6 +543,13 @@ class ItemOS(db.Model):
     quantidade = db.Column(db.Float, default=1)
     valor_unitario = db.Column(db.Float, default=0)
     baixado_estoque = db.Column(db.Boolean, default=False)
+    # Posição no caminhão em que o pneu foi instalado nesta OS
+    # (Dianteiro Direito, Traseiro Esquerdo Interno...) — ver SGMF.POSICOES.
+    posicao_pneu = db.Column(db.String(40))
+    # Pneu (Módulo 7) que estava "Em uso" naquela posição e foi marcado como
+    # "Descartado" quando este item foi lançado. Guardamos a referência para
+    # poder devolver o pneu a "Em uso" se este item for removido da OS.
+    pneu_substituido_id = db.Column(db.Integer, db.ForeignKey("pneus.id"))
     peca = db.relationship("Peca")
 
     def to_dict(self):
@@ -423,7 +557,9 @@ class ItemOS(db.Model):
                 "peca_id": self.peca_id, "descricao": self.descricao, "grupo": self.grupo,
                 "quantidade": self.quantidade, "valor_unitario": self.valor_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.valor_unitario or 0), 2),
-                "baixado_estoque": self.baixado_estoque}
+                "baixado_estoque": self.baixado_estoque,
+                "posicao_pneu": self.posicao_pneu,
+                "pneu_substituido_id": self.pneu_substituido_id}
 
 
 class Abastecimento(db.Model):

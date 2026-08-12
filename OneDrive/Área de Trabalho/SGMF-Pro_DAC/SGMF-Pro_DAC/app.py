@@ -155,5 +155,13 @@ app = criar_app()
 
 
 if __name__ == "__main__":
+    with app.app_context():
+        try:
+            from flask_migrate import upgrade
+            upgrade()
+        except (Exception, SystemExit) as e:
+            db.session.rollback()
+            print(f"[SGMF] Falha ao atualizar a estrutura do banco: {e}")
+
     porta = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=porta, debug=os.environ.get("FLASK_ENV") != "production")

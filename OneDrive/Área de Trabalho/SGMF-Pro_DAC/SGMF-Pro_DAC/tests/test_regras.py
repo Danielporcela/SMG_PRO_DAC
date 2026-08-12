@@ -243,3 +243,37 @@ def test_km_rodados_do_pneu(logado, base):
 def test_numero_de_fogo_duplicado(logado):
     logado.post("/api/pneus", json={"numero_fogo": "P010", "sulco_mm": 8})
     assert logado.post("/api/pneus", json={"numero_fogo": "P010"}).status_code == 400
+
+
+def test_trocar_pneu_pela_os_descarta_o_antigo_e_some_o_alerta(logado, base):
+    vid = base["veiculo"]["id"]
+    antigo = logado.post("/api/pneus", json={
+        "numero_fogo": "P900", "sulco_mm": 2.0, "veiculo_id": vid,
+        "posicao": "Dianteiro Direito", "status": "Em uso"}).get_json()
+
+    alertas_antes = [a for a in logado.get("/api/painel/alertas").get_json()
+                     if a["categoria"] == "Pneus"]
+    assert any("P900" in a["titulo"] for a in alertas_antes)
+
+    ordem = logado.post("/api/ordens", json={"veiculo_id": vid}).get_json()
+    item = logado.post(f"/api/ordens/{ordem['id']}/itens", json={
+        "descricao": "Pneu novo", "grupo": "Pneus", "quantidade": 1,
+        "valor_unitario": 1500, "posicao_pneu": "Dianteiro Direito"}).get_json()["itens"][-1]
+
+    antigo_depois = logado.get(f"/api/pneus/{antigo['id']}").get_json()
+    assert antigo_depois["status"] == "Descartado"
+    assert item["pneu_substituido_id"] == antigo["id"]
+
+    alertas_depois = [a for a in logado.get("/api/painel/alertas").get_json()
+                      if a["categoria"] == "Pneus"]
+    assert not any("P900" in a["titulo"] for a in alertas_depois), \
+        "o pneu descartado não deve mais gerar alerta"
+
+    # removendo o item de troca, o pneu antigo volta a "Em uso" e o alerta reaparece
+    logado.delete(f"/api/ordens/{ordem['id']}/itens/{item['id']}")
+    antigo_revertido = logado.get(f"/api/pneus/{antigo['id']}").get_json()
+    assert antigo_revertido["status"] == "Em uso"
+
+    alertas_revertidos = [a for a in logado.get("/api/painel/alertas").get_json()
+                          if a["categoria"] == "Pneus"]
+    assert any("P900" in a["titulo"] for a in alertas_revertidos)

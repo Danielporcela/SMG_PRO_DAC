@@ -65,8 +65,13 @@ const SGMF = (() => {
     minimumFractionDigits: casas, maximumFractionDigits: casas
   });
   const data = (v) => v ? new Date(v + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
-  const hoje = () => new Date().toISOString().slice(0, 10);
-  const primeiroDiaMes = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); };
+  /* Usa a data local do navegador (fuso do usuário), nunca UTC: toISOString()
+     converte para UTC e, à noite no Brasil, devolvia o dia seguinte —
+     fazendo o registro nascer com data "no futuro" e sumir da listagem,
+     que é filtrada pela data de hoje calculada no servidor (fuso correto). */
+  const paraISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hoje = () => paraISO(new Date());
+  const primeiroDiaMes = () => { const d = new Date(); d.setDate(1); return paraISO(d); };
 
   const etiqueta = (texto, cor) => `<span class="etiqueta ${esc(cor)}">${esc(texto)}</span>`;
 

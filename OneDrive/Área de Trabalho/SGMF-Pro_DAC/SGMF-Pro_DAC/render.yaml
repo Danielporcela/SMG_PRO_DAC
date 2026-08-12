@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 120
+    startCommand: flask db upgrade && gunicorn app:app --workers 2 --threads 4 --timeout 120
     # Aplica as mudanças de estrutura do banco antes de publicar a nova versão.
     # (Se o seu plano não tiver pre-deploy, rode "flask db upgrade" no Shell do Render.)
     preDeployCommand: flask db upgrade

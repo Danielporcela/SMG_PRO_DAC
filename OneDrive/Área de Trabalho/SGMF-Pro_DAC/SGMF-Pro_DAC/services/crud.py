@@ -8,6 +8,7 @@ from datetime import date, datetime
 from functools import wraps
 
 from flask import jsonify, request, session
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from extensions import db
 from models import PESO_NIVEL, LogAuditoria
@@ -200,10 +201,15 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
         except (ValueError, ErroNegocio) as e:
             db.session.rollback()
             return jsonify({"erro": str(e)}), 400
-        except Exception as e:  # violação de unicidade, FK inexistente etc.
+        except IntegrityError:
             db.session.rollback()
-            return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}. "
-                                    "Verifique códigos duplicados e campos obrigatórios."}), 400
+            return jsonify({"erro": "Não foi possível salvar. Verifique valores duplicados, referências e campos obrigatórios."}), 400
+        except OperationalError:
+            db.session.rollback()
+            return jsonify({"erro": "A estrutura do banco está desatualizada ou indisponível. Aplique as migrações do banco e tente novamente."}), 500
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}."}), 400
         return jsonify(ser(obj)), 201
 
     @bp.put(f"/{nome}/<int:registro_id>", endpoint=f"{nome}_editar")

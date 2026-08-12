@@ -47,8 +47,17 @@
             </button>
           </div>
         </div>
+        <div class="row g-2 align-items-end mb-3" id="linhaPosicaoPneu" style="display:none">
+          <div class="col-md-4">
+            <label class="form-label" for="itemPosicaoPneu">Posição do pneu no caminhão</label>
+            <select class="form-select form-select-sm" id="itemPosicaoPneu">
+              <option value="">— selecione a posição —</option>
+            </select>
+          </div>
+        </div>
         <p class="form-text mt-0">Peças do estoque saem do saldo automaticamente ao serem adicionadas
-          e voltam se o item for removido.</p>
+          e voltam se o item for removido. Para itens do grupo <strong>Pneus</strong>, informe a posição
+          para identificar em qual roda do caminhão o pneu foi instalado.</p>
         <div id="listaItens"></div>
       </div>
       <div class="modal-footer justify-content-between">
@@ -134,12 +143,30 @@ SGMF.get('/api/pecas').then(lista => {
     lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
 });
 
+document.getElementById('itemPosicaoPneu').innerHTML += SGMF.POSICOES
+  .map(p => `<option value="${p}">${p}</option>`).join('');
+
+function alternarPosicaoPneu(grupo) {
+  const linha = document.getElementById('linhaPosicaoPneu');
+  const mostrar = grupo === 'Pneus';
+  linha.style.display = mostrar ? '' : 'none';
+  if (!mostrar) document.getElementById('itemPosicaoPneu').value = '';
+}
+
 document.getElementById('itemPeca').addEventListener('change', (e) => {
   const peca = pecasDisponiveis.find(p => p.id == e.target.value);
   if (peca) {
     document.getElementById('itemDescricao').value = peca.descricao;
     document.getElementById('itemValor').value = peca.custo_unitario || '';
   }
+  alternarPosicaoPneu(peca ? peca.grupo : '');
+});
+
+// serviço avulso (sem peça do estoque) também pode ser um pneu: se o texto
+// digitado mencionar "pneu", mostra a posição mesmo sem grupo cadastrado.
+document.getElementById('itemDescricao').addEventListener('input', (e) => {
+  if (document.getElementById('itemPeca').value) return;  // grupo já vem da peça
+  alternarPosicaoPneu(/pneu/i.test(e.target.value) ? 'Pneus' : '');
 });
 
 async function abrirPecas(os) {
@@ -147,6 +174,7 @@ async function abrirPecas(os) {
   document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
   document.getElementById('pecasSubtitulo').textContent =
     `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+  alternarPosicaoPneu('');
   await recarregarItens(os.id);
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
@@ -159,11 +187,12 @@ async function recarregarItens(osId) {
       <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
   } else {
     area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
-      <thead><tr><th>Item</th><th>Grupo</th><th class="text-end">Qtde</th>
+      <thead><tr><th>Item</th><th>Grupo</th><th>Posição do pneu</th><th class="text-end">Qtde</th>
       <th class="text-end">Valor unit.</th><th class="text-end">Total</th><th>Estoque</th><th></th></tr></thead>
       <tbody>${os.itens.map(i => `<tr>
         <td>${SGMF.esc(i.descricao)}</td>
         <td>${SGMF.esc(i.grupo) || '—'}</td>
+        <td>${SGMF.esc(i.posicao_pneu) || '—'}</td>
         <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
         <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
         <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
@@ -192,16 +221,20 @@ async function recarregarItens(osId) {
 document.getElementById('itemAdicionar').onclick = async () => {
   const osId = document.getElementById('pecasOsId').value;
   try {
+    const posicaoPneu = document.getElementById('itemPosicaoPneu').value || null;
     await SGMF.post(`/api/ordens/${osId}/itens`, {
       peca_id: Number(document.getElementById('itemPeca').value) || null,
       descricao: document.getElementById('itemDescricao').value,
+      grupo: posicaoPneu ? 'Pneus' : null,
       quantidade: Number(document.getElementById('itemQtd').value) || 1,
-      valor_unitario: Number(document.getElementById('itemValor').value) || 0
+      valor_unitario: Number(document.getElementById('itemValor').value) || 0,
+      posicao_pneu: posicaoPneu
     });
     document.getElementById('itemPeca').value = '';
     document.getElementById('itemDescricao').value = '';
     document.getElementById('itemQtd').value = 1;
     document.getElementById('itemValor').value = '';
+    alternarPosicaoPneu('');
     SGMF.sucesso('Item adicionado');
     SGMF.limparCache('pecas');
     pecasDisponiveis = await SGMF.get('/api/pecas');

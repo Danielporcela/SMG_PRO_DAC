@@ -2,14 +2,18 @@
 from datetime import date
 
 from flask import Blueprint, current_app, jsonify, request
+from sqlalchemy import func
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, ItemOS, LogAuditoria, Motorista,
-                    MovimentoEstoque, Orcamento, OrdemServico, Peca, Pneu, Veiculo)
+from models import (Abastecimento, Fornecedor, ItemNotaFiscal, ItemOS, LogAuditoria,
+                    Motorista, MovimentoEstoque, NotaFiscal, Orcamento, OrdemServico, Peca,
+                    Pneu, Veiculo)
 from services import indicadores
 from services.calculos import (baixar_item_os, desvincular_movimentos, devolver_item_os,
-                               movimentar_estoque, proximo_numero_os,
-                               recalcular_abastecimento, sincronizar_status_veiculo,
+                               estornar_nota_fiscal, finalizar_nota_fiscal,
+                               marcar_pneu_substituido, movimentar_estoque,
+                               proximo_numero_os, recalcular_abastecimento,
+                               reverter_pneu_substituido, sincronizar_status_veiculo,
                                validar_km)
 from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_crud,
@@ -75,6 +79,7 @@ def _depois_os(obj, dados, anterior):
 def _antes_excluir_os(obj):
     for item in obj.itens:
         devolver_item_os(item)
+        reverter_pneu_substituido(item)  # pneu antigo volta a "Em uso"
     desvincular_movimentos(obj.id)
 
 
@@ -105,7 +110,8 @@ def adicionar_item(os_id):
     item = ItemOS(ordem_servico_id=ordem.id)
     try:
         aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
-                                     "quantidade": "float", "valor_unitario": "float"})
+                                     "quantidade": "float", "valor_unitario": "float",
+                                     "posicao_pneu": "str"})
         if item.peca_id:
             peca = db.session.get(Peca, item.peca_id)
             if not peca:
@@ -119,6 +125,7 @@ def adicionar_item(os_id):
         db.session.add(item)
         db.session.flush()
         baixar_item_os(item)          # dá baixa no estoque na hora
+        marcar_pneu_substituido(item)  # tira o pneu antigo daquela posição de "Em uso"
         registrar_log("criar", "itens_os", item.id, f"OS {ordem.numero}")
         db.session.commit()
     except (ErroNegocio, ValueError) as e:
@@ -133,7 +140,8 @@ def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
     try:
-        devolver_item_os(item)        # devolve ao estoque
+        devolver_item_os(item)          # devolve ao estoque
+        reverter_pneu_substituido(item)  # pneu antigo volta a "Em uso"
         db.session.delete(item)
         db.session.commit()
     except ErroNegocio as e:
@@ -175,6 +183,19 @@ registrar_crud(
 
 
 # -------------------------------------------------------- Módulo 11: estoque
+def _antes_peca(obj, dados, anterior):
+    obj.codigo = (obj.codigo or "").strip().upper()
+    if not obj.codigo:
+        raise ErroNegocio("Informe o código da peça.")
+
+    with db.session.no_autoflush:
+        existente = Peca.query.filter(func.upper(Peca.codigo) == obj.codigo.upper())
+        if obj.id:
+            existente = existente.filter(Peca.id != obj.id)
+        if existente.first():
+            raise ErroNegocio(f"Já existe uma peça cadastrada com o código {obj.codigo}.")
+
+
 def _depois_peca(obj, dados, anterior):
     """Saldo inicial vira um movimento de entrada — o estoque nunca muda sem histórico."""
     if anterior is None and dados.get("quantidade_inicial"):
@@ -187,9 +208,195 @@ registrar_crud(
     bp_api, "pecas", Peca,
     campos={"codigo": "str", "descricao": "str", "grupo": "str", "unidade": "str",
             "estoque_minimo": "float", "custo_unitario": "float", "localizacao": "str",
-            "fornecedor_id": "int"},
+            "fornecedor_id": "int", "ncm": "str", "cfop_entrada": "str",
+            "cst_icms": "str", "cst_pis": "str", "cst_cofins": "str",
+            "cst_ibs_cbs": "str", "classificacao_tributaria": "str"},
     ordem=Peca.descricao, obrigatorios=("codigo", "descricao"), tela="estoque",
-    depois_salvar=_depois_peca)
+    antes_salvar=_antes_peca, depois_salvar=_depois_peca)
+
+
+# --------------------------------------- Módulo 11: notas fiscais de entrada
+def _antes_salvar_nota(obj, dados, anterior):
+    if anterior is not None and anterior.get("status") != "Aberta":
+        raise ErroNegocio("Nota finalizada ou cancelada não pode ser editada.")
+
+
+def _antes_excluir_nota(obj):
+    if obj.status == "Finalizada":
+        raise ErroNegocio("Estorne a nota antes de excluí-la — ela já alterou o estoque.")
+
+
+registrar_crud(
+    bp_api, "notas-fiscais", NotaFiscal,
+    campos={"numero": "str", "serie": "str", "data_emissao": "date",
+            "fornecedor_id": "int", "observacao": "str"},
+    ordem=NotaFiscal.id.desc(), obrigatorios=("numero", "fornecedor_id"), tela="estoque",
+    antes_salvar=_antes_salvar_nota, antes_excluir=_antes_excluir_nota)
+
+
+CAMPOS_ITEM_NF = {
+    "peca_id": "int", "descricao": "str", "quantidade": "float", "valor_unitario": "float",
+    "ncm": "str", "cfop": "str",
+    "cst_icms": "str", "base_icms": "float", "aliquota_icms": "float", "valor_icms": "float",
+    "cst_pis": "str", "base_pis": "float", "aliquota_pis": "float", "valor_pis": "float",
+    "cst_cofins": "str", "base_cofins": "float", "aliquota_cofins": "float", "valor_cofins": "float",
+    "cst_ibs_cbs": "str", "classificacao_tributaria": "str",
+    "base_ibs_cbs": "float", "aliquota_ibs": "float", "valor_ibs": "float",
+    "aliquota_cbs": "float", "valor_cbs": "float",
+}
+
+
+def _calcular_tributo_item(item, campo_base, campo_aliquota, campo_valor):
+    base = getattr(item, campo_base)
+    aliquota = getattr(item, campo_aliquota)
+    valor = getattr(item, campo_valor)
+    subtotal = round((item.quantidade or 0) * (item.valor_unitario or 0), 2)
+
+    if base is None and aliquota is not None:
+        base = subtotal
+        setattr(item, campo_base, base)
+    if valor is None and base is not None and aliquota is not None:
+        setattr(item, campo_valor, round(base * aliquota / 100, 2))
+
+
+def _preparar_item_nf(item, peca):
+    item.descricao = item.descricao or peca.descricao
+    item.ncm = item.ncm or peca.ncm
+    item.cfop = item.cfop or peca.cfop_entrada
+    item.cst_icms = item.cst_icms or peca.cst_icms
+    item.cst_pis = item.cst_pis or peca.cst_pis
+    item.cst_cofins = item.cst_cofins or peca.cst_cofins
+    item.cst_ibs_cbs = item.cst_ibs_cbs or peca.cst_ibs_cbs
+    item.classificacao_tributaria = item.classificacao_tributaria or peca.classificacao_tributaria
+
+    if not item.quantidade or item.quantidade <= 0:
+        raise ErroNegocio("Informe uma quantidade maior que zero.")
+    if item.valor_unitario is None:
+        item.valor_unitario = peca.custo_unitario or 0
+
+    numericos = (
+        "valor_unitario", "base_icms", "aliquota_icms", "valor_icms",
+        "base_pis", "aliquota_pis", "valor_pis",
+        "base_cofins", "aliquota_cofins", "valor_cofins",
+        "base_ibs_cbs", "aliquota_ibs", "valor_ibs", "aliquota_cbs", "valor_cbs",
+    )
+    for campo in numericos:
+        valor = getattr(item, campo)
+        if valor is not None and valor < 0:
+            raise ErroNegocio(f"O campo {campo.replace('_', ' ')} não pode ser negativo.")
+
+    _calcular_tributo_item(item, "base_icms", "aliquota_icms", "valor_icms")
+    _calcular_tributo_item(item, "base_pis", "aliquota_pis", "valor_pis")
+    _calcular_tributo_item(item, "base_cofins", "aliquota_cofins", "valor_cofins")
+    _calcular_tributo_item(item, "base_ibs_cbs", "aliquota_ibs", "valor_ibs")
+    _calcular_tributo_item(item, "base_ibs_cbs", "aliquota_cbs", "valor_cbs")
+
+
+@bp_api.get("/notas-fiscais/<int:nota_id>/itens")
+@visualizar_tela("estoque")
+def listar_itens_nf(nota_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_api.post("/notas-fiscais/<int:nota_id>/itens")
+@editar_tela("estoque")
+def adicionar_item_nf(nota_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    dados = request.get_json(silent=True) or {}
+    item = ItemNotaFiscal(nota_fiscal_id=nota.id)
+    nota.itens.append(item)
+    try:
+        if nota.status != "Aberta":
+            raise ErroNegocio("Só é possível lançar itens em uma nota aberta.")
+        aplicar_campos(item, dados, CAMPOS_ITEM_NF)
+        if not item.peca_id:
+            raise ErroNegocio("Selecione a peça recebida.")
+        peca = db.session.get(Peca, item.peca_id)
+        if not peca:
+            raise ErroNegocio("Peça não encontrada.")
+        _preparar_item_nf(item, peca)
+        db.session.add(item)
+        db.session.flush()
+        registrar_log("criar", "itens_nota_fiscal", item.id, f"NF {nota.numero}")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(nota.to_dict(com_itens=True)), 201
+
+
+@bp_api.put("/notas-fiscais/<int:nota_id>/itens/<int:item_id>")
+@editar_tela("estoque")
+def editar_item_nf(nota_id, item_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    item = db.get_or_404(ItemNotaFiscal, item_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        if item.nota_fiscal_id != nota.id:
+            raise ErroNegocio("O item não pertence a esta nota fiscal.")
+        if nota.status != "Aberta":
+            raise ErroNegocio("Só é possível editar itens de uma nota aberta.")
+        aplicar_campos(item, dados, CAMPOS_ITEM_NF)
+        if not item.peca_id:
+            raise ErroNegocio("Selecione a peça recebida.")
+        peca = db.session.get(Peca, item.peca_id)
+        if not peca:
+            raise ErroNegocio("Peça não encontrada.")
+        _preparar_item_nf(item, peca)
+        registrar_log("editar", "itens_nota_fiscal", item.id, f"NF {nota.numero}")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_api.delete("/notas-fiscais/<int:nota_id>/itens/<int:item_id>")
+@editar_tela("estoque")
+def remover_item_nf(nota_id, item_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    item = db.get_or_404(ItemNotaFiscal, item_id)
+    try:
+        if item.nota_fiscal_id != nota.id:
+            raise ErroNegocio("O item não pertence a esta nota fiscal.")
+        if nota.status != "Aberta":
+            raise ErroNegocio("Só é possível remover itens de uma nota aberta.")
+        db.session.delete(item)
+        registrar_log("excluir", "itens_nota_fiscal", item_id, f"NF {nota.numero}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_api.post("/notas-fiscais/<int:nota_id>/finalizar")
+@editar_tela("estoque")
+def finalizar_nf(nota_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    try:
+        finalizar_nota_fiscal(nota)
+        registrar_log("editar", "notas_fiscais", nota.id, "Finalizada — estoque atualizado")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_api.post("/notas-fiscais/<int:nota_id>/estornar")
+@editar_tela("estoque")
+def estornar_nf(nota_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    try:
+        estornar_nota_fiscal(nota)
+        registrar_log("editar", "notas_fiscais", nota.id, "Estornada — estoque revertido")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(nota.to_dict(com_itens=True))
 
 
 @bp_api.get("/movimentos")
