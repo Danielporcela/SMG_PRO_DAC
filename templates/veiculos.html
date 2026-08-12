@@ -1,0 +1,70 @@
+{% extends "lista.html" %}
+{% block titulo %}Veículos{% endblock %}
+{% block cabecalho %}Veículos{% endblock %}
+{% block descricao %}Módulo 1 — frota cadastrada, hodômetro, centro de custo e intervalos de manutenção.{% endblock %}
+{% block rotulo_novo %}Novo veículo{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoFrota"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+SGMF.tela({
+  recurso: 'veiculos',
+  titulo: 'veículo',
+  campos: [
+    { nome: 'prefixo', rotulo: 'Prefixo', col: 3, obrigatorio: true, maiuscula: true, exemplo: 'FR-101' },
+    { nome: 'placa', rotulo: 'Placa', col: 3, obrigatorio: true, maiuscula: true, exemplo: 'ABC1D23' },
+    { nome: 'marca', rotulo: 'Marca', col: 3 },
+    { nome: 'modelo', rotulo: 'Modelo', col: 3 },
+    { nome: 'ano', rotulo: 'Ano', tipo: 'number', col: 2 },
+    { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', col: 3,
+      opcoes: ['Ônibus', 'Micro-ônibus', 'Van escolar', 'Caminhão', 'Utilitário', 'Automóvel', 'Máquina'] },
+    { nome: 'combustivel', rotulo: 'Combustível', tipo: 'select', col: 3, padrao: 'Diesel S10',
+      opcoes: ['Diesel S10', 'Diesel S500', 'Gasolina', 'Etanol', 'Flex', 'GNV', 'Elétrico'] },
+    { nome: 'situacao', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Disponível',
+      opcoes: ['Disponível', 'Em manutenção', 'Inativo'] },
+    { nome: 'centro_custo', rotulo: 'Centro de custo', col: 4, exemplo: 'Transporte escolar' },
+    { nome: 'setor', rotulo: 'Setor', col: 4 },
+    { nome: 'hodometro', rotulo: 'Hodômetro (km)', tipo: 'number', col: 4 },
+    { nome: 'horimetro', rotulo: 'Horímetro (h)', tipo: 'number', col: 4 },
+    { nome: 'orcamento_mensal', rotulo: 'Orçamento mensal (R$)', tipo: 'number', col: 4,
+      ajuda: 'Usado para o alerta de estouro de orçamento.' },
+    { nome: 'km_ultima_troca_oleo', rotulo: 'Km da última troca de óleo', tipo: 'number', col: 4 },
+    { nome: 'intervalo_troca_oleo', rotulo: 'Intervalo de troca (km)', tipo: 'number', col: 4, padrao: 10000 },
+    { nome: 'data_ultima_preventiva', rotulo: 'Última preventiva', tipo: 'date', col: 4 },
+    { nome: 'intervalo_preventiva_dias', rotulo: 'Intervalo da preventiva (dias)', tipo: 'number', col: 4, padrao: 90 },
+    { nome: 'ativo', rotulo: 'Veículo ativo', tipo: 'checkbox', col: 4 },
+    { nome: 'observacao', rotulo: 'Observações', tipo: 'textarea', col: 12 }
+  ],
+  colunas: [
+    { campo: 'prefixo', rotulo: 'Prefixo', render: v => `<span class="prefixo">${v}</span>` },
+    { campo: 'placa', rotulo: 'Placa', render: v => `<span class="placa">${v}</span>` },
+    { campo: 'modelo', rotulo: 'Marca / modelo', render: (v, i) => `${i.marca || ''} ${v || ''}`.trim() || '—' },
+    { campo: 'tipo', rotulo: 'Tipo' },
+    { campo: 'centro_custo', rotulo: 'Centro de custo' },
+    { campo: 'hodometro', rotulo: 'Hodômetro', classe: 'num text-end', render: v => SGMF.numero(v) + ' km' },
+    { campo: 'km_proxima_troca_oleo', rotulo: 'Próx. óleo', classe: 'num text-end',
+      render: (v, i) => {
+        const faltam = v - (i.hodometro || 0);
+        const cor = faltam <= 0 ? 'vermelha' : (faltam <= 500 ? 'ambar' : 'cinza');
+        return SGMF.etiqueta(faltam <= 0 ? 'vencida' : SGMF.numero(faltam) + ' km', cor);
+      } },
+    { campo: 'situacao', rotulo: 'Situação', render: v => SGMF.status(v) }
+  ],
+  ordem: [[0, 'asc']],
+  aoRenderizar: (linhas) => {
+    const total = linhas.length;
+    const disp = linhas.filter(v => v.situacao === 'Disponível').length;
+    const manut = linhas.filter(v => v.situacao === 'Em manutenção').length;
+    const km = linhas.reduce((s, v) => s + (v.hodometro || 0), 0);
+    document.getElementById('resumoFrota').innerHTML = `
+      <div class="medidor"><div class="rotulo">Frota cadastrada</div><div class="valor num">${total}</div></div>
+      <div class="medidor ok"><div class="rotulo">Disponíveis</div><div class="valor num">${disp}</div></div>
+      <div class="medidor atencao"><div class="rotulo">Em manutenção</div><div class="valor num">${manut}</div></div>
+      <div class="medidor"><div class="rotulo">Hodômetro somado</div><div class="valor num">${SGMF.numero(km)} <small>km</small></div></div>`;
+  }
+});
+</script>
+{% endblock %}

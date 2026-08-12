@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+database/*.db
+database/*.sqlite3
+uploads/*
+!uploads/.gitkeep
+backup/*
+!backup/.gitkeep
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# as migrações FAZEM parte do projeto e devem ir para o repositório
+!migrations/
+!migrations/versions/

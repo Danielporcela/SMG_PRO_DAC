@@ -1,0 +1,33 @@
+{% extends "lista.html" %}
+{% block titulo %}Oficinas e fornecedores{% endblock %}
+{% block cabecalho %}Oficinas, postos e fornecedores{% endblock %}
+{% block descricao %}Quem executa os serviços, abastece a frota e fornece as peças.{% endblock %}
+{% block rotulo_novo %}Novo cadastro{% endblock %}
+
+{% block scripts %}
+<script>
+SGMF.tela({
+  recurso: 'fornecedores',
+  titulo: 'cadastro',
+  campos: [
+    { nome: 'nome', rotulo: 'Nome / razão social', col: 6, obrigatorio: true },
+    { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', col: 3, padrao: 'Oficina',
+      opcoes: ['Oficina', 'Posto', 'Fornecedor'] },
+    { nome: 'cnpj', rotulo: 'CNPJ', col: 3 },
+    { nome: 'telefone', rotulo: 'Telefone', col: 3 },
+    { nome: 'contato', rotulo: 'Contato', col: 4 },
+    { nome: 'cidade', rotulo: 'Cidade', col: 3 },
+    { nome: 'ativo', rotulo: 'Ativo', tipo: 'checkbox', col: 2 }
+  ],
+  colunas: [
+    { campo: 'nome', rotulo: 'Nome' },
+    { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.etiqueta(v, v === 'Oficina' ? 'azul' : (v === 'Posto' ? 'ambar' : 'cinza')) },
+    { campo: 'cnpj', rotulo: 'CNPJ', classe: 'num' },
+    { campo: 'contato', rotulo: 'Contato' },
+    { campo: 'telefone', rotulo: 'Telefone', classe: 'num' },
+    { campo: 'cidade', rotulo: 'Cidade' },
+    { campo: 'ativo', rotulo: 'Situação', render: v => SGMF.etiqueta(v ? 'Ativo' : 'Inativo', v ? 'verde' : 'cinza') }
+  ]
+});
+</script>
+{% endblock %}
