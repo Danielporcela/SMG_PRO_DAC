@@ -28,16 +28,6 @@ services:
         sync: false                  # senha de aplicativo do Gmail; vazio = e-mail desligado
       - key: EMAIL_DESTINATARIOS
         value: estudosti20@gmail.com
-      - key: ALERTAS_EMAIL_ATIVO
-        value: "1"
-      - key: ALERTAS_MUDANCA_EMAIL_ATIVO
-        value: "1"
-      - key: ALERTAS_SANADO_EMAIL_ATIVO
-        value: "1"
-      - key: AGENDADOR_ATIVO
-        value: "1"
-      - key: INTERVALO_AGENDADOR
-        value: "600"
       - key: ALERTAS_HORA
         value: "7"
       - key: ADMIN_SENHA

@@ -1,0 +1,426 @@
+/* =========================================================================
+   SGMF Pro — identidade visual
+   Referência: painel de instrumentos e sinalização de garagem/oficina.
+   Aço escuro na navegação, papel claro na área de trabalho, âmbar de
+   segurança reservado exclusivamente para alertas.
+   ========================================================================= */
+
+:root {
+  --aco: #0E141B;
+  --aco-claro: #1A2430;
+  --petroleo: #0F3D56;
+  --petroleo-claro: #17587B;
+  --hi-vis: #F5A800;
+  --ok: #16795D;
+  --alerta: #C4451D;
+  --superficie: #EDF1F4;
+  --papel: #FFFFFF;
+  --linha: #D6DEE5;
+  --texto: #16202B;
+  --texto-suave: #5F7080;
+
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --corpo: "Inter", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", "Consolas", monospace;
+
+  --raio: 6px;
+  --sombra: 0 1px 2px rgba(16, 32, 43, .08), 0 8px 24px -12px rgba(16, 32, 43, .18);
+  --barra: 248px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--corpo);
+  background: var(--superficie);
+  color: var(--texto);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, .display {
+  font-family: var(--display);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin: 0;
+}
+
+a { color: var(--petroleo-claro); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------- navegação */
+.barra-lateral {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--barra);
+  background: var(--aco);
+  color: #C6D2DC;
+  display: flex;
+  flex-direction: column;
+  z-index: 1040;
+  transition: transform .2s ease;
+}
+
+.marca {
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.marca strong {
+  font-family: var(--display);
+  font-size: 26px;
+  letter-spacing: .06em;
+  color: #fff;
+  display: block;
+  line-height: 1;
+}
+.marca span {
+  font-size: 10px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--hi-vis);
+}
+
+.menu { padding: 10px 0; overflow-y: auto; flex: 1; }
+.menu-titulo {
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #64798A;
+  padding: 14px 20px 6px;
+}
+.menu a {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 20px;
+  color: #C6D2DC;
+  font-size: 13.5px;
+  border-left: 3px solid transparent;
+  transition: background .12s, color .12s;
+}
+.menu a:hover { background: rgba(255, 255, 255, .05); color: #fff; text-decoration: none; }
+.menu a.ativo {
+  background: rgba(245, 168, 0, .1);
+  border-left-color: var(--hi-vis);
+  color: #fff;
+  font-weight: 500;
+}
+.menu a i { width: 17px; text-align: center; font-size: 13px; opacity: .85; }
+.menu a .contador {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--alerta);
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.rodape-barra {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  font-size: 11.5px;
+  color: #7D8FA0;
+}
+
+/* --------------------------------------------------------------- topo */
+.area { margin-left: var(--barra); min-height: 100vh; }
+
+.topo {
+  background: var(--papel);
+  border-bottom: 1px solid var(--linha);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1020;
+}
+.topo h1 { font-size: 22px; line-height: 1.1; }
+.topo .subtitulo {
+  font-size: 12px;
+  color: var(--texto-suave);
+  text-transform: none;
+  font-family: var(--corpo);
+  letter-spacing: 0;
+}
+.topo .acoes { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.conteudo { padding: 22px 24px 60px; }
+
+/* ------------------------------------------------------------- cartões */
+.cartao {
+  background: var(--papel);
+  border: 1px solid var(--linha);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+.cartao-topo {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--linha);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cartao-topo h2, .cartao-topo h3 { font-size: 15px; letter-spacing: .04em; }
+.cartao-corpo { padding: 16px; }
+
+/* Painel de instrumentos: o KPI é lido como um mostrador, não como texto */
+.instrumentos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px;
+}
+.medidor {
+  background: var(--papel);
+  border: 1px solid var(--linha);
+  border-top: 3px solid var(--petroleo);
+  border-radius: var(--raio);
+  padding: 13px 15px;
+  box-shadow: var(--sombra);
+}
+.medidor .rotulo {
+  font-size: 10.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--texto-suave);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.medidor .valor {
+  font-family: var(--mono);
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+.medidor .valor small { font-size: 12px; font-weight: 500; color: var(--texto-suave); }
+.medidor .nota { font-size: 11.5px; color: var(--texto-suave); }
+.medidor.ok { border-top-color: var(--ok); }
+.medidor.atencao { border-top-color: var(--hi-vis); }
+.medidor.critico { border-top-color: var(--alerta); }
+.medidor.critico .valor { color: var(--alerta); }
+
+/* Assinatura visual: faixa de sinalização no painel de alertas */
+.faixa-sinalizacao {
+  height: 6px;
+  background: repeating-linear-gradient(-45deg,
+      var(--hi-vis) 0 12px, var(--aco) 12px 24px);
+  border-radius: var(--raio) var(--raio) 0 0;
+}
+
+.alerta-item {
+  display: flex;
+  gap: 11px;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--linha);
+  align-items: flex-start;
+}
+.alerta-item:last-child { border-bottom: 0; }
+.alerta-item .icone {
+  width: 28px; height: 28px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #fff;
+}
+.alerta-item.critico .icone { background: var(--alerta); }
+.alerta-item.atencao .icone { background: var(--hi-vis); color: var(--aco); }
+.alerta-item.info .icone { background: var(--petroleo); }
+.alerta-item .titulo { font-weight: 600; font-size: 13px; }
+.alerta-item .detalhe { font-size: 12px; color: var(--texto-suave); }
+
+/* ------------------------------------------------------- identificadores */
+.placa {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  border: 1.5px solid var(--texto);
+  border-radius: 3px;
+  padding: 1px 6px;
+  background: #fff;
+  white-space: nowrap;
+}
+.prefixo {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.etiqueta {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.etiqueta.verde { background: #E4F3EE; color: var(--ok); border-color: #BFE3D8; }
+.etiqueta.ambar { background: #FDF2DC; color: #8A5D00; border-color: #F3DCA8; }
+.etiqueta.vermelha { background: #FBEAE4; color: var(--alerta); border-color: #F2CDC0; }
+.etiqueta.azul { background: #E4EEF4; color: var(--petroleo); border-color: #C2D8E4; }
+.etiqueta.cinza { background: #EDF1F4; color: var(--texto-suave); border-color: var(--linha); }
+
+/* ------------------------------------------------------------- controles */
+.btn { font-size: 13px; border-radius: var(--raio); font-weight: 500; }
+.btn-primario {
+  background: var(--petroleo);
+  border-color: var(--petroleo);
+  color: #fff;
+}
+.btn-primario:hover, .btn-primario:focus { background: var(--petroleo-claro); border-color: var(--petroleo-claro); color: #fff; }
+.btn-contorno {
+  background: transparent;
+  border: 1px solid var(--linha);
+  color: var(--texto);
+}
+.btn-contorno:hover { background: var(--superficie); color: var(--texto); }
+.btn-icone { padding: 3px 8px; font-size: 12px; }
+
+.form-label {
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--texto-suave);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.form-control, .form-select {
+  font-size: 13.5px;
+  border-color: var(--linha);
+  border-radius: var(--raio);
+}
+.form-control:focus, .form-select:focus {
+  border-color: var(--petroleo-claro);
+  box-shadow: 0 0 0 3px rgba(23, 88, 123, .14);
+}
+input[type="number"], input[type="date"] { font-family: var(--mono); }
+
+/* --------------------------------------------------------------- tabelas */
+table.dataTable {
+  font-size: 13px;
+  border-collapse: separate !important;
+  width: 100% !important;
+}
+table.dataTable thead th {
+  background: #F5F8FA;
+  font-family: var(--display);
+  font-size: 12.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--texto-suave);
+  border-bottom: 2px solid var(--linha) !important;
+  white-space: nowrap;
+}
+table.dataTable tbody td { vertical-align: middle; border-bottom: 1px solid #EBEFF3; }
+table.dataTable tbody tr:hover td { background: #F7FAFC; }
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+  border: 1px solid var(--linha);
+  border-radius: var(--raio);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_paginate { font-size: 12.5px; padding-top: 10px; }
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+  background: var(--petroleo) !important;
+  border-color: var(--petroleo) !important;
+  color: #fff !important;
+  border-radius: var(--raio);
+}
+
+/* ---------------------------------------------------------------- login */
+.tela-login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr .9fr;
+  background: var(--aco);
+}
+.login-arte {
+  padding: 56px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  background:
+    radial-gradient(900px 420px at 12% 18%, rgba(23, 88, 123, .55), transparent 70%),
+    linear-gradient(160deg, #0E141B 0%, #12202C 100%);
+}
+.login-arte h1 { font-size: 62px; line-height: .9; letter-spacing: .04em; }
+.login-arte h1 span { color: var(--hi-vis); }
+.login-arte p { color: #9FB2C0; max-width: 42ch; font-size: 14.5px; }
+.login-lista { display: grid; gap: 9px; font-size: 13px; color: #C6D2DC; }
+.login-lista div { display: flex; gap: 10px; align-items: center; }
+.login-lista i { color: var(--hi-vis); width: 16px; }
+.login-form {
+  background: var(--papel);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 56px;
+}
+
+/* ------------------------------------------------------------ responsivo */
+.abrir-menu { display: none; }
+
+@media (max-width: 992px) {
+  .barra-lateral { transform: translateX(-100%); }
+  .barra-lateral.aberta { transform: translateX(0); box-shadow: 0 0 40px rgba(0, 0, 0, .4); }
+  .area { margin-left: 0; }
+  .abrir-menu { display: inline-flex; }
+  .tela-login { grid-template-columns: 1fr; }
+  .login-arte { padding: 34px; }
+  .login-arte h1 { font-size: 44px; }
+  .login-form { padding: 30px; }
+  .conteudo { padding: 16px 14px 50px; }
+  .topo { padding: 10px 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--hi-vis);
+  outline-offset: 2px;
+}
+
+.grafico-caixa { position: relative; height: 280px; }
+.grafico-caixa.baixo { height: 220px; }
+
+.vazio {
+  text-align: center;
+  padding: 34px 20px;
+  color: var(--texto-suave);
+}
+.vazio i { font-size: 30px; color: var(--linha); display: block; margin-bottom: 10px; }
+.vazio strong { display: block; font-size: 15px; color: var(--texto); margin-bottom: 4px; }
+
+/* Link "Esqueceu a senha?" na tela de login */
+.link-esqueci-senha {
+  font-size: 12.5px;
+  color: var(--texto-suave);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.link-esqueci-senha:hover {
+  color: var(--hi-vis);
+  text-decoration: underline;
+}

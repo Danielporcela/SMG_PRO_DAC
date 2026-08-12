@@ -1,0 +1,70 @@
+{% extends "lista.html" %}
+{% block titulo %}Meta x realizado{% endblock %}
+{% block cabecalho %}Meta × realizado{% endblock %}
+{% block descricao %}Módulo 8 — defina a meta mensal de gasto e acompanhe o realizado da frota.{% endblock %}
+{% block rotulo_novo %}Nova meta{% endblock %}
+
+{% block antes_tabela %}
+<div class="cartao mb-3">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-bullseye me-2" style="color:var(--hi-vis)"></i>Meta contra realizado — 12 meses</h3></div>
+  <div class="cartao-corpo"><div class="grafico-caixa"><canvas id="graficoMeta"></canvas></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho',
+               'Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+SGMF.tela({
+  recurso: 'orcamentos',
+  tela: 'orcamento',
+  titulo: 'meta',
+  ordem: [[0, 'desc']],
+  campos: [
+    { nome: 'ano', rotulo: 'Ano', tipo: 'number', col: 3, obrigatorio: true, padrao: new Date().getFullYear() },
+    { nome: 'mes', rotulo: 'Mês', tipo: 'select', col: 3, obrigatorio: true,
+      padrao: new Date().getMonth() + 1,
+      opcoes: MESES.map((m, i) => ({ valor: i + 1, texto: m })) },
+    { nome: 'categoria', rotulo: 'Categoria', tipo: 'select', col: 3, padrao: 'Manutenção',
+      opcoes: ['Manutenção', 'Combustível', 'Pneus', 'Geral'] },
+    { nome: 'meta_valor', rotulo: 'Meta (R$)', tipo: 'number', col: 3, obrigatorio: true },
+    { nome: 'veiculo_id', rotulo: 'Veículo (opcional)', tipo: 'ref', recurso: 'veiculos', col: 6,
+      ajuda: 'Deixe vazio para uma meta geral da frota.' },
+    { nome: 'centro_custo', rotulo: 'Centro de custo', col: 6 }
+  ],
+  colunas: [
+    { campo: 'ano', rotulo: 'Ano', classe: 'num' },
+    { campo: 'mes', rotulo: 'Mês', render: v => MESES[v - 1] },
+    { campo: 'categoria', rotulo: 'Categoria', render: v => SGMF.etiqueta(v, 'azul') },
+    { campo: 'veiculo_nome', rotulo: 'Veículo', render: v => v || 'Frota inteira' },
+    { campo: 'centro_custo', rotulo: 'Centro de custo' },
+    { campo: 'meta_valor', rotulo: 'Meta', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  aoRenderizar: async () => {
+    const g = await SGMF.get('/api/painel/graficos');
+    SGMF.grafico('graficoMeta', {
+      data: {
+        labels: g.meses,
+        datasets: [
+          { type: 'bar', label: 'Realizado', data: g.realizado_mes,
+            backgroundColor: g.realizado_mes.map((v, i) =>
+              g.meta_mes[i] && v > g.meta_mes[i] ? '#C4451D' : '#0F3D56'), borderRadius: 2 },
+          { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
+            borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#F5A800', tension: .2 }
+        ]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${SGMF.moeda(c.parsed.y)}` } }
+        },
+        scales: { x: { grid: { display: false } },
+                  y: { ticks: { callback: v => 'R$ ' + SGMF.numero(v) }, grid: { color: '#EBEFF3' } } }
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

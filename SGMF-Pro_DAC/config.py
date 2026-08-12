@@ -53,7 +53,3 @@ class Config:
     SULCO_MINIMO_MM = float(os.environ.get("SULCO_MINIMO_MM", 4.0))
     KM_AVISO_TROCA_OLEO = int(os.environ.get("KM_AVISO_TROCA_OLEO", 500))
     DESVIO_CONSUMO_ALERTA = float(os.environ.get("DESVIO_CONSUMO_ALERTA", 0.15))  # 15% pior que a média
-    ALERTA_PREVENTIVA_DIAS = int(os.environ.get("ALERTA_PREVENTIVA_DIAS", 30))
-    ALERTA_CNH_DIAS = int(os.environ.get("ALERTA_CNH_DIAS", 30))
-    ALERTAS_MUDANCA_EMAIL_ATIVO = os.environ.get("ALERTAS_MUDANCA_EMAIL_ATIVO", "1") == "1"
-    ALERTAS_SANADO_EMAIL_ATIVO = os.environ.get("ALERTAS_SANADO_EMAIL_ATIVO", "1") == "1"

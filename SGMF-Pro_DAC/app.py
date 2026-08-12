@@ -30,7 +30,6 @@ def criar_app(config=Config):
     from routes.extras import bp_extras
     from routes.paginas import bp_paginas
     from routes.relatorios import bp_relatorios
-    from routes.correcao_os import bp_correcao_os
 
     app.register_blueprint(bp_auth)
     app.register_blueprint(bp_auth_senha)
@@ -39,23 +38,6 @@ def criar_app(config=Config):
     app.register_blueprint(bp_extras)
     app.register_blueprint(bp_relatorios)
     app.register_blueprint(bp_paginas)
-    app.register_blueprint(bp_correcao_os)
-
-    @app.after_request
-    def carregar_correcao_os(response):
-        # Injeta apenas o pequeno complemento de interface. Nenhum dado do
-        # banco é alterado nesta etapa.
-        if response.status_code == 200 and response.mimetype == "text/html":
-            try:
-                corpo = response.get_data(as_text=True)
-                marcador = '<script src="/correcao_os/patch.js"></script>'
-                if marcador not in corpo and "</body>" in corpo:
-                    corpo = corpo.replace("</body>", marcador + "</body>", 1)
-                    response.set_data(corpo)
-                    response.content_length = len(response.get_data())
-            except Exception:
-                pass
-        return response
 
     @app.context_processor
     def datas_padrao():
@@ -123,13 +105,6 @@ def criar_app(config=Config):
             # já com o banco atualizado.
             db.session.rollback()
             print(f"[SGMF] Verificação do usuário inicial adiada: {e}")
-
-        try:
-            from services.alertas import sincronizar_estados
-            sincronizar_estados()
-        except Exception as e:
-            db.session.rollback()
-            print(f"[SGMF] Sincronização inicial de alertas adiada: {e}")
 
     if app.config.get("AGENDADOR_ATIVO") and not app.config.get("TESTING"):
         from services.notificacoes import iniciar_agendador

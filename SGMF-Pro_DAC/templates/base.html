@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}SGMF Pro{% endblock %} · SGMF Pro</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230E141B'/><text x='50' y='68' font-size='54' font-family='Arial' font-weight='bold' fill='%23F5A800' text-anchor='middle'>F</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/css/fontawesome.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/css/dataTables.bootstrap5.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+
+<nav class="barra-lateral" id="barraLateral">
+  <div class="marca">
+    <strong>SGMF<span style="color:var(--hi-vis)">·</span>Pro</strong>
+    <span>Gestão de frotas</span>
+  </div>
+
+  <div class="menu">
+    <div class="menu-titulo">Operação</div>
+    {% if pode('dashboard') %}<a href="{{ url_for('paginas.dashboard') }}" class="{{ 'ativo' if pagina == 'dashboard' }}"><i class="fa-solid fa-gauge-high"></i> Painel</a>{% endif %}
+    {% if pode('alertas') %}<a href="{{ url_for('paginas.alertas') }}" class="{{ 'ativo' if pagina == 'alertas' }}"><i class="fa-solid fa-triangle-exclamation"></i> Alertas <span class="contador d-none" id="contadorAlertas">0</span></a>{% endif %}
+    {% if pode('manutencao') %}<a href="{{ url_for('paginas.manutencao') }}" class="{{ 'ativo' if pagina == 'manutencao' }}"><i class="fa-solid fa-screwdriver-wrench"></i> Ordens de serviço</a>{% endif %}
+    {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
+    {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
+
+    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('importacao') %}
+    <div class="menu-titulo">Cadastros</div>
+    {% if pode('veiculos') %}<a href="{{ url_for('paginas.veiculos') }}" class="{{ 'ativo' if pagina == 'veiculos' }}"><i class="fa-solid fa-truck-front"></i> Veículos</a>{% endif %}
+    {% if pode('motoristas') %}<a href="{{ url_for('paginas.motoristas') }}" class="{{ 'ativo' if pagina == 'motoristas' }}"><i class="fa-solid fa-id-card"></i> Motoristas</a>{% endif %}
+    {% if pode('fornecedores') %}<a href="{{ url_for('paginas.fornecedores') }}" class="{{ 'ativo' if pagina == 'fornecedores' }}"><i class="fa-solid fa-warehouse"></i> Oficinas e postos</a>{% endif %}
+    {% if pode('estoque') %}<a href="{{ url_for('paginas.estoque') }}" class="{{ 'ativo' if pagina == 'estoque' }}"><i class="fa-solid fa-boxes-stacked"></i> Estoque de peças</a>{% endif %}
+    {% if pode('importacao') %}
+    <a href="{{ url_for('paginas.importacao') }}" class="{{ 'ativo' if pagina == 'importacao' }}"><i class="fa-solid fa-file-import"></i> Importar planilha</a>
+    {% endif %}
+    {% endif %}
+
+    {% if pode('orcamento') or pode('ranking') or pode('relatorios') or session.perfil == 'admin' %}
+    <div class="menu-titulo">Gestão</div>
+    {% if pode('orcamento') %}<a href="{{ url_for('paginas.orcamento') }}" class="{{ 'ativo' if pagina == 'orcamento' }}"><i class="fa-solid fa-bullseye"></i> Meta x realizado</a>{% endif %}
+    {% if pode('ranking') %}<a href="{{ url_for('paginas.ranking') }}" class="{{ 'ativo' if pagina == 'ranking' }}"><i class="fa-solid fa-ranking-star"></i> Rankings</a>{% endif %}
+    {% if pode('relatorios') %}<a href="{{ url_for('paginas.relatorios') }}" class="{{ 'ativo' if pagina == 'relatorios' }}"><i class="fa-solid fa-file-export"></i> Relatórios</a>{% endif %}
+    {% if session.perfil == 'admin' %}
+    <a href="{{ url_for('paginas.usuarios') }}" class="{{ 'ativo' if pagina == 'usuarios' }}"><i class="fa-solid fa-users-gear"></i> Usuários</a>
+    <a href="{{ url_for('paginas.auditoria') }}" class="{{ 'ativo' if pagina == 'auditoria' }}"><i class="fa-solid fa-clipboard-list"></i> Auditoria</a>
+    <a href="{{ url_for('paginas.notificacoes') }}" class="{{ 'ativo' if pagina == 'notificacoes' }}"><i class="fa-solid fa-envelope"></i> Avisos por e-mail</a>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="rodape-barra">
+    <div class="mb-1">
+      <i class="fa-solid fa-user me-1"></i> {{ session.usuario_nome }}
+      <span class="etiqueta cinza ms-1" style="font-size:9.5px;padding:1px 6px">{{ session.perfil }}</span>
+    </div>
+    <button class="btn btn-link p-0 border-0 text-decoration-none" id="abrirMinhaConta"
+            style="color:#9FB2C0;font-size:11.5px">Trocar minha senha</button>
+    <span class="mx-1" style="color:#3C4C5C">|</span>
+    <a href="{{ url_for('auth.logout') }}" style="color:var(--hi-vis);font-size:11.5px">Sair</a>
+  </div>
+</nav>
+
+<div class="area">
+  <header class="topo">
+    <button class="btn btn-contorno abrir-menu" onclick="document.getElementById('barraLateral').classList.toggle('aberta')" aria-label="Abrir menu">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+    <div>
+      <h1>{% block cabecalho %}{% endblock %}</h1>
+      <div class="subtitulo">{% block descricao %}{% endblock %}</div>
+    </div>
+    <div class="acoes">{% block acoes %}{% endblock %}</div>
+  </header>
+
+  <main class="conteudo">
+    {% block conteudo %}{% endblock %}
+  </main>
+</div>
+
+<div class="modal fade" id="modalMinhaConta" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Trocar minha senha</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="senhaAtual">Senha atual</label>
+          <input type="password" class="form-control" id="senhaAtual" autocomplete="current-password">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="senhaNova">Nova senha</label>
+          <input type="password" class="form-control" id="senhaNova" autocomplete="new-password">
+          <div class="form-text" style="font-size:11.5px">Mínimo de 6 caracteres.</div>
+        </div>
+        <div class="mb-1">
+          <label class="form-label" for="senhaConfirma">Repita a nova senha</label>
+          <input type="password" class="form-control" id="senhaConfirma" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="salvarSenha">Salvar nova senha</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.SGMF_PERFIL = "{{ session.perfil }}";
+  window.SGMF_PERMISSOES = {{ (session.permissoes or {}) | tojson }};
+</script>
+<script src="{{ url_for('static', filename='vendor/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/js/jquery.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/js/jquery.dataTables.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/js/dataTables.bootstrap5.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/js/sweetalert2.all.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/js/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/crud.js') }}"></script>
+<script src="{{ url_for('static', filename='js/anexos.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

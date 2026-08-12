@@ -1,0 +1,1021 @@
+{% extends "lista.html" %}
+{% block titulo %}Estoque de peças{% endblock %}
+{% block cabecalho %}Estoque de peças{% endblock %}
+{% block descricao %}Módulo 11 — entradas por nota fiscal, saídas e baixa automática quando a peça é aplicada em uma OS.{% endblock %}
+{% block rotulo_novo %}Nova peça{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoEstoque"></div>
+{% endblock %}
+
+{% block depois_tabela %}
+<div class="cartao mt-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-file-invoice me-2" style="color:var(--petroleo)"></i>Notas fiscais de entrada</h3>
+    <button class="btn btn-primario btn-sm ms-auto" id="botaoNovaNF">
+      <i class="fa-solid fa-plus me-1"></i> Nova nota fiscal
+    </button>
+  </div>
+  <div class="cartao-corpo p-0"><div id="listaNotasFiscais"></div></div>
+</div>
+
+<div class="cartao mt-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Últimas movimentações</h3>
+    <a class="btn btn-contorno btn-sm ms-auto" href="/relatorios/movimentos.xlsx">
+      <i class="fa-solid fa-file-excel me-1"></i> Exportar
+    </a>
+  </div>
+  <div class="cartao-corpo p-0"><div id="listaMovimentos"></div></div>
+</div>
+
+<div class="modal fade" id="modalNotaFiscal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Nova nota fiscal</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label" for="nfNumero">Número da nota</label>
+            <input class="form-control" id="nfNumero">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="nfSerie">Série</label>
+            <input class="form-control" id="nfSerie">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="nfData">Data de emissão</label>
+            <input type="date" class="form-control" id="nfData">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="nfFornecedor">Fornecedor</label>
+            <select class="form-select" id="nfFornecedor"><option value="">— selecione —</option></select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="nfObs">Observação</label>
+            <input class="form-control" id="nfObs">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="nfSalvar">Salvar e lançar itens</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalItensNF" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="nfItensTitulo">Itens da nota</h5>
+          <small style="color:var(--hi-vis)" id="nfItensSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="nfItensNotaId">
+        <input type="hidden" id="nfItemId">
+
+        <div id="nfFormItem" class="border rounded p-3 mb-3">
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+            <div>
+              <strong>Peça recebida</strong>
+              <div class="text-muted" style="font-size:12px">Busque pelo código ou pela descrição da peça já cadastrada.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="badge text-bg-light" id="nfPecasDisponiveis">Carregando peças</span>
+              <button type="button" class="btn btn-contorno btn-sm" id="nfCadastrarPecaNova">
+                <i class="fa-solid fa-box-open me-1"></i> Cadastrar item novo
+              </button>
+            </div>
+          </div>
+
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label" for="nfBuscaPeca">Buscar peça cadastrada</label>
+              <input type="search" class="form-control form-control-sm" id="nfBuscaPeca"
+                     placeholder="Digite código ou descrição">
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="nfItemPeca">Selecionar peça</label>
+              <select class="form-select form-select-sm" id="nfItemPeca">
+                <option value="">Carregando peças cadastradas</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <div class="form-text mt-0" id="nfPecaSelecionada">Selecione uma peça do estoque.</div>
+            </div>
+
+            <div class="col-12" id="nfCadastroRapidoPeca" style="display:none">
+              <div class="border rounded p-3 bg-light">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                  <div>
+                    <strong>Cadastrar peça sem sair da nota</strong>
+                    <div class="text-muted" style="font-size:12px">Depois de salvar, a peça será selecionada automaticamente neste lançamento.</div>
+                  </div>
+                  <button type="button" class="btn-close" id="nfNovaPecaFechar" aria-label="Fechar"></button>
+                </div>
+                <div class="row g-2">
+                  <div class="col-md-3">
+                    <label class="form-label" for="nfNovaPecaCodigo">Código</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaCodigo" maxlength="40">
+                  </div>
+                  <div class="col-md-5">
+                    <label class="form-label" for="nfNovaPecaDescricao">Descrição</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaDescricao" maxlength="160">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaUnidade">Unidade</label>
+                    <select class="form-select form-select-sm" id="nfNovaPecaUnidade">
+                      <option value="UN">UN</option><option value="PC">PC</option><option value="L">L</option>
+                      <option value="KG">KG</option><option value="M">M</option><option value="JG">JG</option><option value="CX">CX</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaGrupo">Grupo</label>
+                    <select class="form-select form-select-sm" id="nfNovaPecaGrupo"><option value="">Opcional</option></select>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="nfNovaPecaLocalizacao">Localização</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaLocalizacao" maxlength="40">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="nfNovaPecaCusto">Custo unitário (R$)</label>
+                    <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfNovaPecaCusto">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaNcm">NCM padrão</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaNcm" maxlength="8" inputmode="numeric">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaCfop">CFOP entrada</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaCfop" maxlength="4" inputmode="numeric">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaCstIcms">CST ICMS</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaCstIcms" maxlength="3">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaCstPis">CST PIS</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaCstPis" maxlength="2">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="nfNovaPecaCstCofins">CST COFINS</label>
+                    <input class="form-control form-control-sm" id="nfNovaPecaCstCofins" maxlength="2">
+                  </div>
+                  <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+                    <button type="button" class="btn btn-contorno btn-sm" id="nfNovaPecaCancelar">Cancelar</button>
+                    <button type="button" class="btn btn-primario btn-sm" id="nfNovaPecaSalvar">
+                      <i class="fa-solid fa-floppy-disk me-1"></i> Cadastrar e usar na nota
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-2">
+              <label class="form-label" for="nfItemQtd">Quantidade</label>
+              <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfItemQtd" value="1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="nfItemValor">Custo unitário (R$)</label>
+              <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfItemValor">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" for="nfItemNcm">NCM</label>
+              <input class="form-control form-control-sm" id="nfItemNcm" maxlength="8" inputmode="numeric">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" for="nfItemCfop">CFOP</label>
+              <input class="form-control form-control-sm" id="nfItemCfop" maxlength="4" inputmode="numeric">
+            </div>
+            <div class="col-md-3">
+              <div class="form-text mt-0" id="nfItemResumoFiscal">Subtotal do item: R$ 0,00</div>
+            </div>
+          </div>
+
+          <div class="accordion mt-3" id="nfFiscalAccordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button py-2" type="button" data-bs-toggle="collapse" data-bs-target="#nfFiscalDetalhes">
+                  Dados fiscais do item
+                </button>
+              </h2>
+              <div id="nfFiscalDetalhes" class="accordion-collapse collapse show" data-bs-parent="#nfFiscalAccordion">
+                <div class="accordion-body py-3">
+                  <div class="row g-2">
+                    <div class="col-12"><strong style="font-size:12px">ICMS</strong></div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfCstIcms">CST</label>
+                      <input class="form-control form-control-sm" id="nfCstIcms" maxlength="3">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfBaseIcms">Base ICMS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfBaseIcms">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfAliquotaIcms">Alíquota ICMS (%)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfAliquotaIcms">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label" for="nfValorIcms">Valor ICMS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfValorIcms">
+                    </div>
+
+                    <div class="col-12 mt-3"><strong style="font-size:12px">PIS</strong></div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfCstPis">CST</label>
+                      <input class="form-control form-control-sm" id="nfCstPis" maxlength="2">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfBasePis">Base PIS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfBasePis">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfAliquotaPis">Alíquota PIS (%)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfAliquotaPis">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label" for="nfValorPis">Valor PIS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfValorPis">
+                    </div>
+
+                    <div class="col-12 mt-3"><strong style="font-size:12px">COFINS</strong></div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfCstCofins">CST</label>
+                      <input class="form-control form-control-sm" id="nfCstCofins" maxlength="2">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfBaseCofins">Base COFINS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfBaseCofins">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label" for="nfAliquotaCofins">Alíquota COFINS (%)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfAliquotaCofins">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label" for="nfValorCofins">Valor COFINS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfValorCofins">
+                    </div>
+
+                    <div class="col-12 mt-3">
+                      <strong style="font-size:12px">IBS e CBS</strong>
+                      <div class="form-text mt-0">Campos preparados para a transição tributária de 2026.</div>
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfCstIbsCbs">CST IBS/CBS</label>
+                      <input class="form-control form-control-sm" id="nfCstIbsCbs" maxlength="3">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfClassTrib">Classificação</label>
+                      <input class="form-control form-control-sm" id="nfClassTrib" maxlength="6">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfBaseIbsCbs">Base (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfBaseIbsCbs">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfAliquotaIbs">Alíquota IBS (%)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfAliquotaIbs">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfValorIbs">Valor IBS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfValorIbs">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfAliquotaCbs">Alíquota CBS (%)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfAliquotaCbs">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label" for="nfValorCbs">Valor CBS (R$)</label>
+                      <input type="number" min="0" step="any" class="form-control form-control-sm" id="nfValorCbs">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button class="btn btn-contorno btn-sm" id="nfItemCancelarEdicao" style="display:none">Cancelar edição</button>
+            <button class="btn btn-primario btn-sm" id="nfItemAdicionar">
+              <i class="fa-solid fa-plus"></i> <span id="nfItemAcaoTexto">Lançar item</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="form-text mt-0" id="nfAvisoStatus"></p>
+        <div id="listaItensNF"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <div id="totaisNF" class="num"></div>
+        <div>
+          <button class="btn btn-contorno btn-sm" data-bs-dismiss="modal">Fechar</button>
+          <button class="btn btn-contorno btn-sm" id="nfEstornar" style="display:none">
+            <i class="fa-solid fa-rotate-left me-1"></i> Estornar
+          </button>
+          <button class="btn btn-primario btn-sm" id="nfFinalizar">
+            <i class="fa-solid fa-check me-1"></i> Finalizar e atualizar estoque
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalMovimento" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Movimentar estoque</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" id="movPeca"></p>
+        <input type="hidden" id="movPecaId">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="movTipo">Operação</label>
+            <select class="form-select" id="movTipo">
+              <option value="entrada">Entrada</option>
+              <option value="saida">Saída</option>
+              <option value="ajuste">Ajuste de saldo</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="movQtd">Quantidade</label>
+            <input type="number" step="any" class="form-control" id="movQtd">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="movCusto">Custo unitário (R$)</label>
+            <input type="number" step="any" class="form-control" id="movCusto">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="movDoc">Nota / documento</label>
+            <input class="form-control" id="movDoc">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="movObs">Observação</label>
+            <input class="form-control" id="movObs">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="movSalvar">Registrar movimento</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const telaEstoque = SGMF.tela({
+  recurso: 'pecas',
+  tela: 'estoque',
+  titulo: 'peça',
+  campos: [
+    { nome: 'codigo', rotulo: 'Código', col: 3, obrigatorio: true, maiuscula: true },
+    { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Filtro de óleo motor MWM' },
+    { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
+      opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
+    { nome: 'grupo', rotulo: 'Grupo', tipo: 'select', col: 4, opcoes: SGMF.GRUPOS },
+    { nome: 'fornecedor_id', rotulo: 'Fornecedor', tipo: 'ref', recurso: 'fornecedores', col: 5 },
+    { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
+    { nome: 'ncm', rotulo: 'NCM padrão', col: 3, exemplo: '00000000',
+      ajuda: 'Usado como sugestão ao lançar esta peça em uma nota fiscal.' },
+    { nome: 'cfop_entrada', rotulo: 'CFOP de entrada', col: 3, exemplo: '1102' },
+    { nome: 'cst_icms', rotulo: 'CST ICMS', col: 2, exemplo: '000' },
+    { nome: 'cst_pis', rotulo: 'CST PIS', col: 2, exemplo: '50' },
+    { nome: 'cst_cofins', rotulo: 'CST COFINS', col: 2, exemplo: '50' },
+    { nome: 'cst_ibs_cbs', rotulo: 'CST IBS/CBS', col: 2, exemplo: '000' },
+    { nome: 'classificacao_tributaria', rotulo: 'Classificação IBS/CBS', col: 3, exemplo: '000001' },
+    { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
+      ajuda: 'Lançado como entrada. Depois use "Movimentar".' },
+    { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'number', col: 4 },
+    { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
+      ajuda: 'Abaixo disso o sistema avisa para repor.' }
+  ],
+  colunas: [
+    { campo: 'codigo', rotulo: 'Código', classe: 'num' },
+    { campo: 'descricao', rotulo: 'Descrição' },
+    { campo: 'grupo', rotulo: 'Grupo' },
+    { campo: 'ncm', rotulo: 'NCM', classe: 'num' },
+    { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',
+      render: (v, i) => `<strong>${SGMF.numero(v, 2)}</strong> ${i.unidade}` },
+    { campo: 'estoque_minimo', rotulo: 'Mínimo', classe: 'num text-end', render: v => SGMF.numero(v, 2) },
+    { campo: 'custo_unitario', rotulo: 'Custo unit.', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'valor_total', rotulo: 'Valor em estoque', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'localizacao', rotulo: 'Local' },
+    { campo: 'abaixo_minimo', rotulo: 'Situação',
+      render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') }
+  ],
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
+                           <i class="fa-solid fa-right-left"></i></button>`,
+  aoRenderizar: (linhas) => {
+    const valor = linhas.reduce((s, p) => s + (p.valor_total || 0), 0);
+    const repor = linhas.filter(p => p.abaixo_minimo).length;
+    document.getElementById('resumoEstoque').innerHTML = `
+      <div class="medidor"><div class="rotulo">Itens cadastrados</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Valor em estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(valor)}</div></div>
+      <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div><div class="valor num">${repor}</div><div class="nota">${repor ? 'Providencie a compra' : 'Estoque saudável'}</div></div>`;
+
+    document.querySelectorAll('[data-mov]').forEach(b => b.onclick = () => {
+      const peca = linhas.find(p => p.id == b.dataset.mov);
+      document.getElementById('movPecaId').value = peca.id;
+      document.getElementById('movPeca').innerHTML =
+        `<strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)}<br>
+         <span class="text-muted">Saldo atual: ${SGMF.numero(peca.quantidade, 2)} ${peca.unidade}</span>`;
+      document.getElementById('movQtd').value = '';
+      document.getElementById('movCusto').value = peca.custo_unitario || '';
+      document.getElementById('movDoc').value = '';
+      document.getElementById('movObs').value = '';
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimento')).show();
+    });
+    carregarMovimentos();
+  }
+});
+
+document.getElementById('movSalvar').onclick = async () => {
+  try {
+    await SGMF.post('/api/movimentos', {
+      peca_id: Number(document.getElementById('movPecaId').value),
+      tipo: document.getElementById('movTipo').value,
+      quantidade: Number(document.getElementById('movQtd').value),
+      custo_unitario: Number(document.getElementById('movCusto').value) || 0,
+      documento: document.getElementById('movDoc').value,
+      observacao: document.getElementById('movObs').value
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalMovimento')).hide();
+    SGMF.sucesso('Movimento registrado');
+    SGMF.limparCache('pecas');
+    telaEstoque.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+async function carregarMovimentos() {
+  const dados = await SGMF.get('/api/movimentos');
+  const area = document.getElementById('listaMovimentos');
+  if (!dados.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      <strong>Nenhuma movimentação registrada</strong>Entradas e saídas aparecem aqui.</div>`;
+    return;
+  }
+  const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+  area.innerHTML = `<table class="table table-sm mb-0" style="font-size:13px">
+    <thead><tr><th class="ps-3">Data</th><th>Peça</th><th>Tipo</th>
+    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Documento</th></tr></thead>
+    <tbody>${dados.slice(0, 15).map(m => `<tr>
+      <td class="ps-3 num">${SGMF.data(m.data)}</td>
+      <td>${SGMF.esc(m.peca_descricao) || '—'}</td>
+      <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
+      <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+      <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td></tr>`).join('')}</tbody></table>`;
+}
+
+/* -------------------------------------------------- notas fiscais de entrada */
+let pecasParaNF = [];
+let notaAtualNF = null;
+
+const camposFiscaisNF = {
+  ncm: 'nfItemNcm', cfop: 'nfItemCfop',
+  cst_icms: 'nfCstIcms', base_icms: 'nfBaseIcms', aliquota_icms: 'nfAliquotaIcms', valor_icms: 'nfValorIcms',
+  cst_pis: 'nfCstPis', base_pis: 'nfBasePis', aliquota_pis: 'nfAliquotaPis', valor_pis: 'nfValorPis',
+  cst_cofins: 'nfCstCofins', base_cofins: 'nfBaseCofins', aliquota_cofins: 'nfAliquotaCofins', valor_cofins: 'nfValorCofins',
+  cst_ibs_cbs: 'nfCstIbsCbs', classificacao_tributaria: 'nfClassTrib', base_ibs_cbs: 'nfBaseIbsCbs',
+  aliquota_ibs: 'nfAliquotaIbs', valor_ibs: 'nfValorIbs', aliquota_cbs: 'nfAliquotaCbs', valor_cbs: 'nfValorCbs'
+};
+
+const camposNumericosNF = new Set([
+  'base_icms', 'aliquota_icms', 'valor_icms',
+  'base_pis', 'aliquota_pis', 'valor_pis',
+  'base_cofins', 'aliquota_cofins', 'valor_cofins',
+  'base_ibs_cbs', 'aliquota_ibs', 'valor_ibs', 'aliquota_cbs', 'valor_cbs'
+]);
+
+SGMF.opcoes('fornecedores').then(lista => {
+  document.getElementById('nfFornecedor').innerHTML = '<option value="">— selecione —</option>' +
+    lista.map(o => `<option value="${o.valor}">${SGMF.esc(o.texto)}</option>`).join('');
+});
+
+const nfNovaPecaGrupo = document.getElementById('nfNovaPecaGrupo');
+nfNovaPecaGrupo.innerHTML = '<option value="">Opcional</option>' +
+  SGMF.GRUPOS.map(grupo => `<option value="${SGMF.esc(grupo)}">${SGMF.esc(grupo)}</option>`).join('');
+
+function normalizarBuscaNF(valor) {
+  return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function renderPecasParaNF(lista, selecionadaId = '') {
+  const select = document.getElementById('nfItemPeca');
+  const total = pecasParaNF.length;
+  document.getElementById('nfPecasDisponiveis').textContent =
+    `${total} peça${total === 1 ? '' : 's'} cadastrada${total === 1 ? '' : 's'}`;
+
+  if (!total) {
+    select.disabled = true;
+    select.innerHTML = '<option value="">Nenhuma peça cadastrada no estoque</option>';
+    document.getElementById('nfPecaSelecionada').textContent =
+      'Nenhuma peça cadastrada. Use “Cadastrar item novo” para incluir esta peça sem sair da nota.';
+    return;
+  }
+
+  select.disabled = false;
+  if (!lista.length) {
+    select.innerHTML = '<option value="">Nenhuma peça encontrada com essa busca</option>';
+    document.getElementById('nfPecaSelecionada').textContent =
+      'Peça não encontrada. Use “Cadastrar item novo” e ela será selecionada automaticamente.';
+    return;
+  }
+
+  select.innerHTML = '<option value="">— selecione uma peça cadastrada —</option>' +
+    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} · saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}</option>`).join('');
+  if (selecionadaId && lista.some(p => p.id == selecionadaId)) select.value = String(selecionadaId);
+}
+
+async function carregarPecasParaNF(selecionadaId = '') {
+  try {
+    pecasParaNF = await SGMF.get('/api/pecas');
+    pecasParaNF.sort((a, b) => String(a.codigo || '').localeCompare(String(b.codigo || ''), 'pt-BR'));
+    filtrarPecasParaNF(selecionadaId);
+  } catch (e) {
+    document.getElementById('nfItemPeca').innerHTML = '<option value="">Não foi possível carregar as peças</option>';
+    document.getElementById('nfPecasDisponiveis').textContent = 'Falha ao carregar peças';
+    SGMF.falha(e.message);
+  }
+}
+
+function filtrarPecasParaNF(selecionadaId = '') {
+  const termo = normalizarBuscaNF(document.getElementById('nfBuscaPeca').value);
+  const atual = selecionadaId || document.getElementById('nfItemPeca').value;
+  const lista = !termo ? pecasParaNF : pecasParaNF.filter(p =>
+    normalizarBuscaNF(`${p.codigo} ${p.descricao} ${p.grupo || ''} ${p.ncm || ''}`).includes(termo));
+  renderPecasParaNF(lista, atual);
+}
+
+function limparCadastroRapidoPecaNF() {
+  ['nfNovaPecaCodigo', 'nfNovaPecaDescricao', 'nfNovaPecaLocalizacao', 'nfNovaPecaCusto',
+   'nfNovaPecaNcm', 'nfNovaPecaCfop', 'nfNovaPecaCstIcms', 'nfNovaPecaCstPis',
+   'nfNovaPecaCstCofins'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('nfNovaPecaUnidade').value = 'UN';
+  document.getElementById('nfNovaPecaGrupo').value = '';
+}
+
+function fecharCadastroRapidoPecaNF(limpar = true) {
+  document.getElementById('nfCadastroRapidoPeca').style.display = 'none';
+  if (limpar) limparCadastroRapidoPecaNF();
+}
+
+function abrirCadastroRapidoPecaNF() {
+  const area = document.getElementById('nfCadastroRapidoPeca');
+  const estavaFechado = area.style.display === 'none';
+  area.style.display = '';
+  if (!estavaFechado) {
+    document.getElementById('nfNovaPecaCodigo').focus();
+    return;
+  }
+
+  const termo = document.getElementById('nfBuscaPeca').value.trim();
+  if (termo) {
+    if (!termo.includes(' ') && termo.length <= 40) {
+      document.getElementById('nfNovaPecaCodigo').value = termo.toUpperCase();
+    } else {
+      document.getElementById('nfNovaPecaDescricao').value = termo;
+    }
+  }
+
+  const custoAtual = document.getElementById('nfItemValor').value;
+  if (custoAtual) document.getElementById('nfNovaPecaCusto').value = custoAtual;
+  document.getElementById('nfNovaPecaNcm').value = document.getElementById('nfItemNcm').value || '';
+  document.getElementById('nfNovaPecaCfop').value = document.getElementById('nfItemCfop').value || '';
+  document.getElementById('nfNovaPecaCstIcms').value = document.getElementById('nfCstIcms').value || '';
+  document.getElementById('nfNovaPecaCstPis').value = document.getElementById('nfCstPis').value || '';
+  document.getElementById('nfNovaPecaCstCofins').value = document.getElementById('nfCstCofins').value || '';
+  (document.getElementById('nfNovaPecaCodigo').value
+    ? document.getElementById('nfNovaPecaDescricao')
+    : document.getElementById('nfNovaPecaCodigo')).focus();
+}
+
+async function cadastrarPecaRapidaNF() {
+  const codigo = document.getElementById('nfNovaPecaCodigo').value.trim().toUpperCase();
+  const descricao = document.getElementById('nfNovaPecaDescricao').value.trim();
+  if (!codigo || !descricao) return SGMF.aviso('Informe o código e a descrição da nova peça.');
+
+  const custoTexto = document.getElementById('nfNovaPecaCusto').value;
+  const custo = custoTexto === '' ? 0 : Number(custoTexto);
+  if (!Number.isFinite(custo) || custo < 0) return SGMF.aviso('Informe um custo unitário válido.');
+
+  const dados = {
+    codigo, descricao,
+    unidade: document.getElementById('nfNovaPecaUnidade').value || 'UN',
+    grupo: document.getElementById('nfNovaPecaGrupo').value || null,
+    localizacao: document.getElementById('nfNovaPecaLocalizacao').value.trim() || null,
+    custo_unitario: custo,
+    fornecedor_id: notaAtualNF?.fornecedor_id || null,
+    ncm: document.getElementById('nfNovaPecaNcm').value.trim() || null,
+    cfop_entrada: document.getElementById('nfNovaPecaCfop').value.trim() || null,
+    cst_icms: document.getElementById('nfNovaPecaCstIcms').value.trim() || null,
+    cst_pis: document.getElementById('nfNovaPecaCstPis').value.trim() || null,
+    cst_cofins: document.getElementById('nfNovaPecaCstCofins').value.trim() || null,
+    cst_ibs_cbs: document.getElementById('nfCstIbsCbs').value.trim() || null,
+    classificacao_tributaria: document.getElementById('nfClassTrib').value.trim() || null
+  };
+
+  try {
+    const peca = await SGMF.post('/api/pecas', dados);
+    SGMF.limparCache('pecas');
+    document.getElementById('nfBuscaPeca').value = '';
+    await carregarPecasParaNF(peca.id);
+    document.getElementById('nfItemPeca').value = String(peca.id);
+    aplicarPadroesDaPecaNF();
+    fecharCadastroRapidoPecaNF();
+    SGMF.sucesso('Peça cadastrada e selecionada para esta nota.');
+    document.getElementById('nfItemQtd').focus();
+  } catch (e) {
+    SGMF.falha(e.message);
+  }
+}
+
+function pecaSelecionadaNF() {
+  const id = Number(document.getElementById('nfItemPeca').value) || 0;
+  return pecasParaNF.find(p => p.id === id) || null;
+}
+
+function atualizarInfoPecaNF() {
+  const peca = pecaSelecionadaNF();
+  const info = document.getElementById('nfPecaSelecionada');
+  if (!peca) {
+    info.textContent = pecasParaNF.length ? 'Selecione uma peça do estoque.' : 'Nenhuma peça cadastrada no estoque.';
+    return;
+  }
+  info.textContent = `Selecionada: ${peca.codigo} · ${peca.descricao} · saldo atual ${SGMF.numero(peca.quantidade, 2)} ${peca.unidade || ''}` +
+    (peca.localizacao ? ` · local ${peca.localizacao}` : '');
+}
+
+function aplicarPadroesDaPecaNF() {
+  const peca = pecaSelecionadaNF();
+  atualizarInfoPecaNF();
+  if (!peca) return;
+  document.getElementById('nfItemValor').value = peca.custo_unitario || '';
+  document.getElementById('nfItemNcm').value = peca.ncm || '';
+  document.getElementById('nfItemCfop').value = peca.cfop_entrada || '';
+  document.getElementById('nfCstIcms').value = peca.cst_icms || '';
+  document.getElementById('nfCstPis').value = peca.cst_pis || '';
+  document.getElementById('nfCstCofins').value = peca.cst_cofins || '';
+  document.getElementById('nfCstIbsCbs').value = peca.cst_ibs_cbs || '';
+  document.getElementById('nfClassTrib').value = peca.classificacao_tributaria || '';
+  recalcularTributosNF();
+}
+
+function numeroOuNuloNF(id) {
+  const valor = document.getElementById(id).value;
+  if (valor === '') return null;
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : null;
+}
+
+function textoOuNuloNF(id) {
+  const valor = document.getElementById(id).value.trim();
+  return valor || null;
+}
+
+function subtotalFormularioNF() {
+  return (numeroOuNuloNF('nfItemQtd') || 0) * (numeroOuNuloNF('nfItemValor') || 0);
+}
+
+function calcularTributoFormularioNF(baseId, aliquotaId, valorId, forcar = false) {
+  const aliquota = numeroOuNuloNF(aliquotaId);
+  const valorEl = document.getElementById(valorId);
+  if (aliquota === null) {
+    if (valorEl.dataset.auto === '1') valorEl.value = '';
+    return;
+  }
+  if (!forcar && valorEl.value !== '' && valorEl.dataset.auto !== '1') return;
+  const baseInformada = numeroOuNuloNF(baseId);
+  const base = baseInformada === null ? subtotalFormularioNF() : baseInformada;
+  valorEl.value = (base * aliquota / 100).toFixed(2);
+  valorEl.dataset.auto = '1';
+}
+
+function atualizarResumoFiscalNF() {
+  const subtotal = subtotalFormularioNF();
+  const tributos = ['nfValorIcms', 'nfValorPis', 'nfValorCofins', 'nfValorIbs', 'nfValorCbs']
+    .reduce((soma, id) => soma + (numeroOuNuloNF(id) || 0), 0);
+  document.getElementById('nfItemResumoFiscal').textContent =
+    `Subtotal do item: ${SGMF.moeda(subtotal)} · tributos informados: ${SGMF.moeda(tributos)}`;
+}
+
+function recalcularTributosNF(forcar = false) {
+  calcularTributoFormularioNF('nfBaseIcms', 'nfAliquotaIcms', 'nfValorIcms', forcar);
+  calcularTributoFormularioNF('nfBasePis', 'nfAliquotaPis', 'nfValorPis', forcar);
+  calcularTributoFormularioNF('nfBaseCofins', 'nfAliquotaCofins', 'nfValorCofins', forcar);
+  calcularTributoFormularioNF('nfBaseIbsCbs', 'nfAliquotaIbs', 'nfValorIbs', forcar);
+  calcularTributoFormularioNF('nfBaseIbsCbs', 'nfAliquotaCbs', 'nfValorCbs', forcar);
+  atualizarResumoFiscalNF();
+}
+
+function limparFormularioItemNF() {
+  fecharCadastroRapidoPecaNF();
+  document.getElementById('nfItemId').value = '';
+  document.getElementById('nfBuscaPeca').value = '';
+  renderPecasParaNF(pecasParaNF);
+  document.getElementById('nfItemPeca').value = '';
+  document.getElementById('nfItemQtd').value = 1;
+  document.getElementById('nfItemValor').value = '';
+  Object.values(camposFiscaisNF).forEach(id => {
+    const el = document.getElementById(id);
+    el.value = '';
+    if (id.startsWith('nfValor')) el.dataset.auto = '';
+  });
+  document.getElementById('nfItemCancelarEdicao').style.display = 'none';
+  document.getElementById('nfItemAcaoTexto').textContent = 'Lançar item';
+  atualizarInfoPecaNF();
+  atualizarResumoFiscalNF();
+}
+
+function preencherItemParaEdicaoNF(item) {
+  document.getElementById('nfItemId').value = item.id;
+  document.getElementById('nfBuscaPeca').value = '';
+  renderPecasParaNF(pecasParaNF, item.peca_id);
+  document.getElementById('nfItemPeca').value = String(item.peca_id);
+  document.getElementById('nfItemQtd').value = item.quantidade ?? 1;
+  document.getElementById('nfItemValor').value = item.valor_unitario ?? '';
+  Object.entries(camposFiscaisNF).forEach(([campo, id]) => {
+    const el = document.getElementById(id);
+    const valor = item[campo];
+    el.value = valor === null || valor === undefined || (camposNumericosNF.has(campo) && Number(valor) === 0) ? '' : valor;
+    if (id.startsWith('nfValor')) el.dataset.auto = '0';
+  });
+  document.getElementById('nfItemCancelarEdicao').style.display = '';
+  document.getElementById('nfItemAcaoTexto').textContent = 'Salvar alterações';
+  atualizarInfoPecaNF();
+  atualizarResumoFiscalNF();
+  document.getElementById('nfFormItem').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function dadosFormularioItemNF() {
+  const quantidade = numeroOuNuloNF('nfItemQtd');
+  const dados = {
+    peca_id: Number(document.getElementById('nfItemPeca').value) || null,
+    quantidade: quantidade === null ? 1 : quantidade,
+    valor_unitario: numeroOuNuloNF('nfItemValor')
+  };
+  Object.entries(camposFiscaisNF).forEach(([campo, id]) => {
+    dados[campo] = camposNumericosNF.has(campo) ? numeroOuNuloNF(id) : textoOuNuloNF(id);
+  });
+  return dados;
+}
+
+function resumoFiscalItemNF(item) {
+  const classificacao = [item.ncm ? `NCM ${SGMF.esc(item.ncm)}` : '', item.cfop ? `CFOP ${SGMF.esc(item.cfop)}` : '']
+    .filter(Boolean).join(' · ');
+  const impostos = [
+    `ICMS ${SGMF.moeda(item.valor_icms)}`,
+    `PIS ${SGMF.moeda(item.valor_pis)}`,
+    `COFINS ${SGMF.moeda(item.valor_cofins)}`,
+    `IBS ${SGMF.moeda(item.valor_ibs)}`,
+    `CBS ${SGMF.moeda(item.valor_cbs)}`
+  ].join(' · ');
+  return `${classificacao ? `<div class="num">${classificacao}</div>` : ''}<div class="text-muted" style="font-size:11px">${impostos}</div>`;
+}
+
+carregarPecasParaNF();
+
+document.getElementById('nfCadastrarPecaNova').addEventListener('click', abrirCadastroRapidoPecaNF);
+document.getElementById('nfNovaPecaFechar').addEventListener('click', () => fecharCadastroRapidoPecaNF());
+document.getElementById('nfNovaPecaCancelar').addEventListener('click', () => fecharCadastroRapidoPecaNF());
+document.getElementById('nfNovaPecaSalvar').addEventListener('click', cadastrarPecaRapidaNF);
+document.getElementById('nfBuscaPeca').addEventListener('input', () => filtrarPecasParaNF());
+document.getElementById('nfItemPeca').addEventListener('change', aplicarPadroesDaPecaNF);
+document.getElementById('nfItemCancelarEdicao').addEventListener('click', limparFormularioItemNF);
+
+['nfItemQtd', 'nfItemValor'].forEach(id =>
+  document.getElementById(id).addEventListener('input', () => recalcularTributosNF(false)));
+
+[
+  ['nfBaseIcms', 'nfAliquotaIcms', 'nfValorIcms'],
+  ['nfBasePis', 'nfAliquotaPis', 'nfValorPis'],
+  ['nfBaseCofins', 'nfAliquotaCofins', 'nfValorCofins'],
+  ['nfBaseIbsCbs', 'nfAliquotaIbs', 'nfValorIbs'],
+  ['nfBaseIbsCbs', 'nfAliquotaCbs', 'nfValorCbs']
+].forEach(([baseId, aliquotaId, valorId]) => {
+  document.getElementById(baseId).addEventListener('input', () => calcularTributoFormularioNF(baseId, aliquotaId, valorId, true));
+  document.getElementById(aliquotaId).addEventListener('input', () => calcularTributoFormularioNF(baseId, aliquotaId, valorId, true));
+  document.getElementById(valorId).addEventListener('input', (e) => {
+    e.target.dataset.auto = '0';
+    atualizarResumoFiscalNF();
+  });
+});
+
+document.getElementById('nfBaseIbsCbs').addEventListener('input', () => {
+  calcularTributoFormularioNF('nfBaseIbsCbs', 'nfAliquotaIbs', 'nfValorIbs', true);
+  calcularTributoFormularioNF('nfBaseIbsCbs', 'nfAliquotaCbs', 'nfValorCbs', true);
+  atualizarResumoFiscalNF();
+});
+
+const botaoNovaNF = document.getElementById('botaoNovaNF');
+if (SGMF.somenteLeitura('estoque')) {
+  if (botaoNovaNF) botaoNovaNF.remove();
+} else if (botaoNovaNF) {
+  botaoNovaNF.onclick = () => {
+    document.getElementById('nfNumero').value = '';
+    document.getElementById('nfSerie').value = '';
+    document.getElementById('nfData').value = SGMF.hoje();
+    document.getElementById('nfFornecedor').value = '';
+    document.getElementById('nfObs').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalNotaFiscal')).show();
+  };
+}
+
+document.getElementById('nfSalvar').onclick = async () => {
+  const numero = document.getElementById('nfNumero').value.trim();
+  const fornecedor_id = Number(document.getElementById('nfFornecedor').value) || null;
+  if (!numero || !fornecedor_id) return SGMF.aviso('Preencha o número da nota e o fornecedor.');
+  try {
+    const nota = await SGMF.post('/api/notas-fiscais', {
+      numero, serie: document.getElementById('nfSerie').value || null,
+      data_emissao: document.getElementById('nfData').value || null,
+      fornecedor_id, observacao: document.getElementById('nfObs').value || null
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalNotaFiscal')).hide();
+    SGMF.sucesso('Nota fiscal lançada. Inclua os itens recebidos.');
+    await carregarNotasFiscais();
+    await abrirItensNF(nota);
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+async function abrirItensNF(nota) {
+  notaAtualNF = nota;
+  document.getElementById('nfItensNotaId').value = nota.id;
+  document.getElementById('nfItensTitulo').textContent =
+    `NF ${nota.numero}` + (nota.serie ? `/${nota.serie}` : '');
+  document.getElementById('nfItensSubtitulo').textContent = `${nota.fornecedor_nome || ''} · ${nota.status}`;
+  await carregarPecasParaNF();
+  limparFormularioItemNF();
+  await recarregarItensNF(nota.id);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalItensNF')).show();
+}
+
+async function recarregarItensNF(notaId) {
+  const nota = await SGMF.get(`/api/notas-fiscais/${notaId}/itens`);
+  notaAtualNF = nota;
+  const area = document.getElementById('listaItensNF');
+  const aberta = nota.status === 'Aberta';
+
+  document.getElementById('nfItensSubtitulo').textContent = `${nota.fornecedor_nome || ''} · ${nota.status}`;
+  document.getElementById('nfFormItem').style.display = aberta ? '' : 'none';
+  document.getElementById('nfFinalizar').style.display = aberta ? '' : 'none';
+  document.getElementById('nfEstornar').style.display = nota.status === 'Finalizada' ? '' : 'none';
+  document.getElementById('nfAvisoStatus').textContent = aberta
+    ? 'Os itens só entram no estoque quando a nota for finalizada. Os dados fiscais ficam vinculados ao item da nota.'
+    : (nota.status === 'Finalizada'
+        ? 'Nota finalizada: o estoque já foi atualizado com estas quantidades.'
+        : 'Nota cancelada: o estoque foi estornado.');
+
+  if (!nota.itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-boxes-packing"></i>
+      <strong>Nenhum item lançado</strong>Adicione as peças recebidas nesta nota.</div>`;
+  } else {
+    area.innerHTML = `<div class="table-responsive"><table class="table table-sm align-middle" style="font-size:13px">
+      <thead><tr><th>Peça</th><th>Fiscal</th><th class="text-end">Qtde</th>
+      <th class="text-end">Custo unit.</th><th class="text-end">Produtos</th>
+      <th class="text-end">Tributos</th>${aberta ? '<th></th>' : ''}</tr></thead>
+      <tbody>${nota.itens.map(i => `<tr>
+        <td><strong>${SGMF.esc(i.peca_descricao) || SGMF.esc(i.descricao)}</strong></td>
+        <td>${resumoFiscalItemNF(i)}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+        <td class="text-end num">${SGMF.moeda(i.valor_tributos)}</td>
+        ${aberta ? `<td class="text-end text-nowrap">
+          <button class="btn btn-contorno btn-icone" data-editar-item-nf="${i.id}" title="Editar item"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn-contorno btn-icone" data-excluir-item-nf="${i.id}" title="Remover item"><i class="fa-solid fa-trash"></i></button>
+        </td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+  }
+
+  document.getElementById('totaisNF').innerHTML = `
+    <div><strong>Produtos ${SGMF.moeda(nota.valor_total)}</strong></div>
+    <div class="text-muted" style="font-size:11px">
+      ICMS ${SGMF.moeda(nota.valor_icms)} · PIS ${SGMF.moeda(nota.valor_pis)} · COFINS ${SGMF.moeda(nota.valor_cofins)} ·
+      IBS ${SGMF.moeda(nota.valor_ibs)} · CBS ${SGMF.moeda(nota.valor_cbs)} · tributos informados ${SGMF.moeda(nota.valor_tributos)}
+    </div>`;
+
+  document.querySelectorAll('[data-editar-item-nf]').forEach(b => b.onclick = () => {
+    const item = nota.itens.find(i => i.id == b.dataset.editarItemNf);
+    if (item) preencherItemParaEdicaoNF(item);
+  });
+
+  document.querySelectorAll('[data-excluir-item-nf]').forEach(b => b.onclick = async () => {
+    if (!await SGMF.confirmar('Remover item?', 'O item sai da nota fiscal.', 'Remover')) return;
+    try {
+      await SGMF.del(`/api/notas-fiscais/${notaId}/itens/${b.dataset.excluirItemNf}`);
+      limparFormularioItemNF();
+      SGMF.sucesso('Item removido');
+      await recarregarItensNF(notaId);
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+document.getElementById('nfItemAdicionar').onclick = async () => {
+  const notaId = document.getElementById('nfItensNotaId').value;
+  const itemId = document.getElementById('nfItemId').value;
+  const dados = dadosFormularioItemNF();
+  if (!dados.peca_id) return SGMF.aviso('Selecione a peça já cadastrada no estoque.');
+  if (!dados.quantidade || dados.quantidade <= 0) return SGMF.aviso('Informe uma quantidade maior que zero.');
+  try {
+    if (itemId) {
+      await SGMF.put(`/api/notas-fiscais/${notaId}/itens/${itemId}`, dados);
+      SGMF.sucesso('Item atualizado');
+    } else {
+      await SGMF.post(`/api/notas-fiscais/${notaId}/itens`, dados);
+      SGMF.sucesso('Item lançado');
+    }
+    limparFormularioItemNF();
+    await recarregarItensNF(notaId);
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+document.getElementById('nfFinalizar').onclick = async () => {
+  const notaId = document.getElementById('nfItensNotaId').value;
+  if (!await SGMF.confirmar('Finalizar nota fiscal?',
+      'O estoque das peças lançadas será atualizado imediatamente e a nota ficará travada para edição.',
+      'Finalizar')) return;
+  try {
+    const nota = await SGMF.post(`/api/notas-fiscais/${notaId}/finalizar`, {});
+    SGMF.sucesso('Nota finalizada. Estoque atualizado.');
+    SGMF.limparCache('pecas');
+    await carregarPecasParaNF();
+    await telaEstoque.carregar();
+    await carregarNotasFiscais();
+    await abrirItensNF(nota);
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+document.getElementById('nfEstornar').onclick = async () => {
+  const notaId = document.getElementById('nfItensNotaId').value;
+  if (!await SGMF.confirmar('Estornar nota fiscal?',
+      'As quantidades que entraram no estoque por esta nota serão retiradas.', 'Estornar')) return;
+  try {
+    const nota = await SGMF.post(`/api/notas-fiscais/${notaId}/estornar`, {});
+    SGMF.sucesso('Nota estornada. Estoque revertido.');
+    SGMF.limparCache('pecas');
+    await carregarPecasParaNF();
+    await telaEstoque.carregar();
+    await carregarNotasFiscais();
+    await abrirItensNF(nota);
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+async function carregarNotasFiscais() {
+  const notas = await SGMF.get('/api/notas-fiscais');
+  const area = document.getElementById('listaNotasFiscais');
+  if (!notas.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-file-invoice"></i>
+      <strong>Nenhuma nota fiscal lançada</strong>Lance a nota do fornecedor para dar entrada nas peças.</div>`;
+    return;
+  }
+  const cor = { Aberta: 'azul', Finalizada: 'verde', Cancelada: 'cinza' };
+  const podeEditar = !SGMF.somenteLeitura('estoque');
+  area.innerHTML = `<div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:13px">
+    <thead><tr><th class="ps-3">Nota</th><th>Fornecedor</th><th>Emissão</th>
+    <th>Entrada</th><th class="text-end">Itens</th><th class="text-end">Produtos</th>
+    <th class="text-end">Tributos</th><th>Status</th><th></th></tr></thead>
+    <tbody>${notas.map(n => `<tr>
+      <td class="ps-3"><strong>${SGMF.esc(n.numero)}</strong>${n.serie ? '/' + SGMF.esc(n.serie) : ''}</td>
+      <td>${SGMF.esc(n.fornecedor_nome) || '—'}</td>
+      <td class="num">${SGMF.data(n.data_emissao)}</td>
+      <td class="num">${SGMF.data(n.data_entrada)}</td>
+      <td class="text-end num">${n.qtd_itens}</td>
+      <td class="text-end num">${SGMF.moeda(n.valor_total)}</td>
+      <td class="text-end num">${SGMF.moeda(n.valor_tributos)}</td>
+      <td>${SGMF.etiqueta(n.status, cor[n.status] || 'cinza')}</td>
+      <td class="text-end pe-3">
+        <button class="btn btn-contorno btn-icone" data-abrir-nf="${n.id}" title="Itens"><i class="fa-solid fa-boxes-packing"></i></button>
+        ${podeEditar && n.status !== 'Finalizada' ? `<button class="btn btn-contorno btn-icone" data-excluir-nf="${n.id}" title="Excluir"><i class="fa-solid fa-trash"></i></button>` : ''}
+      </td></tr>`).join('')}</tbody></table></div>`;
+
+  document.querySelectorAll('[data-abrir-nf]').forEach(b => b.onclick = () =>
+    abrirItensNF(notas.find(n => n.id == b.dataset.abrirNf)));
+  document.querySelectorAll('[data-excluir-nf]').forEach(b => b.onclick = async () => {
+    const nota = notas.find(n => n.id == b.dataset.excluirNf);
+    if (!await SGMF.confirmar('Excluir nota fiscal?',
+        `NF ${nota.numero} e seus itens serão removidos.`, 'Excluir')) return;
+    try {
+      await SGMF.del(`/api/notas-fiscais/${nota.id}`);
+      SGMF.sucesso('Nota fiscal excluída');
+      await carregarNotasFiscais();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+carregarNotasFiscais();
+
+</script>
+{% endblock %}

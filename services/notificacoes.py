@@ -1,204 +1,205 @@
-"""Aviso por e-mail dos alertas críticos.
+"""Envio e agendamento das notificações do SGMF Pro."""
+from __future__ import annotations
 
-Vem desligado: sem a senha do SMTP configurada, o sistema não tenta enviar
-nada e apenas informa que o envio está inativo. Para ligar, preencha
-SMTP_SENHA (no Gmail, uma "senha de aplicativo") — sem mexer em código.
-"""
 import smtplib
 import threading
 import time
+from html import escape
 from email.message import EmailMessage
-from email.utils import formataddr
 
 from flask import current_app
-from sqlalchemy import text
 
 from extensions import db
 from models import ControleTarefa
-from services.crud import ErroNegocio
+from services.alertas import (concluir_notificacao, listar_alertas_ativos,
+                              reservar_eventos_notificacao, sincronizar_estados)
 from services.tempo import agora, hoje
 
-TAREFA_DIARIA = "alertas_diarios"
+
+def _destinatarios():
+    bruto = current_app.config.get("EMAIL_DESTINATARIOS", "") or ""
+    for sep in (";", "\n"):
+        bruto = bruto.replace(sep, ",")
+    return [item.strip() for item in bruto.split(",") if item.strip()]
 
 
-def configurado():
-    cfg = current_app.config
-    return bool(cfg.get("SMTP_HOST") and cfg.get("SMTP_USUARIO") and cfg.get("SMTP_SENHA"))
+def email_configurado():
+    return bool(
+        current_app.config.get("ALERTAS_EMAIL_ATIVO")
+        and current_app.config.get("SMTP_HOST")
+        and current_app.config.get("SMTP_USUARIO")
+        and current_app.config.get("SMTP_SENHA")
+        and _destinatarios()
+    )
 
 
-def destinatarios_padrao():
-    bruto = current_app.config.get("EMAIL_DESTINATARIOS") or ""
-    return [e.strip() for e in bruto.replace(";", ",").split(",") if e.strip()]
+def enviar_email(assunto, corpo_texto, corpo_html=None):
+    if not email_configurado():
+        return False, "E mail não enviado porque o SMTP não está completamente configurado."
+
+    msg = EmailMessage()
+    msg["Subject"] = assunto
+    msg["From"] = current_app.config.get("EMAIL_REMETENTE") or current_app.config.get("SMTP_USUARIO")
+    msg["To"] = ", ".join(_destinatarios())
+    msg.set_content(corpo_texto)
+    if corpo_html:
+        msg.add_alternative(corpo_html, subtype="html")
+
+    host = current_app.config.get("SMTP_HOST")
+    porta = int(current_app.config.get("SMTP_PORTA", 587))
+    usuario = current_app.config.get("SMTP_USUARIO")
+    senha = current_app.config.get("SMTP_SENHA")
+    usar_ssl = bool(current_app.config.get("SMTP_SSL"))
+    usar_tls = bool(current_app.config.get("SMTP_TLS"))
+
+    cliente_cls = smtplib.SMTP_SSL if usar_ssl else smtplib.SMTP
+    with cliente_cls(host, porta, timeout=30) as smtp:
+        if not usar_ssl:
+            smtp.ehlo()
+            if usar_tls:
+                smtp.starttls()
+                smtp.ehlo()
+        smtp.login(usuario, senha)
+        smtp.send_message(msg)
+    return True, "E mail enviado."
 
 
-def enviar_email(assunto, corpo_html, destinatarios=None):
-    """Envia um e-mail. Levanta ErroNegocio com motivo claro se não der."""
-    cfg = current_app.config
-    if not configurado():
-        raise ErroNegocio("O envio de e-mail ainda não foi configurado. "
-                          "Preencha SMTP_SENHA nas variáveis de ambiente.")
-
-    para = destinatarios or destinatarios_padrao()
-    if not para:
-        raise ErroNegocio("Nenhum destinatário configurado em EMAIL_DESTINATARIOS.")
-
-    mensagem = EmailMessage()
-    mensagem["Subject"] = assunto
-    mensagem["From"] = formataddr(("SGMF Pro", cfg.get("EMAIL_REMETENTE") or cfg["SMTP_USUARIO"]))
-    mensagem["To"] = ", ".join(para)
-    mensagem.set_content("Este aviso do SGMF Pro precisa de um leitor de e-mail "
-                         "que exiba HTML.")
-    mensagem.add_alternative(corpo_html, subtype="html")
-
-    try:
-        if cfg.get("SMTP_SSL"):
-            servidor = smtplib.SMTP_SSL(cfg["SMTP_HOST"], cfg["SMTP_PORTA"], timeout=20)
+def _texto_eventos(eventos):
+    linhas = ["SGMF Pro", ""]
+    for e in eventos:
+        if e["status"] == "sanado":
+            linhas.append(f"SANADO: {e.get('titulo') or 'Alerta'}")
         else:
-            servidor = smtplib.SMTP(cfg["SMTP_HOST"], cfg["SMTP_PORTA"], timeout=20)
-        with servidor:
-            if cfg.get("SMTP_TLS") and not cfg.get("SMTP_SSL"):
-                servidor.starttls()
-            servidor.login(cfg["SMTP_USUARIO"], cfg["SMTP_SENHA"])
-            servidor.send_message(mensagem)
-    except smtplib.SMTPAuthenticationError:
-        raise ErroNegocio("O servidor recusou usuário ou senha. No Gmail é preciso usar "
-                          "uma senha de aplicativo, não a senha normal da conta.")
-    except (smtplib.SMTPException, OSError) as e:
-        raise ErroNegocio(f"Não consegui falar com o servidor de e-mail ({e.__class__.__name__}). "
-                          f"Confira SMTP_HOST e SMTP_PORTA.")
-    return para
+            linhas.append(f"NOVO ALERTA: {e.get('titulo') or 'Alerta'}")
+    linhas.extend(["", "Consulte o sistema para os detalhes atualizados."])
+    return "\n".join(linhas)
 
 
-# ----------------------------------------------------------------- conteúdo
-CORES = {"critico": "#C4451D", "atencao": "#F5A800", "info": "#0F3D56"}
+def _html_eventos(eventos):
+    itens = []
+    for e in eventos:
+        rotulo = "SANADO" if e["status"] == "sanado" else "NOVO ALERTA"
+        titulo = escape(str(e.get('titulo') or 'Alerta'))
+        itens.append(f"<li><strong>{rotulo}</strong>: {titulo}</li>")
+    return "<h2>SGMF Pro</h2><ul>" + "".join(itens) + "</ul><p>Consulte o sistema para os detalhes atualizados.</p>"
 
 
-def montar_resumo(alertas):
-    data = agora().strftime("%d/%m/%Y")
-    criticos = [a for a in alertas if a["nivel"] == "critico"]
-    atencao = [a for a in alertas if a["nivel"] == "atencao"]
+def enviar_mudancas_alertas():
+    sincronizar_estados()
+    eventos = reservar_eventos_notificacao()
+    if not eventos:
+        return {"enviados": 0, "motivo": "Sem mudanças de estado."}
 
-    def bloco(titulo, itens):
-        if not itens:
-            return ""
-        linhas = "".join(
-            f'<tr><td style="padding:8px 12px;border-left:4px solid {CORES[a["nivel"]]};'
-            f'border-bottom:1px solid #E4E9ED">'
-            f'<div style="font-weight:600;color:#16202B">{a["titulo"]}</div>'
-            f'<div style="font-size:13px;color:#5F7080">{a["detalhe"]}</div></td></tr>'
-            for a in itens)
-        return (f'<h3 style="font-family:Arial;font-size:15px;color:#0F3D56;'
-                f'margin:22px 0 8px">{titulo}</h3>'
-                f'<table style="width:100%;border-collapse:collapse">{linhas}</table>')
+    if not current_app.config.get("ALERTAS_MUDANCA_EMAIL_ATIVO", True):
+        concluir_notificacao(eventos, sucesso=True)
+        return {"enviados": 0, "motivo": "Avisos de mudança estão desativados."}
 
-    corpo = f"""
-    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#16202B">
-      <div style="background:#0E141B;padding:18px 22px;border-radius:6px 6px 0 0">
-        <div style="color:#fff;font-size:22px;font-weight:bold;letter-spacing:1px">SGMF Pro</div>
-        <div style="color:#F5A800;font-size:11px;letter-spacing:2px;text-transform:uppercase">
-          Alertas da frota · {data}</div>
-      </div>
-      <div style="border:1px solid #D6DEE5;border-top:0;padding:20px 22px;border-radius:0 0 6px 6px">
-        <p style="font-size:14px">Resumo automático da manutenção da frota:
-          <strong>{len(criticos)}</strong> item(ns) para ação imediata e
-          <strong>{len(atencao)}</strong> em atenção.</p>
-        {bloco("Ação imediata", criticos)}
-        {bloco("Atenção", atencao)}
-        <p style="font-size:12px;color:#5F7080;margin-top:26px">
-          Mensagem automática do SGMF Pro. Para parar de receber, desligue
-          ALERTAS_EMAIL_ATIVO nas configurações do sistema.</p>
-      </div>
-    </div>"""
-    return corpo
+    if not current_app.config.get("ALERTAS_SANADO_EMAIL_ATIVO", True):
+        permitidos = [e for e in eventos if e["status"] != "sanado"]
+        ignorados = [e for e in eventos if e["status"] == "sanado"]
+        concluir_notificacao(ignorados, sucesso=True)
+        eventos = permitidos
+        if not eventos:
+            return {"enviados": 0, "motivo": "Somente alertas sanados estavam pendentes."}
+
+    if not email_configurado():
+        concluir_notificacao(eventos, sucesso=False)
+        return {"enviados": 0, "motivo": "SMTP não configurado."}
+
+    novos = sum(1 for e in eventos if e["status"] == "ativo")
+    sanados = sum(1 for e in eventos if e["status"] == "sanado")
+    assunto = f"SGMF Pro | {novos} novo(s) | {sanados} sanado(s)"
+    try:
+        ok, detalhe = enviar_email(assunto, _texto_eventos(eventos), _html_eventos(eventos))
+        concluir_notificacao(eventos, sucesso=ok)
+        return {"enviados": len(eventos) if ok else 0, "motivo": detalhe}
+    except Exception as exc:
+        db.session.rollback()
+        concluir_notificacao(eventos, sucesso=False)
+        return {"enviados": 0, "motivo": str(exc)}
 
 
-def assunto_resumo(alertas):
-    criticos = sum(1 for a in alertas if a["nivel"] == "critico")
-    data = agora().strftime("%d/%m")
-    if criticos:
-        return f"[SGMF] {criticos} alerta(s) para ação imediata — {data}"
-    return f"[SGMF] Resumo de alertas da frota — {data}"
+def _controle_diario():
+    tarefa = "email_alertas_diario"
+    registro = ControleTarefa.query.filter_by(tarefa=tarefa).first()
+    if registro is None:
+        registro = ControleTarefa(tarefa=tarefa)
+        db.session.add(registro)
+        db.session.flush()
+    return registro
 
 
-# ------------------------------------------------------------------ tarefa
-def _reservar_execucao():
-    """Garante que só um processo envie o aviso do dia."""
-    hoje_data = hoje()
-    registro = ControleTarefa.query.filter_by(tarefa=TAREFA_DIARIA).first()
-    if not registro:
-        db.session.add(ControleTarefa(tarefa=TAREFA_DIARIA))
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
-    resultado = db.session.execute(text("""
-        UPDATE controle_tarefas SET ultima_execucao = :hoje
-         WHERE tarefa = :tarefa
-           AND (ultima_execucao IS NULL OR ultima_execucao < :hoje)"""),
-        {"hoje": hoje_data, "tarefa": TAREFA_DIARIA})
-    db.session.commit()
-    return resultado.rowcount == 1
-
-
-def _registrar_resultado(texto_resultado):
-    registro = ControleTarefa.query.filter_by(tarefa=TAREFA_DIARIA).first()
-    if registro:
-        registro.ultimo_resultado = texto_resultado[:300]
-        registro.atualizado_em = agora()
-        db.session.commit()
-
-
-def executar_alertas_diarios(forcar=False):
-    """Monta e envia o resumo do dia. Devolve o que aconteceu."""
-    from services import indicadores
-
-    if not current_app.config.get("ALERTAS_EMAIL_ATIVO"):
-        return {"enviado": False, "motivo": "Aviso por e-mail desligado (ALERTAS_EMAIL_ATIVO)."}
-    if not configurado():
+def enviar_resumo_diario(forcar=False):
+    if not email_configurado():
         return {"enviado": False, "motivo": "SMTP não configurado."}
-    if not forcar and not _reservar_execucao():
-        return {"enviado": False, "motivo": "O aviso de hoje já foi enviado."}
+    registro = _controle_diario()
+    data = hoje()
+    hora = int(current_app.config.get("ALERTAS_HORA", 7))
+    if not forcar:
+        if agora().hour < hora:
+            db.session.rollback()
+            return {"enviado": False, "motivo": "Ainda não chegou o horário do resumo."}
+        if registro.ultima_execucao == data:
+            db.session.rollback()
+            return {"enviado": False, "motivo": "Resumo já enviado hoje."}
 
-    alertas = indicadores.alertas()
-    relevantes = [a for a in alertas if a["nivel"] in ("critico", "atencao")]
-    if not relevantes:
-        _registrar_resultado("Sem alertas — nada enviado.")
-        return {"enviado": False, "motivo": "Nenhum alerta ativo hoje.", "alertas": 0}
+    ativos = listar_alertas_ativos()
+    if ativos:
+        linhas = ["SGMF Pro", "", f"Alertas ativos: {len(ativos)}", ""]
+        for a in ativos:
+            linhas.append(f"{a['severidade'].upper()}: {a['titulo']} | {a['mensagem']}")
+        assunto = f"SGMF Pro | Resumo diário | {len(ativos)} alerta(s) ativo(s)"
+    else:
+        linhas = ["SGMF Pro", "", "Não há alertas ativos no momento."]
+        assunto = "SGMF Pro | Resumo diário | Sem alertas ativos"
 
     try:
-        para = enviar_email(assunto_resumo(relevantes), montar_resumo(relevantes))
-    except ErroNegocio as e:
-        _registrar_resultado(f"Falhou: {e}")
-        return {"enviado": False, "motivo": str(e), "alertas": len(relevantes)}
+        ok, detalhe = enviar_email(assunto, "\n".join(linhas))
+        if ok:
+            registro.ultima_execucao = data
+            registro.ultimo_resultado = f"{len(ativos)} alerta(s) ativo(s)"
+            registro.atualizado_em = agora()
+            db.session.commit()
+        return {"enviado": ok, "motivo": detalhe}
+    except Exception as exc:
+        db.session.rollback()
+        return {"enviado": False, "motivo": str(exc)}
 
-    _registrar_resultado(f"Enviado para {', '.join(para)} ({len(relevantes)} alertas).")
-    return {"enviado": True, "destinatarios": para, "alertas": len(relevantes)}
+
+def processar_alertas(forcar_resumo=False):
+    mudancas = enviar_mudancas_alertas()
+    resumo = enviar_resumo_diario(forcar=forcar_resumo)
+    return {"mudancas": mudancas, "resumo": resumo}
 
 
-# --------------------------------------------------------------- agendador
 def iniciar_agendador(app):
-    """Dispara o resumo uma vez por dia, no horário configurado.
+    """Inicia um ciclo leve que reconcilia alertas e envia notificações."""
+    if getattr(app, "_sgmf_agendador_alertas", False):
+        return
+    app._sgmf_agendador_alertas = True
 
-    Roda dentro do próprio sistema, em uma thread de segundo plano. Com mais
-    de um processo no ar, todos verificam, mas só um consegue reservar o
-    envio do dia — os outros saem sem fazer nada.
-    """
-    if not app.config.get("ALERTAS_EMAIL_ATIVO"):
-        return None
+    intervalo = max(int(app.config.get("INTERVALO_AGENDADOR", 600)), 60)
 
-    def laco():
+    def ciclo():
         while True:
             try:
                 with app.app_context():
-                    if agora().hour == app.config.get("ALERTAS_HORA", 7):
-                        resultado = executar_alertas_diarios()
-                        if resultado.get("enviado"):
-                            print(f"[SGMF] Resumo de alertas enviado: {resultado}")
-            except Exception as e:
-                print(f"[SGMF] Agendador falhou desta vez: {e.__class__.__name__}: {e}")
-            time.sleep(app.config.get("INTERVALO_AGENDADOR", 600))
+                    resultado = processar_alertas()
+                    app.logger.info("Ciclo de alertas: %s", resultado)
+            except Exception:
+                app.logger.exception("Falha no ciclo de alertas")
+                try:
+                    with app.app_context():
+                        db.session.rollback()
+                except Exception:
+                    pass
+            time.sleep(intervalo)
 
-    thread = threading.Thread(target=laco, name="sgmf-alertas", daemon=True)
+    thread = threading.Thread(target=ciclo, name="sgmf-alertas", daemon=True)
     thread.start()
-    return thread
+
+
+# Compatibilidade com chamadas usadas por versões anteriores.
+enviar_alertas = enviar_mudancas_alertas
+enviar_alertas_email = enviar_mudancas_alertas
+disparar_alertas = processar_alertas

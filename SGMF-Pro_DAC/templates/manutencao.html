@@ -1,0 +1,246 @@
+{% extends "lista.html" %}
+{% block titulo %}Ordens de serviço{% endblock %}
+{% block cabecalho %}Ordens de serviço{% endblock %}
+{% block descricao %}Módulo 3 — abertura, execução, peças aplicadas e custo total calculado automaticamente.{% endblock %}
+{% block rotulo_novo %}Nova OS{% endblock %}
+{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoOS"></div>
+{% endblock %}
+
+{% block depois_tabela %}
+<div class="modal fade" id="modalPecas" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="pecasTitulo">Peças e serviços</h5>
+          <small style="color:var(--hi-vis)" id="pecasSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pecasOsId">
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-md-4">
+            <label class="form-label" for="itemPeca">Peça do estoque</label>
+            <select class="form-select form-select-sm" id="itemPeca">
+              <option value="">— serviço avulso —</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="itemDescricao">Descrição</label>
+            <input class="form-control form-control-sm" id="itemDescricao" placeholder="Ex.: mão de obra solda">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="itemQtd">Qtde</label>
+            <input type="number" step="any" class="form-control form-control-sm" id="itemQtd" value="1">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="itemValor">Valor unit.</label>
+            <input type="number" step="any" class="form-control form-control-sm" id="itemValor">
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-primario btn-sm w-100" id="itemAdicionar" title="Adicionar item">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+        </div>
+        <div class="row g-2 align-items-end mb-3" id="linhaPosicaoPneu" style="display:none">
+          <div class="col-md-4">
+            <label class="form-label" for="itemPosicaoPneu">Posição do pneu no caminhão</label>
+            <select class="form-select form-select-sm" id="itemPosicaoPneu">
+              <option value="">— selecione a posição —</option>
+            </select>
+          </div>
+        </div>
+        <p class="form-text mt-0">Peças do estoque saem do saldo automaticamente ao serem adicionadas
+          e voltam se o item for removido. Para itens do grupo <strong>Pneus</strong>, informe a posição
+          para identificar em qual roda do caminhão o pneu foi instalado.</p>
+        <div id="listaItens"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <div id="totaisOS" class="num"></div>
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const telaOS = SGMF.tela({
+  recurso: 'ordens',
+  tela: 'manutencao',
+  titulo: 'ordem de serviço',
+  filtroPeriodo: true,
+  ordem: [[1, 'desc']],
+  campos: [
+    { nome: 'data_abertura', rotulo: 'Data de abertura', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5, obrigatorio: true },
+    { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4 },
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 3, padrao: 'Preventiva',
+      opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
+    { nome: 'grupo', rotulo: 'Grupo do componente', tipo: 'select', col: 3, opcoes: SGMF.GRUPOS },
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 3, padrao: 'Média',
+      opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
+    { nome: 'status', rotulo: 'Status', tipo: 'select', col: 3, padrao: 'Aberta',
+      opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
+    { nome: 'fornecedor_id', rotulo: 'Oficina', tipo: 'ref', recurso: 'fornecedores', col: 4 },
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4 },
+    { nome: 'motorista_id', rotulo: 'Motorista que reportou', tipo: 'ref', recurso: 'motoristas', col: 4 },
+    { nome: 'custo_mao_obra', rotulo: 'Mão de obra (R$)', tipo: 'number', col: 3 },
+    { nome: 'custo_servicos', rotulo: 'Serviços externos (R$)', tipo: 'number', col: 3 },
+    { nome: 'data_fechamento', rotulo: 'Data de fechamento', tipo: 'date', col: 3,
+      ajuda: 'Preenchida sozinha ao finalizar.' },
+    { nome: 'avaliacao', rotulo: 'Avaliação do serviço', tipo: 'select', col: 3,
+      opcoes: [{ valor: 1, texto: '1 — ruim' }, { valor: 2, texto: '2' }, { valor: 3, texto: '3 — regular' },
+               { valor: 4, texto: '4' }, { valor: 5, texto: '5 — excelente' }] },
+    { nome: 'descricao', rotulo: 'Serviço executado / defeito relatado', tipo: 'textarea', col: 12 }
+  ],
+  colunas: [
+    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
+    { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
+    { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
+    { campo: 'grupo', rotulo: 'Grupo' },
+    { campo: 'prioridade', rotulo: 'Prioridade', render: v => SGMF.status(v) },
+    { campo: 'status', rotulo: 'Status', render: v => SGMF.status(v) },
+    { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
+    { campo: 'custo_pecas', rotulo: 'Peças', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
+                           <i class="fa-solid fa-gears"></i></button>` + SGMF.anexos.botao('ordens', item),
+  aoRenderizar: (linhas) => {
+    const abertas = linhas.filter(o => o.status !== 'Finalizada');
+    const total = linhas.reduce((s, o) => s + (o.custo_total || 0), 0);
+    const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
+    const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
+    document.getElementById('resumoOS').innerHTML = `
+      <div class="medidor"><div class="rotulo">OS no período</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
+      <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>
+      <div class="medidor"><div class="rotulo">Custo de manutenção</div><div class="valor num" style="font-size:20px">${SGMF.moeda(total)}</div></div>`;
+
+    document.querySelectorAll('[data-pecas]').forEach(b =>
+      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
+
+    SGMF.anexos.ligarBotoes('ordens', linhas,
+      (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
+      () => telaOS.carregar());
+  }
+});
+
+/* ------------------------------------------------- peças aplicadas na OS */
+let pecasDisponiveis = [];
+
+SGMF.get('/api/pecas').then(lista => {
+  pecasDisponiveis = lista;
+  document.getElementById('itemPeca').innerHTML = '<option value="">— serviço avulso —</option>' +
+    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
+});
+
+document.getElementById('itemPosicaoPneu').innerHTML += SGMF.POSICOES
+  .map(p => `<option value="${p}">${p}</option>`).join('');
+
+function alternarPosicaoPneu(grupo) {
+  const linha = document.getElementById('linhaPosicaoPneu');
+  const mostrar = grupo === 'Pneus';
+  linha.style.display = mostrar ? '' : 'none';
+  if (!mostrar) document.getElementById('itemPosicaoPneu').value = '';
+}
+
+document.getElementById('itemPeca').addEventListener('change', (e) => {
+  const peca = pecasDisponiveis.find(p => p.id == e.target.value);
+  if (peca) {
+    document.getElementById('itemDescricao').value = peca.descricao;
+    document.getElementById('itemValor').value = peca.custo_unitario || '';
+  }
+  alternarPosicaoPneu(peca ? peca.grupo : '');
+});
+
+// serviço avulso (sem peça do estoque) também pode ser um pneu: se o texto
+// digitado mencionar "pneu", mostra a posição mesmo sem grupo cadastrado.
+document.getElementById('itemDescricao').addEventListener('input', (e) => {
+  if (document.getElementById('itemPeca').value) return;  // grupo já vem da peça
+  alternarPosicaoPneu(/pneu/i.test(e.target.value) ? 'Pneus' : '');
+});
+
+async function abrirPecas(os) {
+  document.getElementById('pecasOsId').value = os.id;
+  document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
+  document.getElementById('pecasSubtitulo').textContent =
+    `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+  alternarPosicaoPneu('');
+  await recarregarItens(os.id);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
+}
+
+async function recarregarItens(osId) {
+  const os = await SGMF.get(`/api/ordens/${osId}/itens`);
+  const area = document.getElementById('listaItens');
+  if (!os.itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-screwdriver-wrench"></i>
+      <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
+  } else {
+    area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
+      <thead><tr><th>Item</th><th>Grupo</th><th>Posição do pneu</th><th class="text-end">Qtde</th>
+      <th class="text-end">Valor unit.</th><th class="text-end">Total</th><th>Estoque</th><th></th></tr></thead>
+      <tbody>${os.itens.map(i => `<tr>
+        <td>${SGMF.esc(i.descricao)}</td>
+        <td>${SGMF.esc(i.grupo) || '—'}</td>
+        <td>${SGMF.esc(i.posicao_pneu) || '—'}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+        <td>${i.baixado_estoque ? SGMF.etiqueta('baixado', 'azul') : SGMF.etiqueta('avulso', 'cinza')}</td>
+        <td class="text-end"><button class="btn btn-contorno btn-icone" data-item="${i.id}">
+          <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+  }
+
+  document.getElementById('totaisOS').innerHTML =
+    `Peças <strong>${SGMF.moeda(os.custo_pecas)}</strong> +
+     Mão de obra <strong>${SGMF.moeda(os.custo_mao_obra)}</strong> +
+     Serviços <strong>${SGMF.moeda(os.custo_servicos)}</strong> =
+     <span style="color:var(--petroleo);font-size:16px"><strong>${SGMF.moeda(os.custo_total)}</strong></span>`;
+
+  document.querySelectorAll('[data-item]').forEach(b => b.onclick = async () => {
+    if (!await SGMF.confirmar('Remover item?', 'Peças do estoque voltam ao saldo.', 'Remover')) return;
+    try {
+      await SGMF.del(`/api/ordens/${osId}/itens/${b.dataset.item}`);
+      SGMF.sucesso('Item removido');
+      await recarregarItens(osId);
+      telaOS.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+document.getElementById('itemAdicionar').onclick = async () => {
+  const osId = document.getElementById('pecasOsId').value;
+  try {
+    const posicaoPneu = document.getElementById('itemPosicaoPneu').value || null;
+    await SGMF.post(`/api/ordens/${osId}/itens`, {
+      peca_id: Number(document.getElementById('itemPeca').value) || null,
+      descricao: document.getElementById('itemDescricao').value,
+      grupo: posicaoPneu ? 'Pneus' : null,
+      quantidade: Number(document.getElementById('itemQtd').value) || 1,
+      valor_unitario: Number(document.getElementById('itemValor').value) || 0,
+      posicao_pneu: posicaoPneu
+    });
+    document.getElementById('itemPeca').value = '';
+    document.getElementById('itemDescricao').value = '';
+    document.getElementById('itemQtd').value = 1;
+    document.getElementById('itemValor').value = '';
+    alternarPosicaoPneu('');
+    SGMF.sucesso('Item adicionado');
+    SGMF.limparCache('pecas');
+    pecasDisponiveis = await SGMF.get('/api/pecas');
+    await recarregarItens(osId);
+    telaOS.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+</script>
+{% endblock %}
