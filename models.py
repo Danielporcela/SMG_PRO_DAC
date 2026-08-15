@@ -145,6 +145,12 @@ class Usuario(db.Model):
         TELAS_VALIDAS ou níveis inválidos são ignorados silenciosamente.
         """
         self.permissoes = []
+        # As linhas antigas precisam ser removidas do banco ANTES de inserir
+        # as novas: sem este flush, o SQLAlchemy pode tentar inserir a linha
+        # nova (mesma tela) antes de apagar a antiga, o que viola a
+        # restrição de unicidade (usuario_id, tela) — uq_permissao_usuario_tela
+        # — e derruba a edição com IntegrityError.
+        db.session.flush()
         for item in lista or []:
             tela = (item.get("tela") or "").strip()
             nivel = (item.get("nivel") or "nenhum").strip()
