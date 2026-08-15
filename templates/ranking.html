@@ -15,7 +15,7 @@
 <script>
 const MEDALHAS = ['🥇', '🥈', '🥉'];
 
-function bloco(titulo, icone, itens, colunas, vazio) {
+function bloco(id, titulo, icone, itens, colunas, vazio) {
   const linhas = itens.length ? itens.map((item, i) => `<tr>
       <td class="ps-3" style="width:44px;font-size:16px">${MEDALHAS[i] || `<span class="num text-muted">${i + 1}º</span>`}</td>
       ${colunas.map(c => `<td class="${c.classe || ''}">${c.render(item)}</td>`).join('')}
@@ -25,9 +25,15 @@ function bloco(titulo, icone, itens, colunas, vazio) {
 
   return `<div class="col-lg-6">
     <div class="cartao h-100">
-      <div class="cartao-topo"><h3><i class="fa-solid ${icone} me-2" style="color:var(--petroleo)"></i>${SGMF.esc(titulo)}</h3></div>
+      <div class="cartao-topo">
+        <h3><i class="fa-solid ${icone} me-2" style="color:var(--petroleo)"></i>${SGMF.esc(titulo)}</h3>
+        <button type="button" class="btn btn-contorno btn-sm ms-auto" title="Imprimir este ranking"
+                onclick="SGMF.imprimir('${id}', '${SGMF.esc(titulo)}')">
+          <i class="fa-solid fa-print"></i>
+        </button>
+      </div>
       <div class="cartao-corpo p-0">
-        <table class="table table-sm align-middle mb-0" style="font-size:13px">
+        <table id="${id}" class="table table-sm align-middle mb-0" style="font-size:13px">
           <thead><tr><th class="ps-3"></th>${colunas.map(c => `<th class="${c.classe || ''}">${c.rotulo}</th>`).join('')}</tr></thead>
           <tbody>${linhas}</tbody>
         </table>
@@ -42,31 +48,31 @@ async function carregar() {
   const r = await SGMF.get(`/api/painel/rankings?inicio=${i}&fim=${f}`);
 
   document.getElementById('areaRankings').innerHTML = [
-    bloco('Motoristas · melhor consumo', 'fa-id-card', r.melhor_consumo, [
+    bloco('tabelaMelhorConsumo', 'Motoristas · melhor consumo', 'fa-id-card', r.melhor_consumo, [
       { rotulo: 'Motorista', render: m => SGMF.esc(m.nome) },
       { rotulo: 'Km rodados', classe: 'text-end num', render: m => SGMF.numero(m.km) },
       { rotulo: 'Km/L', classe: 'text-end num', render: m => `<strong>${SGMF.numero(m.consumo, 2)}</strong>` }
     ], 'Registre abastecimentos informando o motorista.'),
 
-    bloco('Motoristas · menor custo por km', 'fa-coins', r.menor_custo_km, [
+    bloco('tabelaMenorCustoKm', 'Motoristas · menor custo por km', 'fa-coins', r.menor_custo_km, [
       { rotulo: 'Motorista', render: m => SGMF.esc(m.nome) },
       { rotulo: 'Gasto', classe: 'text-end num', render: m => SGMF.moeda(m.custo) },
       { rotulo: 'Custo/km', classe: 'text-end num', render: m => `<strong>${SGMF.moeda(m.custo_km)}</strong>` }
     ], 'Sem abastecimentos com motorista informado.'),
 
-    bloco('Veículos mais econômicos', 'fa-leaf', r.veiculos_economicos, [
+    bloco('tabelaVeiculosEconomicos', 'Veículos mais econômicos', 'fa-leaf', r.veiculos_economicos, [
       { rotulo: 'Veículo', render: v => `<span class="prefixo">${SGMF.esc(v.veiculo)}</span> <span class="placa ms-1">${SGMF.esc(v.placa)}</span>` },
       { rotulo: 'Custo/km', classe: 'text-end num', render: v => SGMF.moeda(v.custo_km) },
       { rotulo: 'Km/L', classe: 'text-end num', render: v => `<strong>${SGMF.numero(v.consumo, 2)}</strong>` }
     ], 'Registre abastecimentos para calcular o consumo.'),
 
-    bloco('Veículos de maior custo', 'fa-sack-dollar', r.veiculos_caros, [
+    bloco('tabelaVeiculosCaros', 'Veículos de maior custo', 'fa-sack-dollar', r.veiculos_caros, [
       { rotulo: 'Veículo', render: v => `<span class="prefixo">${SGMF.esc(v.veiculo)}</span> <span class="placa ms-1">${SGMF.esc(v.placa)}</span>` },
       { rotulo: 'Manutenção', classe: 'text-end num', render: v => SGMF.moeda(v.manutencao) },
       { rotulo: 'Total', classe: 'text-end num', render: v => `<strong>${SGMF.moeda(v.total)}</strong>` }
     ], 'Sem custos lançados no período.'),
 
-    bloco('Veículos com maior tempo parado', 'fa-hourglass-half', r.maior_tempo_parado, [
+    bloco('tabelaMaiorTempoParado', 'Veículos com maior tempo parado', 'fa-hourglass-half', r.maior_tempo_parado, [
       { rotulo: 'Veículo', render: v => `<span class="prefixo">${SGMF.esc(v.veiculo)}</span> <span class="placa ms-1">${SGMF.esc(v.placa)}</span>` },
       { rotulo: 'Ordens', classe: 'text-end num', render: v => v.ordens },
       { rotulo: 'Dias parado', classe: 'text-end num', render: v => `<strong>${v.dias_parado}</strong>` }

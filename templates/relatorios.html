@@ -12,12 +12,14 @@
         <input type="date" class="form-control" id="rInicio" value="{{ inicio_periodo }}"></div>
       <div class="col-md-2"><label class="form-label" for="rFim">Fim</label>
         <input type="date" class="form-control" id="rFim" value="{{ hoje }}"></div>
-      <div class="col-md-3"><label class="form-label" for="rVeiculo">Veículo</label>
+      <div class="col-md-2"><label class="form-label" for="rVeiculo">Veículo</label>
         <select class="form-select" id="rVeiculo"><option value="">Todos</option></select></div>
-      <div class="col-md-3"><label class="form-label" for="rMotorista">Motorista</label>
+      <div class="col-md-2"><label class="form-label" for="rMotorista">Motorista</label>
         <select class="form-select" id="rMotorista"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rFornecedor">Oficina / posto</label>
         <select class="form-select" id="rFornecedor"><option value="">Todos</option></select></div>
+      <div class="col-md-2"><label class="form-label" for="rGrupo">Grupo (peças)</label>
+        <select class="form-select" id="rGrupo"><option value="">Todos</option></select></div>
     </div>
   </div>
 </div>
@@ -70,10 +72,14 @@ const RELATORIOS = [
     texto: 'Situação, hodômetro e próxima troca de óleo de cada veículo.' },
   { id: 'pneus', nome: 'Controle de pneus', icone: 'fa-circle-dot',
     texto: 'Posição, sulco, vida e quais pneus precisam de troca.' },
+  { id: 'pneus_movimentos', nome: 'Movimentação de pneus', icone: 'fa-arrows-rotate',
+    texto: 'Trocas do período: veículo, posição, pneu retirado e instalado.' },
+  { id: 'lubrificantes', nome: 'Óleos e fluidos', icone: 'fa-oil-can',
+    texto: 'Entradas e saídas de óleos, fluidos e graxas, com veículo e OS.' },
   { id: 'estoque', nome: 'Posição de estoque', icone: 'fa-boxes-stacked',
-    texto: 'Saldo, custo médio e itens abaixo do estoque mínimo.' },
+    texto: 'Saldo, custo médio e itens abaixo do mínimo. Aceita o filtro de grupo.' },
   { id: 'movimentos', nome: 'Movimentação de estoque', icone: 'fa-right-left',
-    texto: 'Entradas, saídas e ajustes registrados no período.' }
+    texto: 'Entradas, saídas e ajustes do período. Aceita o filtro de grupo.' }
 ];
 
 function parametros() {
@@ -81,7 +87,8 @@ function parametros() {
     inicio: document.getElementById('rInicio').value,
     fim: document.getElementById('rFim').value
   });
-  ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id'].forEach(par => {
+  ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id',
+   'rGrupo:grupo'].forEach(par => {
     const [campo, chave] = par.split(':');
     const v = document.getElementById(campo).value;
     if (v) p.set(chave, v);
@@ -93,19 +100,36 @@ function baixar(relatorio, formato) {
   window.location = `/relatorios/${relatorio}.${formato}?${parametros()}`;
 }
 
+/* Abre o PDF do relatório (já formatado, com título e período) numa nova
+   aba e dispara o diálogo de impressão do navegador assim que ele carrega. */
+function imprimir(relatorio) {
+  const janela = window.open(`/relatorios/${relatorio}.pdf?${parametros()}`, '_blank');
+  if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+  const tentarImprimir = setInterval(() => {
+    try {
+      if (janela.closed) return clearInterval(tentarImprimir);
+      janela.focus();
+      janela.print();
+      clearInterval(tentarImprimir);
+    } catch (e) { /* PDF ainda carregando — tenta de novo no próximo tick */ }
+  }, 600);
+}
+
 document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
   <div class="col-lg-4 col-md-6">
     <div class="cartao h-100">
       <div class="cartao-corpo">
         <h3 style="font-size:16px"><i class="fa-solid ${r.icone} me-2" style="color:var(--petroleo)"></i>${r.nome}</h3>
         <p class="mt-2 mb-3" style="font-size:13px;color:var(--texto-suave)">${r.texto}</p>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
           <button class="btn btn-primario btn-sm" onclick="baixar('${r.id}','pdf')">
             <i class="fa-solid fa-file-pdf me-1"></i> PDF</button>
           <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','xlsx')">
             <i class="fa-solid fa-file-excel me-1"></i> Excel</button>
           <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
             <i class="fa-solid fa-file-csv me-1"></i> CSV</button>
+          <button class="btn btn-contorno btn-sm" onclick="imprimir('${r.id}')" title="Abrir e imprimir">
+            <i class="fa-solid fa-print me-1"></i> Imprimir</button>
         </div>
       </div>
     </div>
@@ -162,10 +186,20 @@ if (botaoRestaurar) {
     document.getElementById(id).innerHTML = '<option value="">Todos</option>' +
       lista.map(o => `<option value="${o.valor}">${SGMF.esc(o.texto)}</option>`).join('');
   };
+  const preencherGrupos = async () => {
+    try {
+      const resposta = await fetch('/relatorios/grupos-estoque.json', { credentials: 'same-origin' });
+      if (!resposta.ok) return;
+      const grupos = await resposta.json();
+      document.getElementById('rGrupo').innerHTML = '<option value="">Todos</option>' +
+        grupos.map(g => `<option value="${SGMF.esc(g)}">${SGMF.esc(g)}</option>`).join('');
+    } catch (e) { /* sem grupos cadastrados ainda — a caixa fica só com "Todos" */ }
+  };
   await Promise.all([
     preencher('rVeiculo', 'veiculos'),
     preencher('rMotorista', 'motoristas'),
-    preencher('rFornecedor', 'fornecedores')
+    preencher('rFornecedor', 'fornecedores'),
+    preencherGrupos()
   ]);
 })();
 </script>

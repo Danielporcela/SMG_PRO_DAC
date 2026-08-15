@@ -65,8 +65,13 @@ const SGMF = (() => {
     minimumFractionDigits: casas, maximumFractionDigits: casas
   });
   const data = (v) => v ? new Date(v + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
-  const hoje = () => new Date().toISOString().slice(0, 10);
-  const primeiroDiaMes = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); };
+  /* Usa a data local do navegador (fuso do usuário), nunca UTC: toISOString()
+     converte para UTC e, à noite no Brasil, devolvia o dia seguinte —
+     fazendo o registro nascer com data "no futuro" e sumir da listagem,
+     que é filtrada pela data de hoje calculada no servidor (fuso correto). */
+  const paraISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hoje = () => paraISO(new Date());
+  const primeiroDiaMes = () => { const d = new Date(); d.setDate(1); return paraISO(d); };
 
   const etiqueta = (texto, cor) => `<span class="etiqueta ${esc(cor)}">${esc(texto)}</span>`;
 
@@ -126,6 +131,51 @@ const SGMF = (() => {
     } catch (e) { return []; }
   }
 
+  /* ---------------------------------------------------------------- imprimir */
+  /* Abre uma janela só com o conteúdo do elemento informado (normalmente uma
+     tabela de relatório/ranking), formatado para impressão, e já chama o
+     diálogo de impressão do navegador. Usado pelos botões "Imprimir" das
+     telas de Relatórios e Rankings. */
+  function imprimir(idOuElemento, titulo) {
+    const el = typeof idOuElemento === 'string' ? document.getElementById(idOuElemento) : idOuElemento;
+    if (!el) return aviso('Não encontrei o conteúdo para imprimir.');
+
+    const inicioEl = document.getElementById('filtroInicio') || document.getElementById('rInicio');
+    const fimEl = document.getElementById('filtroFim') || document.getElementById('rFim');
+    const periodo = (inicioEl && fimEl && inicioEl.value && fimEl.value)
+      ? `Período de ${data(inicioEl.value)} a ${data(fimEl.value)} · ` : '';
+    const geradoEm = new Date().toLocaleString('pt-BR');
+
+    const janela = window.open('', '_blank', 'width=1000,height=720');
+    if (!janela) return aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+    janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+      <title>${esc(titulo)} · SGMF Pro</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; }
+        h1 { font-size: 19px; margin: 0 0 2px; color: #0F3D56; }
+        .sub { font-size: 12px; color: #666; margin-bottom: 18px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        th, td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+        th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+        tr:nth-child(even) td { background: #F5F7F9; }
+        .num, .text-end { text-align: right; }
+        .etiqueta { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10.5px; }
+        .prefixo, .placa { font-weight: 600; }
+        .rodape-impressao { margin-top: 16px; font-size: 10.5px; color: #888; }
+        @media print { @page { margin: 14mm; } }
+      </style>
+      </head><body>
+      <h1>SGMF Pro · ${esc(titulo)}</h1>
+      <div class="sub">${periodo}Gerado em ${geradoEm}</div>
+      ${el.outerHTML}
+      <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
+      </body></html>`);
+    janela.document.close();
+    janela.onload = () => { janela.focus(); janela.print(); };
+  }
+
   /* ------------------------------------------------------------- permissão */
   const perfil = () => window.SGMF_PERFIL || 'operador';
   const nivelNaTela = (tela) => {
@@ -181,6 +231,6 @@ const SGMF = (() => {
     esc, escSeTexto, escObjeto,
     moeda, numero, data, hoje, primeiroDiaMes, etiqueta, status,
     opcoes, limparCache, grafico, PALETA, GRUPOS, POSICOES, carregarContadorAlertas,
-    perfil, somenteLeitura, podeVer, podeEditar, nivelNaTela
+    perfil, somenteLeitura, podeVer, podeEditar, nivelNaTela, imprimir
   };
 })();

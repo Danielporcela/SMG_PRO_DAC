@@ -13,7 +13,8 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from extensions import db
-from models import Abastecimento, MovimentoEstoque, OrdemServico, Peca, Pneu, Veiculo
+from models import (Abastecimento, ItemOS, MovimentoEstoque, OrdemServico, Peca,
+                    Pneu, Veiculo)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
 from services.restauracao import restaurar
@@ -26,8 +27,10 @@ TITULOS = {
     "manutencoes": "Ordens de serviço",
     "veiculos": "Frota cadastrada",
     "pneus": "Controle de pneus",
+    "pneus_movimentos": "Movimentação de pneus",
     "estoque": "Posição de estoque",
     "movimentos": "Movimentação de estoque",
+    "lubrificantes": "Óleos e fluidos",
     "custos": "Custos por veículo",
 }
 
@@ -45,6 +48,7 @@ def montar_dados(relatorio):
     motorista_id = request.args.get("motorista_id", type=int)
     fornecedor_id = request.args.get("fornecedor_id", type=int)
     centro_custo = request.args.get("centro_custo")
+    grupo = request.args.get("grupo")
 
     if relatorio == "abastecimentos":
         q = Abastecimento.query.filter(Abastecimento.data.between(inicio, fim))
@@ -110,7 +114,48 @@ def montar_dados(relatorio):
                            p.vida, d["km_rodados"], p.status,
                            "TROCAR" if d["trocar"] else "OK"])
 
+    elif relatorio == "pneus_movimentos":
+        # Cada troca registrada nas ordens de serviço: quando a posição do pneu
+        # é informada na OS, o sistema guarda a posição e qual pneu foi baixado
+        # (pneu_substituido_id). Este relatório lista essas trocas por período.
+        q = (ItemOS.query
+             .join(OrdemServico, ItemOS.ordem_servico_id == OrdemServico.id)
+             .filter(ItemOS.posicao_pneu.isnot(None),
+                     OrdemServico.data_abertura.between(inicio, fim)))
+        if veiculo_id:
+            q = q.filter(OrdemServico.veiculo_id == veiculo_id)
+        cab = ["Data", "OS", "Veículo", "Posição", "Pneu retirado",
+               "Sulco retirado (mm)", "Pneu instalado", "Item aplicado na OS"]
+        linhas = []
+        for item in q.order_by(OrdemServico.data_abertura, ItemOS.id).all():
+            os_obj = item.ordem
+            antigo = (db.session.get(Pneu, item.pneu_substituido_id)
+                      if item.pneu_substituido_id else None)
+            novo = None
+            if os_obj and os_obj.veiculo_id:
+                q_novo = Pneu.query.filter(Pneu.veiculo_id == os_obj.veiculo_id,
+                                           Pneu.posicao == item.posicao_pneu)
+                if antigo:
+                    q_novo = q_novo.filter(Pneu.id != antigo.id)
+                if os_obj.data_abertura:
+                    q_novo = q_novo.filter(Pneu.data_instalacao >= os_obj.data_abertura)
+                novo = q_novo.order_by(Pneu.data_instalacao, Pneu.id).first()
+            linhas.append([
+                os_obj.data_abertura.strftime("%d/%m/%Y")
+                if os_obj and os_obj.data_abertura else "—",
+                os_obj.numero if os_obj else "—",
+                f"{os_obj.veiculo.prefixo}/{os_obj.veiculo.placa}"
+                if os_obj and os_obj.veiculo else "—",
+                item.posicao_pneu,
+                antigo.numero_fogo if antigo else "—",
+                round(antigo.sulco_mm or 0, 1) if antigo else "—",
+                novo.numero_fogo if novo else "—",
+                item.descricao or (item.peca.descricao if item.peca else "Pneu")])
+
     elif relatorio == "estoque":
+        q = Peca.query
+        if grupo:
+            q = q.filter(Peca.grupo == grupo)
         cab = ["Código", "Descrição", "Grupo", "Un.", "Saldo", "Mínimo",
                "Custo unit. R$", "Valor total R$", "Situação"]
         linhas = [[p.codigo, p.descricao, p.grupo or "—", p.unidade,
@@ -118,10 +163,12 @@ def montar_dados(relatorio):
                    round(p.custo_unitario or 0, 2),
                    round((p.quantidade or 0) * (p.custo_unitario or 0), 2),
                    "REPOR" if (p.quantidade or 0) <= (p.estoque_minimo or 0) else "OK"]
-                  for p in Peca.query.order_by(Peca.descricao).all()]
+                  for p in q.order_by(Peca.descricao).all()]
 
     elif relatorio == "movimentos":
         q = MovimentoEstoque.query.filter(MovimentoEstoque.data.between(inicio, fim))
+        if grupo:
+            q = q.join(Peca, MovimentoEstoque.peca_id == Peca.id).filter(Peca.grupo == grupo)
         cab = ["Data", "Peça", "Tipo", "Quantidade", "Custo unit. R$", "Total R$", "Documento"]
         linhas = [[m.data.strftime("%d/%m/%Y"),
                    f"{m.peca.codigo} - {m.peca.descricao}" if m.peca else "—",
@@ -130,6 +177,47 @@ def montar_dados(relatorio):
                    round((m.quantidade or 0) * (m.custo_unitario or 0), 2),
                    m.documento or "—"]
                   for m in q.order_by(MovimentoEstoque.data).all()]
+
+    elif relatorio == "lubrificantes":
+        # Entradas e saídas de óleos, fluidos (hidráulico, freio, ATF), graxas e
+        # lubrificantes em geral. O produto é reconhecido pelo texto do cadastro
+        # da peça (descrição, grupo ou código), no mesmo espírito do
+        # reconhecimento de pneus feito em services/correcoes_os.py.
+        TERMOS_LUBRIFICANTES = ("oleo", "óleo", "fluido", "fluído", "hidraulic",
+                                "hidráulic", "lubrific", "graxa", "atf")
+
+        def _eh_lubrificante(peca):
+            if peca is None:
+                return False
+            texto = " ".join(str(v or "") for v in
+                             (peca.descricao, peca.grupo, peca.codigo)).casefold()
+            return any(t in texto for t in TERMOS_LUBRIFICANTES)
+
+        q = MovimentoEstoque.query.filter(MovimentoEstoque.data.between(inicio, fim))
+        cab = ["Data", "Produto", "Grupo", "Tipo", "Quantidade", "Un.",
+               "Custo unit. R$", "Total R$", "Veículo / OS", "Documento"]
+        linhas = []
+        for m in q.order_by(MovimentoEstoque.data).all():
+            if not _eh_lubrificante(m.peca):
+                continue
+            os_obj = (db.session.get(OrdemServico, m.ordem_servico_id)
+                      if m.ordem_servico_id else None)
+            if veiculo_id and (os_obj is None or os_obj.veiculo_id != veiculo_id):
+                continue
+            destino = "—"
+            if os_obj:
+                veic = (f"{os_obj.veiculo.prefixo}/{os_obj.veiculo.placa}"
+                        if os_obj.veiculo else "")
+                destino = f"{veic} · {os_obj.numero}".strip(" ·")
+            linhas.append([m.data.strftime("%d/%m/%Y"),
+                           f"{m.peca.codigo} - {m.peca.descricao}" if m.peca else "—",
+                           (m.peca.grupo or "—") if m.peca else "—",
+                           (m.tipo or "").capitalize(),
+                           round(m.quantidade or 0, 2),
+                           m.peca.unidade if m.peca else "",
+                           round(m.custo_unitario or 0, 2),
+                           round((m.quantidade or 0) * (m.custo_unitario or 0), 2),
+                           destino, m.documento or "—"])
 
     elif relatorio == "custos":
         dados = indicadores.series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo"]
@@ -164,7 +252,9 @@ def exportar_excel(relatorio):
     ws = wb.active
     ws.title = TITULOS.get(relatorio, "Relatório")[:31]
 
-    ws.append([f"SGMF Pro · {TITULOS.get(relatorio, relatorio)}"])
+    grupo = request.args.get("grupo")
+    ws.append([f"SGMF Pro · {TITULOS.get(relatorio, relatorio)}"
+               + (f" — Grupo: {grupo}" if grupo else "")])
     ws.append([f"Período: {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} · "
                f"emitido em {agora():%d/%m/%Y %H:%M}"])
     ws.append([])
@@ -203,8 +293,10 @@ def exportar_pdf(relatorio):
                             topMargin=12 * mm, bottomMargin=12 * mm,
                             title=f"SGMF Pro - {TITULOS.get(relatorio, relatorio)}")
     estilos = getSampleStyleSheet()
+    grupo = request.args.get("grupo")
     elementos = [
-        Paragraph(f"<b>SGMF Pro</b> · {TITULOS.get(relatorio, relatorio)}", estilos["Title"]),
+        Paragraph(f"<b>SGMF Pro</b> · {TITULOS.get(relatorio, relatorio)}"
+                  + (f" — Grupo: {grupo}" if grupo else ""), estilos["Title"]),
         Paragraph(f"Período de {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} — emitido em "
                   f"{agora():%d/%m/%Y às %H:%M}", estilos["Normal"]),
         Spacer(1, 8),
@@ -232,6 +324,16 @@ def exportar_pdf(relatorio):
     saida.seek(0)
     return send_file(saida, as_attachment=True, mimetype="application/pdf",
                      download_name=f"sgmf_{relatorio}_{hoje():%Y%m%d}.pdf")
+
+
+@bp_relatorios.get("/grupos-estoque.json")
+@visualizar_tela("relatorios")
+def grupos_estoque():
+    """Grupos de peças cadastrados — alimenta o filtro de grupo dos relatórios."""
+    grupos = [g for (g,) in db.session.query(Peca.grupo)
+              .filter(Peca.grupo.isnot(None), Peca.grupo != "")
+              .distinct().order_by(Peca.grupo).all()]
+    return jsonify(grupos)
 
 
 @bp_relatorios.post("/restaurar")

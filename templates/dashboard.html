@@ -65,7 +65,13 @@
 
   <div class="col-lg-6">
     <div class="cartao h-100">
-      <div class="cartao-topo"><h3><i class="fa-solid fa-ranking-star me-2" style="color:var(--petroleo)"></i>Veículos com maior custo</h3></div>
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-ranking-star me-2" style="color:var(--petroleo)"></i>Veículos com maior custo</h3>
+        <button type="button" class="btn btn-contorno btn-sm ms-auto" title="Imprimir"
+                onclick="SGMF.imprimir('tabelaTop', 'Veículos com maior custo')">
+          <i class="fa-solid fa-print"></i>
+        </button>
+      </div>
       <div class="cartao-corpo p-0"><div id="tabelaTop"></div></div>
     </div>
   </div>
