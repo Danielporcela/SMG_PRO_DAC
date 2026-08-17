@@ -63,6 +63,28 @@
   </section>
 </div>
 
+<div id="telaBloqueio" class="tela-bloqueio d-none">
+  <div class="tela-bloqueio-conteudo">
+    <img src="{{ url_for('static', filename='img/bloqueio-acesso.png') }}" alt="Acesso bloqueado">
+    <p class="tela-bloqueio-mensagem">
+      Você errou as tentativas de login da página. Seu IP é: <strong id="bloqueioIp"></strong>
+    </p>
+  </div>
+</div>
+
+<style>
+  .tela-bloqueio {
+    position: fixed; inset: 0; background: #000;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999; padding: 24px;
+  }
+  .tela-bloqueio-conteudo { max-width: 900px; width: 100%; text-align: center; }
+  .tela-bloqueio-conteudo img { max-width: 100%; height: auto; border-radius: 8px; }
+  .tela-bloqueio-mensagem {
+    color: #ff4d4d; font-size: 16px; margin-top: 20px;
+    font-family: Arial, Helvetica, sans-serif; letter-spacing: .02em;
+  }
+</style>
 <script>
   const aviso = document.getElementById('aviso');
 
@@ -86,7 +108,14 @@
         })
       });
       const dados = await resposta.json();
-      if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível entrar.');
+      if (!resposta.ok) {
+        if (dados.bloqueado) {
+          document.getElementById('bloqueioIp').textContent = dados.ip || '—';
+          document.getElementById('telaBloqueio').classList.remove('d-none');
+          return;
+        }
+        throw new Error(dados.erro || 'Não foi possível entrar.');
+      }
       window.location = '/';
     } catch (e) {
       aviso.textContent = e.message;

@@ -953,3 +953,43 @@ class EntregaUniforme(db.Model):
                 "tamanho": self.tamanho, "tipo_entrega": self.tipo_entrega,
                 "quantidade": self.quantidade, "observacao": self.observacao,
                 "identificacao": f"Entrega #{self.id}"}
+
+
+# ============================================================================
+# Segurança do login — tentativas de acesso e bloqueio manual
+# ============================================================================
+class TentativaLogin(db.Model):
+    """Histórico de tentativas de login — usado pelo bloqueio automático
+    após 4 falhas e pela tela de Auditoria (relatório de acessos)."""
+    __tablename__ = "tentativas_login"
+    id = db.Column(db.Integer, primary_key=True)
+    momento = db.Column(db.DateTime, default=_agora)
+    email_tentado = db.Column(db.String(120))
+    ip = db.Column(db.String(45))       # IPv4 ou IPv6
+    sucesso = db.Column(db.Boolean, default=False)
+
+    def to_dict(self):
+        return {"id": self.id, "momento": self.momento.isoformat() if self.momento else None,
+                "email_tentado": self.email_tentado, "ip": self.ip, "sucesso": self.sucesso}
+
+
+class BloqueioAcesso(db.Model):
+    """IP ou e-mail bloqueado depois de 4 tentativas erradas seguidas.
+
+    A liberação é sempre manual (feita pelo administrador em Auditoria) —
+    não existe expiração automática por tempo.
+    """
+    __tablename__ = "bloqueios_acesso"
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(10), nullable=False)   # ip | email
+    valor = db.Column(db.String(120), nullable=False)
+    criado_em = db.Column(db.DateTime, default=_agora)
+    liberado = db.Column(db.Boolean, default=False)
+    liberado_por = db.Column(db.String(120))
+    liberado_em = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {"id": self.id, "tipo": self.tipo, "valor": self.valor,
+                "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+                "liberado": self.liberado, "liberado_por": self.liberado_por,
+                "liberado_em": self.liberado_em.isoformat() if self.liberado_em else None}
