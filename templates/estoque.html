@@ -10,6 +10,167 @@
 
 {% block depois_tabela %}
 <div class="cartao mt-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-file-invoice me-2" style="color:var(--petroleo)"></i>Notas fiscais de entrada</h3>
+    <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroInicio">Início</label>
+        <input type="date" class="form-control form-control-sm" id="filtroInicio" value="{{ inicio_periodo }}">
+      </div>
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroFim">Fim</label>
+        <input type="date" class="form-control form-control-sm" id="filtroFim" value="{{ hoje }}">
+      </div>
+      <button class="btn btn-contorno btn-sm" id="botaoImprimirNotas">
+        <i class="fa-solid fa-print me-1"></i> Imprimir
+      </button>
+      {% if pode('estoque', 'editar') %}
+      <button class="btn btn-primario btn-sm" id="botaoNovaNota">
+        <i class="fa-solid fa-plus me-1"></i> Nova nota
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  <div class="cartao-corpo p-0"><div id="areaNotasFiscais">
+    <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando notas…</div>
+  </div></div>
+</div>
+
+<div class="modal fade" id="modalNota" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Nova nota fiscal</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="notaId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="notaNumero">Número <span style="color:var(--alerta)">*</span></label>
+            <input class="form-control" id="notaNumero">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaSerie">Série</label>
+            <input class="form-control" id="notaSerie">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaEmissao">Data de emissão</label>
+            <input type="date" class="form-control" id="notaEmissao">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaFornecedor">Fornecedor <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="notaFornecedor"><option value="">— selecione —</option></select>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label" for="notaObservacao">Observação</label>
+            <input class="form-control" id="notaObservacao">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="notaSalvar">Salvar nota</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalItensNota" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="itensNotaTitulo">Itens da nota</h5>
+          <small style="color:var(--hi-vis)" id="itensNotaSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="itensNotaLista" class="mb-3"></div>
+
+        <div id="itensNotaFormulario" class="cartao">
+          <div class="cartao-corpo">
+            <h6 class="mb-3">Lançar item</h6>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="itemPeca">Peça <span style="color:var(--alerta)">*</span></label>
+                <select class="form-select" id="itemPeca"><option value="">— selecione —</option></select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="itemQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
+                <input type="number" step="any" class="form-control" id="itemQuantidade">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="itemValorUnitario">Valor unitário (R$)</label>
+                <input type="number" step="any" class="form-control" id="itemValorUnitario">
+              </div>
+            </div>
+            <a class="d-inline-block mt-3" data-bs-toggle="collapse" href="#itemDadosFiscais"
+               style="font-size:13px;color:var(--petroleo);font-weight:600">
+              <i class="fa-solid fa-chevron-down me-1"></i>Dados fiscais do item (NCM, CFOP, ICMS, PIS, COFINS, IBS/CBS)
+            </a>
+            <div class="collapse mt-3" id="itemDadosFiscais">
+              <div class="row g-3">
+                <div class="col-md-3"><label class="form-label">NCM</label><input class="form-control" id="itemNcm"></div>
+                <div class="col-md-3"><label class="form-label">CFOP entrada</label><input class="form-control" id="itemCfop"></div>
+                <div class="col-md-3"><label class="form-label">Classif. tributária</label><input class="form-control" id="itemClassificacaoTributaria"></div>
+                <div class="col-md-3"><label class="form-label">CST IBS/CBS</label><input class="form-control" id="itemCstIbsCbs"></div>
+              </div>
+              <hr>
+              <div class="row g-2 align-items-end">
+                <div class="col-md-1"><small class="text-muted">ICMS</small></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstIcms"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="icms" id="itemBaseIcms"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="icms" id="itemAliquotaIcms"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorIcms"></div>
+              </div>
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-1"><small class="text-muted">PIS</small></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstPis"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="pis" id="itemBasePis"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="pis" id="itemAliquotaPis"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorPis"></div>
+              </div>
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-1"><small class="text-muted">COFINS</small></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstCofins"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="cofins" id="itemBaseCofins"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="cofins" id="itemAliquotaCofins"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorCofins"></div>
+              </div>
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-1"><small class="text-muted">IBS/CBS</small></div>
+                <div class="col-md-2"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="ibscbs" id="itemBaseIbsCbs"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Alíq. IBS (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="ibs" id="itemAliquotaIbs"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor IBS (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorIbs"></div>
+              </div>
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-1"></div>
+                <div class="col-md-2"></div>
+                <div class="col-md-3"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Alíq. CBS (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="cbs" id="itemAliquotaCbs"></div>
+                <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor CBS (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorCbs"></div>
+              </div>
+            </div>
+            <button class="btn btn-primario btn-sm mt-3" id="itemAdicionar">
+              <i class="fa-solid fa-plus me-1"></i> Adicionar item
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-primario" id="notaFinalizar">
+          <i class="fa-solid fa-check me-1"></i> Finalizar nota e dar entrada no estoque
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cartao mt-3">
   <div class="cartao-topo">
     <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Últimas movimentações</h3>
     <a class="btn btn-contorno btn-sm ms-auto" href="/relatorios/movimentos.xlsx">
@@ -140,6 +301,244 @@ document.getElementById('movSalvar').onclick = async () => {
     telaEstoque.carregar();
   } catch (e) { SGMF.falha(e.message); }
 };
+
+/* ===================================================== notas fiscais */
+const CORES_STATUS_NF = { Aberta: 'ambar', Finalizada: 'verde', Cancelada: 'cinza' };
+let notaAtual = null;   // nota aberta no modal de itens
+
+async function preencherSelectFornecedor() {
+  const lista = await SGMF.opcoes('fornecedores');
+  document.getElementById('notaFornecedor').innerHTML =
+    '<option value="">— selecione —</option>' +
+    lista.map(o => `<option value="${SGMF.esc(o.valor)}">${SGMF.esc(o.texto)}</option>`).join('');
+}
+
+async function preencherSelectPeca() {
+  const lista = await SGMF.opcoes('pecas');
+  document.getElementById('itemPeca').innerHTML =
+    '<option value="">— selecione —</option>' +
+    lista.map(o => `<option value="${SGMF.esc(o.valor)}">${SGMF.esc(o.texto)}</option>`).join('');
+}
+
+function abrirModalNota() {
+  document.getElementById('notaId').value = '';
+  document.getElementById('notaNumero').value = '';
+  document.getElementById('notaSerie').value = '';
+  document.getElementById('notaEmissao').value = SGMF.hoje();
+  document.getElementById('notaFornecedor').value = '';
+  document.getElementById('notaObservacao').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalNota')).show();
+}
+
+document.getElementById('notaSalvar').onclick = async () => {
+  const numero = document.getElementById('notaNumero').value.trim();
+  const fornecedor_id = document.getElementById('notaFornecedor').value;
+  if (!numero || !fornecedor_id) return SGMF.aviso('Preencha: Número, Fornecedor.');
+  const botao = document.getElementById('notaSalvar');
+  botao.disabled = true;
+  try {
+    await SGMF.post('/api/notas_fiscais', {
+      numero, serie: document.getElementById('notaSerie').value.trim(),
+      data_emissao: document.getElementById('notaEmissao').value,
+      fornecedor_id: Number(fornecedor_id),
+      observacao: document.getElementById('notaObservacao').value.trim()
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalNota')).hide();
+    SGMF.sucesso('Nota fiscal criada');
+    await carregarNotasFiscais();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+async function carregarNotasFiscais() {
+  const inicio = document.getElementById('filtroInicio').value;
+  const fim = document.getElementById('filtroFim').value;
+  const notas = await SGMF.get(`/api/notas_fiscais?inicio=${inicio}&fim=${fim}`);
+  const area = document.getElementById('areaNotasFiscais');
+
+  if (!notas.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-file-invoice"></i>
+      <strong>Nenhuma nota fiscal no período</strong>Lance a primeira com o botão "Nova nota".</div>`;
+    return;
+  }
+
+  area.innerHTML = `<table id="tabelaNotas" class="table table-hover align-middle mb-0" style="width:100%">
+    <thead><tr><th class="ps-3">Número</th><th>Fornecedor</th><th>Emissão</th>
+    <th class="text-end">Itens</th><th class="text-end">Valor</th><th>Situação</th><th class="pe-3">Ações</th></tr></thead>
+    <tbody>${notas.map(n => `<tr>
+      <td class="ps-3"><span class="prefixo">${SGMF.esc(n.identificacao)}</span></td>
+      <td>${SGMF.esc(n.fornecedor_nome) || '—'}</td>
+      <td class="num">${SGMF.data(n.data_emissao)}</td>
+      <td class="text-end num">${SGMF.numero(n.qtd_itens)}</td>
+      <td class="text-end num">${SGMF.moeda(n.valor_total)}</td>
+      <td>${SGMF.etiqueta(n.status, CORES_STATUS_NF[n.status] || 'cinza')}</td>
+      <td class="pe-3 text-nowrap">
+        <button class="btn btn-contorno btn-icone" data-itens-nota="${n.id}" title="Itens da nota">
+          <i class="fa-solid fa-list"></i></button>
+        ${n.status === 'Aberta' ? `<button class="btn btn-contorno btn-icone" data-excluir-nota="${n.id}" title="Excluir">
+          <i class="fa-solid fa-trash"></i></button>` : ''}
+      </td>
+    </tr>`).join('')}</tbody></table>`;
+
+  document.querySelectorAll('[data-itens-nota]').forEach(b => b.onclick = () =>
+    abrirItensNota(notas.find(n => n.id == b.dataset.itensNota)));
+
+  document.querySelectorAll('[data-excluir-nota]').forEach(b => b.onclick = async () => {
+    const n = notas.find(x => x.id == b.dataset.excluirNota);
+    if (!await SGMF.confirmar('Excluir nota fiscal?', `${n.identificacao} será removida definitivamente.`, 'Excluir')) return;
+    try {
+      await SGMF.del(`/api/notas_fiscais/${n.id}`);
+      SGMF.sucesso('Nota fiscal excluída');
+      await carregarNotasFiscais();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+function limparFormularioItem() {
+  ['itemQuantidade', 'itemValorUnitario', 'itemNcm', 'itemCfop', 'itemClassificacaoTributaria',
+   'itemCstIbsCbs', 'itemCstIcms', 'itemBaseIcms', 'itemAliquotaIcms', 'itemValorIcms',
+   'itemCstPis', 'itemBasePis', 'itemAliquotaPis', 'itemValorPis', 'itemCstCofins',
+   'itemBaseCofins', 'itemAliquotaCofins', 'itemValorCofins', 'itemBaseIbsCbs',
+   'itemAliquotaIbs', 'itemValorIbs', 'itemAliquotaCbs', 'itemValorCbs'
+  ].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('itemPeca').value = '';
+}
+
+async function abrirItensNota(notaResumo) {
+  notaAtual = await SGMF.get(`/api/notas_fiscais/${notaResumo.id}`);
+  const aberta = notaAtual.status === 'Aberta';
+
+  document.getElementById('itensNotaTitulo').textContent = notaAtual.identificacao;
+  document.getElementById('itensNotaSubtitulo').textContent =
+    `${notaAtual.fornecedor_nome || ''} · Emissão ${SGMF.data(notaAtual.data_emissao)} · ${notaAtual.status}`;
+  document.getElementById('itensNotaFormulario').style.display = aberta ? '' : 'none';
+  document.getElementById('notaFinalizar').style.display = aberta ? '' : 'none';
+  limparFormularioItem();
+
+  renderizarItensNota();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalItensNota')).show();
+}
+
+function renderizarItensNota() {
+  const area = document.getElementById('itensNotaLista');
+  const aberta = notaAtual.status === 'Aberta';
+  if (!notaAtual.itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      <strong>Nenhum item lançado</strong>Use o formulário abaixo para lançar peças desta nota.</div>`;
+    return;
+  }
+  area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
+    <thead><tr><th>Peça</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th>
+    <th class="text-end">Tributos</th><th class="text-end">Total</th>${aberta ? '<th></th>' : ''}</tr></thead>
+    <tbody>${notaAtual.itens.map(i => `<tr>
+      <td>${SGMF.esc(i.peca_descricao || i.descricao)}</td>
+      <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+      <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+      <td class="text-end num">${SGMF.moeda((i.valor_icms||0)+(i.valor_pis||0)+(i.valor_cofins||0)+(i.valor_ibs||0)+(i.valor_cbs||0))}</td>
+      <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+      ${aberta ? `<td><button class="btn btn-contorno btn-icone" data-remover-item="${i.id}" title="Remover">
+        <i class="fa-solid fa-trash"></i></button></td>` : ''}
+    </tr>`).join('')}</tbody></table>`;
+
+  document.querySelectorAll('[data-remover-item]').forEach(b => b.onclick = async () => {
+    try {
+      notaAtual = await SGMF.del(`/api/notas_fiscais/${notaAtual.id}/itens/${b.dataset.removerItem}`);
+      SGMF.sucesso('Item removido');
+      renderizarItensNota();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+/* Preenche a peça escolhida com os dados fiscais/custo já cadastrados nela,
+   se os campos ainda estiverem vazios — economiza redigitação. */
+document.getElementById('itemPeca').addEventListener('change', async () => {
+  const id = document.getElementById('itemPeca').value;
+  if (!id) return;
+  try {
+    const peca = await SGMF.get(`/api/pecas/${id}`);
+    if (!document.getElementById('itemValorUnitario').value)
+      document.getElementById('itemValorUnitario').value = peca.custo_unitario || '';
+    if (!document.getElementById('itemNcm').value) document.getElementById('itemNcm').value = peca.ncm || '';
+    if (!document.getElementById('itemCfop').value) document.getElementById('itemCfop').value = peca.cfop_entrada || '';
+    if (!document.getElementById('itemCstIcms').value) document.getElementById('itemCstIcms').value = peca.cst_icms || '';
+    if (!document.getElementById('itemCstPis').value) document.getElementById('itemCstPis').value = peca.cst_pis || '';
+    if (!document.getElementById('itemCstCofins').value) document.getElementById('itemCstCofins').value = peca.cst_cofins || '';
+    if (!document.getElementById('itemCstIbsCbs').value) document.getElementById('itemCstIbsCbs').value = peca.cst_ibs_cbs || '';
+    if (!document.getElementById('itemClassificacaoTributaria').value)
+      document.getElementById('itemClassificacaoTributaria').value = peca.classificacao_tributaria || '';
+  } catch (e) { /* peça pode não trazer todos os campos; segue sem preencher */ }
+});
+
+/* Base × alíquota calcula o valor do tributo automaticamente; o campo
+   valor continua editável para quando a conta precisa ser ajustada à mão. */
+function ligarCalculoTributo(grupoSufixo, idBase, idAliquota, idValor) {
+  const recalcular = () => {
+    const base = parseFloat(document.getElementById(idBase).value) || 0;
+    const aliquota = parseFloat(document.getElementById(idAliquota).value) || 0;
+    if (base && aliquota) document.getElementById(idValor).value = (base * aliquota / 100).toFixed(2);
+  };
+  document.getElementById(idBase).addEventListener('input', recalcular);
+  document.getElementById(idAliquota).addEventListener('input', recalcular);
+}
+ligarCalculoTributo('icms', 'itemBaseIcms', 'itemAliquotaIcms', 'itemValorIcms');
+ligarCalculoTributo('pis', 'itemBasePis', 'itemAliquotaPis', 'itemValorPis');
+ligarCalculoTributo('cofins', 'itemBaseCofins', 'itemAliquotaCofins', 'itemValorCofins');
+ligarCalculoTributo('ibs', 'itemBaseIbsCbs', 'itemAliquotaIbs', 'itemValorIbs');
+ligarCalculoTributo('cbs', 'itemBaseIbsCbs', 'itemAliquotaCbs', 'itemValorCbs');
+
+document.getElementById('itemAdicionar').onclick = async () => {
+  const campo = (id) => document.getElementById(id).value;
+  const pecaId = campo('itemPeca');
+  if (!pecaId || !campo('itemQuantidade')) return SGMF.aviso('Selecione a peça e informe a quantidade.');
+
+  const botao = document.getElementById('itemAdicionar');
+  botao.disabled = true;
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais/${notaAtual.id}/itens`, {
+      peca_id: Number(pecaId), quantidade: Number(campo('itemQuantidade')) || 0,
+      valor_unitario: Number(campo('itemValorUnitario')) || 0,
+      ncm: campo('itemNcm'), cfop: campo('itemCfop'),
+      classificacao_tributaria: campo('itemClassificacaoTributaria'), cst_ibs_cbs: campo('itemCstIbsCbs'),
+      cst_icms: campo('itemCstIcms'), base_icms: campo('itemBaseIcms') || null,
+      aliquota_icms: campo('itemAliquotaIcms') || null, valor_icms: campo('itemValorIcms') || null,
+      cst_pis: campo('itemCstPis'), base_pis: campo('itemBasePis') || null,
+      aliquota_pis: campo('itemAliquotaPis') || null, valor_pis: campo('itemValorPis') || null,
+      cst_cofins: campo('itemCstCofins'), base_cofins: campo('itemBaseCofins') || null,
+      aliquota_cofins: campo('itemAliquotaCofins') || null, valor_cofins: campo('itemValorCofins') || null,
+      base_ibs_cbs: campo('itemBaseIbsCbs') || null,
+      aliquota_ibs: campo('itemAliquotaIbs') || null, valor_ibs: campo('itemValorIbs') || null,
+      aliquota_cbs: campo('itemAliquotaCbs') || null, valor_cbs: campo('itemValorCbs') || null
+    });
+    SGMF.sucesso('Item lançado');
+    limparFormularioItem();
+    renderizarItensNota();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+document.getElementById('notaFinalizar').onclick = async () => {
+  if (!notaAtual.itens.length) return SGMF.aviso('Lance ao menos um item antes de finalizar.');
+  if (!await SGMF.confirmar('Finalizar nota fiscal?',
+      'O estoque das peças será atualizado e a nota não poderá mais ser alterada.', 'Finalizar')) return;
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais/${notaAtual.id}/finalizar`);
+    SGMF.sucesso('Nota finalizada — estoque atualizado');
+    SGMF.limparCache('pecas');
+    renderizarItensNota();
+    document.getElementById('itensNotaFormulario').style.display = 'none';
+    document.getElementById('notaFinalizar').style.display = 'none';
+    await carregarNotasFiscais();
+    telaEstoque.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+document.getElementById('botaoNovaNota')?.addEventListener('click', abrirModalNota);
+document.getElementById('filtroInicio').addEventListener('change', carregarNotasFiscais);
+document.getElementById('filtroFim').addEventListener('change', carregarNotasFiscais);
+document.getElementById('botaoImprimirNotas').addEventListener('click', () =>
+  SGMF.imprimir('tabelaNotas', 'Notas fiscais de entrada'));
+
+Promise.all([preencherSelectFornecedor(), preencherSelectPeca(), carregarNotasFiscais()]);
 
 async function carregarMovimentos() {
   const dados = await SGMF.get('/api/movimentos');
