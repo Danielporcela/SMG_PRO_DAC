@@ -3,10 +3,6 @@
 {% block cabecalho %}Auditoria{% endblock %}
 {% block descricao %}Quem criou, editou ou excluiu cada registro. Mostra os 500 lançamentos mais recentes.{% endblock %}
 {% block acoes %}
-<select class="form-select form-select-sm" id="filtroVisao" style="width:190px">
-  <option value="log">Log de alterações</option>
-  <option value="login">Tentativas de login</option>
-</select>
 <select class="form-select form-select-sm" id="filtroEntidade" style="width:190px">
   <option value="">Todos os módulos</option>
   <option value="veiculos">Veículos</option>
@@ -24,12 +20,6 @@
 {% endblock %}
 
 {% block conteudo %}
-<div class="cartao mb-3" id="cartaoBloqueios" style="display:none">
-  <div class="cartao-topo">
-    <h3><i class="fa-solid fa-lock me-2" style="color:var(--alerta)"></i>Acessos bloqueados</h3>
-  </div>
-  <div class="cartao-corpo p-0"><div id="areaBloqueios"></div></div>
-</div>
 <div class="cartao">
   <div class="cartao-corpo">
     <div id="areaTabela"><div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando histórico…</div></div>
@@ -40,8 +30,7 @@
 {% block scripts %}
 <script>
 const ACOES = { criar: ['Criou', 'verde'], editar: ['Editou', 'azul'],
-                excluir: ['Excluiu', 'vermelha'], restaurar: ['Restaurou backup', 'ambar'],
-                bloquear: ['Bloqueou acesso', 'vermelha'], liberar: ['Liberou acesso', 'verde'] };
+                excluir: ['Excluiu', 'vermelha'], restaurar: ['Restaurou backup', 'ambar'] };
 let tabela = null;
 
 function momento(iso) {
@@ -50,7 +39,7 @@ function momento(iso) {
          d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-async function carregarLog() {
+async function carregar() {
   const entidade = document.getElementById('filtroEntidade').value;
   const dados = await SGMF.get('/api/logs' + (entidade ? `?entidade=${entidade}` : ''));
 
@@ -80,71 +69,7 @@ async function carregarLog() {
   });
 }
 
-async function carregarBloqueios() {
-  const bloqueios = await SGMF.get('/api/bloqueios_acesso');
-  const ativos = bloqueios.filter(b => !b.liberado);
-  const area = document.getElementById('areaBloqueios');
-  document.getElementById('cartaoBloqueios').style.display = ativos.length ? '' : 'none';
-  if (!ativos.length) return;
-
-  area.innerHTML = `<table class="table table-sm align-middle mb-0" style="font-size:13px">
-    <thead><tr><th class="ps-3">Bloqueado em</th><th>Tipo</th><th>Valor</th><th class="pe-3">Ação</th></tr></thead>
-    <tbody>${ativos.map(b => `<tr>
-      <td class="ps-3 num">${momento(b.criado_em)}</td>
-      <td>${SGMF.etiqueta(b.tipo === 'ip' ? 'IP' : 'E-mail', 'vermelha')}</td>
-      <td>${SGMF.esc(b.valor)}</td>
-      <td class="pe-3"><button class="btn btn-primario btn-sm" data-liberar="${b.id}">Liberar acesso</button></td>
-    </tr>`).join('')}</tbody></table>`;
-
-  document.querySelectorAll('[data-liberar]').forEach(btn => btn.onclick = async () => {
-    if (!await SGMF.confirmar('Liberar este acesso?', 'A pessoa poderá tentar fazer login de novo.', 'Liberar')) return;
-    try {
-      await SGMF.post(`/api/bloqueios_acesso/${btn.dataset.liberar}/liberar`);
-      SGMF.sucesso('Acesso liberado');
-      await carregarBloqueios();
-    } catch (e) { SGMF.falha(e.message); }
-  });
-}
-
-async function carregarTentativasLogin() {
-  const tentativas = await SGMF.get('/api/tentativas_login');
-  if (tabela) { tabela.destroy(); tabela = null; }
-  document.getElementById('areaTabela').innerHTML = `
-    <table id="tabelaTentativas" class="table table-hover align-middle" style="width:100%">
-      <thead><tr><th>Quando</th><th>IP</th><th>E-mail tentado</th><th>Resultado</th></tr></thead>
-      <tbody>${tentativas.map(t => `<tr>
-        <td class="num">${momento(t.momento)}</td>
-        <td class="num">${SGMF.esc(t.ip) || '—'}</td>
-        <td>${SGMF.esc(t.email_tentado) || '—'}</td>
-        <td>${t.sucesso ? SGMF.etiqueta('Sucesso', 'verde') : SGMF.etiqueta('Falhou', 'vermelha')}</td>
-      </tr>`).join('')}</tbody></table>`;
-
-  tabela = new DataTable('#tabelaTentativas', {
-    order: [[0, 'desc']], pageLength: 25,
-    language: {
-      search: 'Buscar:', lengthMenu: 'Mostrar _MENU_ registros',
-      info: '_START_ a _END_ de _TOTAL_ registros', infoEmpty: 'Nenhum registro',
-      zeroRecords: 'Nada encontrado com esse filtro',
-      emptyTable: 'Nenhuma tentativa de login registrada ainda.',
-      paginate: { first: 'Primeira', last: 'Última', next: 'Próxima', previous: 'Anterior' }
-    }
-  });
-}
-
-async function carregar() {
-  const visao = document.getElementById('filtroVisao').value;
-  document.getElementById('filtroEntidade').style.display = visao === 'log' ? '' : 'none';
-  if (visao === 'login') {
-    document.getElementById('cartaoBloqueios').style.display = 'none';
-    await Promise.all([carregarBloqueios(), carregarTentativasLogin()]);
-  } else {
-    document.getElementById('cartaoBloqueios').style.display = 'none';
-    await carregarLog();
-  }
-}
-
-document.getElementById('filtroVisao').addEventListener('change', carregar);
-document.getElementById('filtroEntidade').addEventListener('change', carregarLog);
+document.getElementById('filtroEntidade').addEventListener('change', carregar);
 carregar().catch(e => SGMF.falha(e.message));
 </script>
 {% endblock %}
