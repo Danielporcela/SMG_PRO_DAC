@@ -332,7 +332,7 @@ class Peca(db.Model):
                 "cst_icms": self.cst_icms, "cst_pis": self.cst_pis,
                 "cst_cofins": self.cst_cofins, "cst_ibs_cbs": self.cst_ibs_cbs,
                 "classificacao_tributaria": self.classificacao_tributaria,
-                "abaixo_minimo": (self.quantidade or 0) <= (self.estoque_minimo or 0),
+                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
                 "identificacao": f"{self.codigo} · {self.descricao}"}
 
 
