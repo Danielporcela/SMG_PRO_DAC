@@ -140,18 +140,21 @@ def devolver_item_os(item: ItemOS):
 def proximo_numero_os():
     """Gera o próximo número da OS sem correr o risco de dois iguais.
 
+    Formato sequencial simples: 001, 002, 003... Os números antigos, no
+    formato "OS2026000xx", não entram nessa contagem — a numeração nova
+    recomeça do 001 e segue daí em diante, ignorando o histórico anterior.
+
     No PostgreSQL, um bloqueio de transação garante que duas aberturas
     simultâneas não peguem o mesmo número; no SQLite a própria gravação já
     é serializada.
     """
     if db.engine.dialect.name.startswith("postgres"):
         db.session.execute(text("SELECT pg_advisory_xact_lock(918273)"))
-    ano = hoje().year
-    ultimo = (OrdemServico.query
-              .filter(OrdemServico.numero.like(f"OS{ano}%"))
-              .order_by(OrdemServico.numero.desc()).first())
-    sequencia = int(ultimo.numero[-5:]) + 1 if ultimo else 1
-    return f"OS{ano}{sequencia:05d}"
+    maior = 0
+    for (numero,) in db.session.query(OrdemServico.numero).all():
+        if numero and numero.strip().isdigit():
+            maior = max(maior, int(numero))
+    return f"{maior + 1:03d}"
 
 
 def sincronizar_status_veiculo(os_obj: OrdemServico):
