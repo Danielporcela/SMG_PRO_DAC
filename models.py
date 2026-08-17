@@ -40,6 +40,8 @@ TELAS_SISTEMA = [
     ("orcamento", "Meta x realizado", "Gestão"),
     ("ranking", "Rankings", "Gestão"),
     ("relatorios", "Relatórios", "Gestão"),
+    ("funcionarios", "Funcionários", "Cadastros"),
+    ("uniformes", "Uniformes", "Cadastros"),
 ]
 TELAS_VALIDAS = {chave for chave, _, _ in TELAS_SISTEMA}
 TELAS_ROTULOS = {chave: rotulo for chave, rotulo, _ in TELAS_SISTEMA}
@@ -847,3 +849,107 @@ def _sincronizar_oleo_ao_aplicar_item(session, _flush_context, _instances):
         km_referencia = float(os_obj.km_veiculo or veiculo.hodometro or 0)
         if km_referencia > float(veiculo.km_ultima_troca_oleo or 0):
             veiculo.km_ultima_troca_oleo = km_referencia
+
+
+# ============================================================================
+# Módulo — Uniformes: cadastro de funcionários, estoque próprio de itens de
+# uniforme e entregas (baixas) desse estoque.
+#
+# Regra pedida: o tamanho é só uma informação da entrega (guardada no
+# histórico), NÃO existe um saldo separado por tamanho — "Calça" tem um único
+# saldo em estoque, e a baixa acontece nesse saldo único independente do
+# tamanho registrado na entrega.
+# ============================================================================
+class Funcionario(db.Model):
+    __tablename__ = "funcionarios"
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(120), nullable=False)
+    matricula = db.Column(db.String(30))
+    cargo = db.Column(db.String(60))
+    setor = db.Column(db.String(60))
+    telefone = db.Column(db.String(20))
+    ativo = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome, "matricula": self.matricula,
+                "cargo": self.cargo, "setor": self.setor, "telefone": self.telefone,
+                "ativo": self.ativo, "identificacao": self.nome}
+
+
+class ItemUniforme(db.Model):
+    """Estoque próprio de uniformes — separado do estoque de peças."""
+    __tablename__ = "itens_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    codigo = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    descricao = db.Column(db.String(80), nullable=False)   # Calça, Camisa, Meia, Moletom, Luva, Sapato...
+    unidade = db.Column(db.String(10), default="UN")
+    quantidade = db.Column(db.Float, default=0)
+    estoque_minimo = db.Column(db.Float, default=0)
+    ativo = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {"id": self.id, "codigo": self.codigo, "descricao": self.descricao,
+                "unidade": self.unidade, "quantidade": self.quantidade,
+                "estoque_minimo": self.estoque_minimo, "ativo": self.ativo,
+                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
+                "identificacao": f"{self.codigo} · {self.descricao}"}
+
+
+def proximo_codigo_item_uniforme():
+    """Mesmo esquema sequencial (0001, 0002...) usado no estoque de peças."""
+    maior = 0
+    for (codigo,) in db.session.query(ItemUniforme.codigo).all():
+        if codigo and codigo.strip().isdigit():
+            maior = max(maior, int(codigo))
+    return f"{maior + 1:04d}"
+
+
+class MovimentoUniforme(db.Model):
+    """Histórico de entradas/saídas do estoque de uniformes — mesmo espírito
+    do MovimentoEstoque de peças: o saldo nunca muda sem deixar rastro."""
+    __tablename__ = "movimentos_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje)
+    item_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"), nullable=False)
+    tipo = db.Column(db.String(10))   # entrada | saida | ajuste
+    quantidade = db.Column(db.Float, default=0)
+    documento = db.Column(db.String(60))
+    entrega_id = db.Column(db.Integer, db.ForeignKey("entregas_uniforme.id"))
+    observacao = db.Column(db.String(200))
+    item = db.relationship("ItemUniforme")
+
+    def to_dict(self):
+        return {"id": self.id, "data": self.data.isoformat() if self.data else None,
+                "item_id": self.item_id,
+                "item_descricao": f"{self.item.codigo} · {self.item.descricao}" if self.item else None,
+                "tipo": self.tipo, "quantidade": self.quantidade,
+                "documento": self.documento, "observacao": self.observacao}
+
+
+class EntregaUniforme(db.Model):
+    """Entrega (baixa) de um item de uniforme para um funcionário.
+
+    O tamanho é só uma anotação da entrega — não existe saldo por tamanho,
+    a baixa sempre acontece no saldo único do item (ItemUniforme.quantidade).
+    """
+    __tablename__ = "entregas_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje)
+    funcionario_id = db.Column(db.Integer, db.ForeignKey("funcionarios.id"), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"), nullable=False)
+    tamanho = db.Column(db.String(10))                 # P, M, G, GG, 38, 40... — só informativo
+    tipo_entrega = db.Column(db.String(15), default="Novo")  # Novo | Emergencial
+    quantidade = db.Column(db.Float, default=1)
+    observacao = db.Column(db.String(200))
+    funcionario = db.relationship("Funcionario")
+    item = db.relationship("ItemUniforme")
+
+    def to_dict(self):
+        return {"id": self.id, "data": self.data.isoformat() if self.data else None,
+                "funcionario_id": self.funcionario_id,
+                "funcionario_nome": self.funcionario.nome if self.funcionario else None,
+                "item_id": self.item_id,
+                "item_descricao": f"{self.item.codigo} · {self.item.descricao}" if self.item else None,
+                "tamanho": self.tamanho, "tipo_entrega": self.tipo_entrega,
+                "quantidade": self.quantidade, "observacao": self.observacao,
+                "identificacao": f"Entrega #{self.id}"}

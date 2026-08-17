@@ -27,12 +27,14 @@
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
 
-    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('importacao') %}
+    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('importacao') %}
     <div class="menu-titulo">Cadastros</div>
     {% if pode('veiculos') %}<a href="{{ url_for('paginas.veiculos') }}" class="{{ 'ativo' if pagina == 'veiculos' }}"><i class="fa-solid fa-truck-front"></i> Veículos</a>{% endif %}
     {% if pode('motoristas') %}<a href="{{ url_for('paginas.motoristas') }}" class="{{ 'ativo' if pagina == 'motoristas' }}"><i class="fa-solid fa-id-card"></i> Motoristas</a>{% endif %}
     {% if pode('fornecedores') %}<a href="{{ url_for('paginas.fornecedores') }}" class="{{ 'ativo' if pagina == 'fornecedores' }}"><i class="fa-solid fa-warehouse"></i> Oficinas e postos</a>{% endif %}
     {% if pode('estoque') %}<a href="{{ url_for('paginas.estoque') }}" class="{{ 'ativo' if pagina == 'estoque' }}"><i class="fa-solid fa-boxes-stacked"></i> Estoque de peças</a>{% endif %}
+    {% if pode('funcionarios') %}<a href="{{ url_for('paginas.funcionarios') }}" class="{{ 'ativo' if pagina == 'funcionarios' }}"><i class="fa-solid fa-users"></i> Funcionários</a>{% endif %}
+    {% if pode('uniformes') %}<a href="{{ url_for('paginas.uniformes') }}" class="{{ 'ativo' if pagina == 'uniformes' }}"><i class="fa-solid fa-shirt"></i> Uniformes</a>{% endif %}
     {% if pode('importacao') %}
     <a href="{{ url_for('paginas.importacao') }}" class="{{ 'ativo' if pagina == 'importacao' }}"><i class="fa-solid fa-file-import"></i> Importar planilha</a>
     {% endif %}
