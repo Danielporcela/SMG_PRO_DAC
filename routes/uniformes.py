@@ -9,7 +9,7 @@ from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_l
                            visualizar_tela)
 from services.tempo import hoje, ler_data
 
-bp_uniformes = Blueprint("uniformes", __name__)
+bp_uniformes = Blueprint("uniformes", __name__, url_prefix="/api")
 
 
 def _filtro_periodo(campo):
@@ -48,7 +48,7 @@ registrar_crud(
     antes_salvar=_antes_item_uniforme)
 
 
-@bp_uniformes.get("/api/uniformes/movimentos")
+@bp_uniformes.get("/uniformes/movimentos")
 @visualizar_tela("uniformes")
 def listar_movimentos_uniforme():
     q = MovimentoUniforme.query
@@ -58,7 +58,7 @@ def listar_movimentos_uniforme():
     return jsonify([m.to_dict() for m in q.order_by(MovimentoUniforme.id.desc()).limit(500)])
 
 
-@bp_uniformes.post("/api/uniformes/movimentos")
+@bp_uniformes.post("/uniformes/movimentos")
 @editar_tela("uniformes")
 def criar_movimento_uniforme():
     """Entrada de estoque ou ajuste manual de saldo (não é uma entrega)."""
@@ -93,7 +93,7 @@ def criar_movimento_uniforme():
 
 
 # --------------------------------------------- Entregas de uniforme (baixas)
-@bp_uniformes.get("/api/entregas_uniforme")
+@bp_uniformes.get("/entregas_uniforme")
 @visualizar_tela("uniformes")
 def listar_entregas_uniforme():
     q = EntregaUniforme.query
@@ -104,7 +104,7 @@ def listar_entregas_uniforme():
     return jsonify([e.to_dict() for e in q.all()])
 
 
-@bp_uniformes.post("/api/entregas_uniforme")
+@bp_uniformes.post("/entregas_uniforme")
 @editar_tela("uniformes")
 def criar_entrega_uniforme():
     """Registra a entrega e já dá baixa no saldo único do item — o tamanho
@@ -159,7 +159,7 @@ def criar_entrega_uniforme():
     return jsonify(entrega.to_dict()), 201
 
 
-@bp_uniformes.delete("/api/entregas_uniforme/<int:entrega_id>")
+@bp_uniformes.delete("/entregas_uniforme/<int:entrega_id>")
 @editar_tela("uniformes")
 def excluir_entrega_uniforme(entrega_id):
     """Cancela a entrega e devolve a quantidade ao estoque."""
