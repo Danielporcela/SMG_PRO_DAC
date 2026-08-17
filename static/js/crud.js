@@ -207,18 +207,36 @@ SGMF.tela = function (config) {
       }
     });
 
-    document.querySelectorAll('[data-editar]').forEach(b => b.onclick = () =>
-      abrir(registros.find(r => r.id == b.dataset.editar)));
-    document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = () => {
-      const item = registros.find(r => r.id == b.dataset.excluir);
-      excluir(item.id, item.identificacao || item.numero || item.descricao || 'O registro');
-    });
+    /* Editar/Excluir são ligados por delegação de evento (ver
+       ligarAcoesLinha, chamada uma única vez na inicialização) em vez de
+       onclick direto em cada botão. O DataTables recria as linhas do
+       <tbody> a cada página, ordenação ou busca — se os cliques fossem
+       ligados aqui, os botões das páginas seguintes ficariam sem ação. */
 
     if (aoRenderizar) aoRenderizar(registros);
   }
 
+  /* Delegação de clique no container da tabela: funciona para qualquer
+     linha existente ou futura, mesmo depois do DataTables redesenhar o
+     <tbody> (paginação, ordenação, busca). */
+  function ligarAcoesLinha() {
+    document.getElementById('areaTabela').addEventListener('click', (e) => {
+      const botaoEditar = e.target.closest('[data-editar]');
+      if (botaoEditar) {
+        abrir(registros.find(r => r.id == botaoEditar.dataset.editar));
+        return;
+      }
+      const botaoExcluir = e.target.closest('[data-excluir]');
+      if (botaoExcluir) {
+        const item = registros.find(r => r.id == botaoExcluir.dataset.excluir);
+        excluir(item.id, item.identificacao || item.numero || item.descricao || 'O registro');
+      }
+    });
+  }
+
   /* ------------------------------------------------------------- inicializa */
   montarModal();
+  ligarAcoesLinha();
   const botaoNovo = document.getElementById('botaoNovo');
   if (botaoNovo && bloqueado()) botaoNovo.remove();
   else if (botaoNovo) botaoNovo.onclick = () => abrir();
