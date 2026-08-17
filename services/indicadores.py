@@ -129,7 +129,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "aderencia_orcamento": round((gasto_comb + gasto_manut) / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(sum((p.quantidade or 0) * (p.custo_unitario or 0)
                                    for p in Peca.query.all()), 2),
-        "estoque_critico": Peca.query.filter(Peca.quantidade <= Peca.estoque_minimo).count(),
+        "estoque_critico": Peca.query.filter(Peca.estoque_minimo > 0,
+                                             Peca.quantidade <= Peca.estoque_minimo).count(),
     }
 
 
@@ -315,7 +316,8 @@ def alertas():
                 f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo)
 
     # estoque abaixo do mínimo
-    for pe in Peca.query.filter(Peca.quantidade <= Peca.estoque_minimo).all():
+    for pe in Peca.query.filter(Peca.estoque_minimo > 0,
+                                Peca.quantidade <= Peca.estoque_minimo).all():
         add("atencao", "Estoque", f"{pe.codigo} abaixo do estoque mínimo",
             f"Saldo {pe.quantidade:g} {pe.unidade} · mínimo {pe.estoque_minimo:g}.", pe.codigo)
 
