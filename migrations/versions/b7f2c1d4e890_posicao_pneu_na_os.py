@@ -1,4 +1,3 @@
-cat > migrations / versions / b7f2c1d4e890_posicao_pneu_na_os.py << "PY"
 """posição de pneu na ordem de serviço
 
 Revision ID: b7f2c1d4e890
@@ -48,6 +47,3 @@ def upgrade():
 
 def downgrade():
     pass
-
-
-PY
