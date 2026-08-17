@@ -72,23 +72,15 @@ const telaOS = SGMF.tela({
     { nome: 'data_abertura', rotulo: 'Data de abertura', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
     { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5, obrigatorio: true },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4 },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 3, padrao: 'Preventiva',
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva',
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
-    { nome: 'grupo', rotulo: 'Grupo do componente', tipo: 'select', col: 3, opcoes: SGMF.GRUPOS },
-    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 3, padrao: 'Média',
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'status', rotulo: 'Status', tipo: 'select', col: 3, padrao: 'Aberta',
+    { nome: 'status', rotulo: 'Status', tipo: 'select', col: 4, padrao: 'Aberta',
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'fornecedor_id', rotulo: 'Oficina', tipo: 'ref', recurso: 'fornecedores', col: 4 },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4 },
-    { nome: 'motorista_id', rotulo: 'Motorista que reportou', tipo: 'ref', recurso: 'motoristas', col: 4 },
-    { nome: 'custo_mao_obra', rotulo: 'Mão de obra (R$)', tipo: 'number', col: 3 },
-    { nome: 'custo_servicos', rotulo: 'Serviços externos (R$)', tipo: 'number', col: 3 },
-    { nome: 'data_fechamento', rotulo: 'Data de fechamento', tipo: 'date', col: 3,
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 6 },
+    { nome: 'data_fechamento', rotulo: 'Data de fechamento', tipo: 'date', col: 6,
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'avaliacao', rotulo: 'Avaliação do serviço', tipo: 'select', col: 3,
-      opcoes: [{ valor: 1, texto: '1 — ruim' }, { valor: 2, texto: '2' }, { valor: 3, texto: '3 — regular' },
-               { valor: 4, texto: '4' }, { valor: 5, texto: '5 — excelente' }] },
     { nome: 'descricao', rotulo: 'Serviço executado / defeito relatado', tipo: 'textarea', col: 12 }
   ],
   colunas: [
@@ -96,7 +88,6 @@ const telaOS = SGMF.tela({
     { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
-    { campo: 'grupo', rotulo: 'Grupo' },
     { campo: 'prioridade', rotulo: 'Prioridade', render: v => SGMF.status(v) },
     { campo: 'status', rotulo: 'Status', render: v => SGMF.status(v) },
     { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
@@ -104,7 +95,9 @@ const telaOS = SGMF.tela({
     { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
-                           <i class="fa-solid fa-gears"></i></button>` + SGMF.anexos.botao('ordens', item),
+                           <i class="fa-solid fa-gears"></i></button>
+                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
     const abertas = linhas.filter(o => o.status !== 'Finalizada');
     const total = linhas.reduce((s, o) => s + (o.custo_total || 0), 0);
@@ -118,6 +111,9 @@ const telaOS = SGMF.tela({
 
     document.querySelectorAll('[data-pecas]').forEach(b =>
       b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
+
+    document.querySelectorAll('[data-imprimir]').forEach(b =>
+      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
 
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
@@ -173,9 +169,7 @@ async function recarregarItens(osId) {
   }
 
   document.getElementById('totaisOS').innerHTML =
-    `Peças <strong>${SGMF.moeda(os.custo_pecas)}</strong> +
-     Mão de obra <strong>${SGMF.moeda(os.custo_mao_obra)}</strong> +
-     Serviços <strong>${SGMF.moeda(os.custo_servicos)}</strong> =
+    `Peças <strong>${SGMF.moeda(os.custo_pecas)}</strong> =
      <span style="color:var(--petroleo);font-size:16px"><strong>${SGMF.moeda(os.custo_total)}</strong></span>`;
 
   document.querySelectorAll('[data-item]').forEach(b => b.onclick = async () => {
@@ -209,5 +203,77 @@ document.getElementById('itemAdicionar').onclick = async () => {
     telaOS.carregar();
   } catch (e) { SGMF.falha(e.message); }
 };
+
+/* -------------------------------------------------------- imprimir a OS */
+async function imprimirOS(os) {
+  let detalhes;
+  try {
+    detalhes = await SGMF.get(`/api/ordens/${os.id}/itens`);
+  } catch (e) {
+    return SGMF.falha(e.message);
+  }
+  const itens = detalhes.itens || [];
+
+  const janela = window.open('', '_blank', 'width=900,height=720');
+  if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+  const linhaItens = itens.length
+    ? itens.map(i => `<tr>
+        <td>${SGMF.esc(i.descricao)}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_total)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" style="text-align:center;color:#888">Nenhuma peça ou serviço lançado nesta OS.</td></tr>`;
+
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>OS ${SGMF.esc(os.numero)} · SGMF Pro</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; }
+      h1 { font-size: 20px; margin: 0 0 2px; color: #0F3D56; }
+      h3 { font-size: 13.5px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
+      .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
+      table.dados { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
+      table.dados th { text-align: left; background: #F5F7F9; padding: 6px 9px; width: 130px; border: 1px solid #D3DBE2; font-weight: 600; }
+      table.dados td { padding: 6px 9px; border: 1px solid #D3DBE2; }
+      table.itens { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+      table.itens th, table.itens td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+      table.itens th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+      .num, .text-end { text-align: right; }
+      .descricao-servico { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
+      .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
+      .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
+      @media print { @page { margin: 14mm; } }
+    </style>
+    </head><body>
+    <h1>Ordem de Serviço ${SGMF.esc(os.numero)}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+
+    <table class="dados">
+      <tr><th>Veículo</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td>
+          <th>Status</th><td>${SGMF.esc(os.status) || '—'}</td></tr>
+      <tr><th>Data de abertura</th><td>${SGMF.data(os.data_abertura)}</td>
+          <th>Data de fechamento</th><td>${SGMF.data(os.data_fechamento)}</td></tr>
+      <tr><th>Tipo</th><td>${SGMF.esc(os.tipo) || '—'}</td>
+          <th>Prioridade</th><td>${SGMF.esc(os.prioridade) || '—'}</td></tr>
+      <tr><th>Mecânico responsável</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
+    </table>
+
+    <h3>Serviço executado / defeito relatado</h3>
+    <div class="descricao-servico">${SGMF.esc(os.descricao) || '—'}</div>
+
+    <h3>Peças e serviços aplicados</h3>
+    <table class="itens">
+      <thead><tr><th>Item</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
+      <tbody>${linhaItens}</tbody>
+    </table>
+    <div class="total-geral">Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
+
+    <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
+    </body></html>`);
+  janela.document.close();
+  janela.onload = () => { janela.focus(); janela.print(); };
+}
 </script>
 {% endblock %}
