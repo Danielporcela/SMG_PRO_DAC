@@ -205,6 +205,12 @@ document.getElementById('itemAdicionar').onclick = async () => {
 };
 
 /* -------------------------------------------------------- imprimir a OS */
+/* Monta o documento de impressão SEM usar janela.document.write com uma
+   string gigante — o script que o próprio sistema injeta em toda página
+   HTML (o complemento de manutenção de pneus) estava caindo dentro dessa
+   string e quebrando a sintaxe do JavaScript. Agora o conteúdo é montado
+   por partes (createElement/innerHTML) direto no documento da janela já
+   aberta, o que não sofre esse tipo de injeção. */
 async function imprimirOS(os) {
   let detalhes;
   try {
@@ -226,27 +232,32 @@ async function imprimirOS(os) {
       </tr>`).join('')
     : `<tr><td colspan="4" style="text-align:center;color:#888">Nenhuma peça ou serviço lançado nesta OS.</td></tr>`;
 
-  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
-    <title>OS ${SGMF.esc(os.numero)} · SGMF Pro</title>
-    <style>
-      * { box-sizing: border-box; }
-      body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; }
-      h1 { font-size: 20px; margin: 0 0 2px; color: #0F3D56; }
-      h3 { font-size: 13.5px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
-      .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
-      table.dados { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
-      table.dados th { text-align: left; background: #F5F7F9; padding: 6px 9px; width: 130px; border: 1px solid #D3DBE2; font-weight: 600; }
-      table.dados td { padding: 6px 9px; border: 1px solid #D3DBE2; }
-      table.itens { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
-      table.itens th, table.itens td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
-      table.itens th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
-      .num, .text-end { text-align: right; }
-      .descricao-servico { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
-      .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
-      .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
-      @media print { @page { margin: 14mm; } }
-    </style>
-    </head><body>
+  const doc = janela.document;
+  doc.title = `OS ${os.numero || ''} · SGMF Pro`;
+
+  const estilo = doc.createElement('style');
+  estilo.textContent = `
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; margin: 0; }
+    h1 { font-size: 20px; margin: 0 0 2px; color: #0F3D56; }
+    h3 { font-size: 13.5px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
+    .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
+    table.dados { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
+    table.dados th { text-align: left; background: #F5F7F9; padding: 6px 9px; width: 130px; border: 1px solid #D3DBE2; font-weight: 600; }
+    table.dados td { padding: 6px 9px; border: 1px solid #D3DBE2; }
+    table.itens { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+    table.itens th, table.itens td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+    table.itens th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+    .num, .text-end { text-align: right; }
+    .descricao-servico { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
+    .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
+    .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
+    @media print { @page { margin: 14mm; } }
+  `;
+  doc.head.appendChild(estilo);
+
+  const corpo = doc.createElement('div');
+  corpo.innerHTML = `
     <h1>Ordem de Serviço ${SGMF.esc(os.numero)}</h1>
     <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
 
@@ -271,9 +282,11 @@ async function imprimirOS(os) {
     <div class="total-geral">Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
 
     <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
-    </body></html>`);
-  janela.document.close();
-  janela.onload = () => { janela.focus(); janela.print(); };
+  `;
+  doc.body.appendChild(corpo);
+
+  janela.focus();
+  janela.print();
 }
 </script>
 {% endblock %}
