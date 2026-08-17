@@ -5,7 +5,8 @@ from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
 from models import (Abastecimento, Fornecedor, ItemOS, LogAuditoria, Motorista,
-                    MovimentoEstoque, Orcamento, OrdemServico, Peca, Pneu, Veiculo)
+                    MovimentoEstoque, Orcamento, OrdemServico, Peca, Pneu, Veiculo,
+                    proximo_codigo_peca)
 from services import indicadores
 from services.calculos import (baixar_item_os, desvincular_movimentos, devolver_item_os,
                                movimentar_estoque, proximo_numero_os,
@@ -175,6 +176,15 @@ registrar_crud(
 
 
 # -------------------------------------------------------- Módulo 11: estoque
+def _antes_peca(obj, dados, anterior):
+    """Peça nova: o Código é sempre gerado pelo sistema (0001, 0002...),
+    ignorando qualquer valor enviado pela tela — o campo fica travado lá.
+    Em edição, o código não muda.
+    """
+    if anterior is None:
+        obj.codigo = proximo_codigo_peca()
+
+
 def _depois_peca(obj, dados, anterior):
     """Saldo inicial vira um movimento de entrada — o estoque nunca muda sem histórico."""
     if anterior is None and dados.get("quantidade_inicial"):
@@ -185,11 +195,11 @@ def _depois_peca(obj, dados, anterior):
 
 registrar_crud(
     bp_api, "pecas", Peca,
-    campos={"codigo": "str", "descricao": "str", "grupo": "str", "unidade": "str",
-            "estoque_minimo": "float", "custo_unitario": "float", "localizacao": "str",
-            "fornecedor_id": "int"},
-    ordem=Peca.descricao, obrigatorios=("codigo", "descricao"), tela="estoque",
-    depois_salvar=_depois_peca)
+    campos={"codigo": "str", "referencia": "str", "descricao": "str", "grupo": "str",
+            "unidade": "str", "estoque_minimo": "float", "custo_unitario": "float",
+            "localizacao": "str", "fornecedor_id": "int"},
+    ordem=Peca.codigo, obrigatorios=("descricao",), tela="estoque",
+    antes_salvar=_antes_peca, depois_salvar=_depois_peca)
 
 
 @bp_api.get("/movimentos")

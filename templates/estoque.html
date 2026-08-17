@@ -233,7 +233,8 @@ const telaEstoque = SGMF.tela({
   tela: 'estoque',
   titulo: 'peça',
   campos: [
-    { nome: 'codigo', rotulo: 'Código', col: 3, obrigatorio: true, maiuscula: true },
+    { nome: 'codigo', rotulo: 'Código', col: 3, exemplo: 'Gerado automaticamente' },
+    { nome: 'referencia', rotulo: 'Referência', col: 3, exemplo: 'Nº do fabricante/fornecedor' },
     { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Filtro de óleo motor MWM' },
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
       opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
@@ -246,8 +247,17 @@ const telaEstoque = SGMF.tela({
     { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
       ajuda: 'Abaixo disso o sistema avisa para repor.' }
   ],
+  /* O Código é sempre gerado pelo sistema (0001, 0002...) — o campo fica
+     travado na tela; quem se digita é só a Referência do fabricante/
+     fornecedor. Em peça nova o campo mostra o texto de exemplo até salvar;
+     na edição mostra o código já atribuído, também travado. */
+  aoAbrirFormulario: () => {
+    const campoCodigo = document.getElementById('campo_codigo');
+    if (campoCodigo) campoCodigo.disabled = true;
+  },
   colunas: [
     { campo: 'codigo', rotulo: 'Código', classe: 'num' },
+    { campo: 'referencia', rotulo: 'Referência', classe: 'num', render: v => v || '—' },
     { campo: 'descricao', rotulo: 'Descrição' },
     { campo: 'grupo', rotulo: 'Grupo' },
     { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',

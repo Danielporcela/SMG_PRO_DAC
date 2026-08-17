@@ -304,6 +304,7 @@ class Peca(db.Model):
     __tablename__ = "pecas"
     id = db.Column(db.Integer, primary_key=True)
     codigo = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    referencia = db.Column(db.String(60))  # número do fabricante/fornecedor, livre para ela digitar
     descricao = db.Column(db.String(160), nullable=False)
     grupo = db.Column(db.String(40))       # Motor, Suspensão, Freios, ...
     unidade = db.Column(db.String(10), default="UN")
@@ -322,7 +323,8 @@ class Peca(db.Model):
     fornecedor = db.relationship("Fornecedor")
 
     def to_dict(self):
-        return {"id": self.id, "codigo": self.codigo, "descricao": self.descricao,
+        return {"id": self.id, "codigo": self.codigo, "referencia": self.referencia,
+                "descricao": self.descricao,
                 "grupo": self.grupo, "unidade": self.unidade, "quantidade": self.quantidade,
                 "estoque_minimo": self.estoque_minimo, "custo_unitario": self.custo_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
@@ -334,6 +336,18 @@ class Peca(db.Model):
                 "classificacao_tributaria": self.classificacao_tributaria,
                 "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
                 "identificacao": f"{self.codigo} · {self.descricao}"}
+
+
+def proximo_codigo_peca():
+    """Próximo código sequencial (0001, 0002...), sem repetir nem mexer nos
+    códigos manuais já usados (ex.: 'FIL-001'). Continua a partir do maior
+    número puro já cadastrado — se não houver nenhum, começa em 0001.
+    """
+    maior = 0
+    for (codigo,) in db.session.query(Peca.codigo).all():
+        if codigo and codigo.strip().isdigit():
+            maior = max(maior, int(codigo))
+    return f"{maior + 1:04d}"
 
 
 class MovimentoEstoque(db.Model):
