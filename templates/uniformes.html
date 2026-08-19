@@ -1,11 +1,20 @@
 {% extends "lista.html" %}
 {% block titulo %}Uniformes{% endblock %}
 {% block cabecalho %}Uniformes{% endblock %}
-{% block descricao %}Estoque próprio de uniformes (calça, camisa, meia, moletom, luva, sapato...) e entregas para funcionários.{% endblock %}
+{% block descricao %}Estoque próprio de uniformes (calça, camisa, meia, moletom, luva, sapato...) com saldo por tamanho e entregas para funcionários.{% endblock %}
 {% block rotulo_novo %}Novo item{% endblock %}
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoUniformes"></div>
+
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <button class="btn btn-contorno btn-sm" id="botaoListaCompra">
+    <i class="fa-solid fa-cart-shopping me-1"></i> Lista de compra
+  </button>
+  <button class="btn btn-contorno btn-sm" id="botaoPosicaoEstoque">
+    <i class="fa-solid fa-print me-1"></i> Posição do estoque
+  </button>
+</div>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -63,14 +72,19 @@
             </select>
           </div>
           <div class="col-md-4">
+            <label class="form-label" for="movTamanho">Tamanho <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="movTamanho"></select>
+            <div class="form-text" style="font-size:11.5px">A entrada e a saída acontecem só neste tamanho.</div>
+          </div>
+          <div class="col-md-4">
             <label class="form-label" for="movQtd">Quantidade</label>
             <input type="number" step="any" class="form-control" id="movQtd">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label" for="movDoc">Documento</label>
             <input class="form-control" id="movDoc">
           </div>
-          <div class="col-md-12">
+          <div class="col-md-6">
             <label class="form-label" for="movObs">Observação</label>
             <input class="form-control" id="movObs">
           </div>
@@ -79,6 +93,33 @@
       <div class="modal-footer">
         <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primario" id="movSalvar">Registrar movimento</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalTamanhos" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Tamanhos do item</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" id="tamItem"></p>
+        <input type="hidden" id="tamItemId">
+        <div id="areaTamanhos"></div>
+        <div class="form-text mt-2" style="font-size:11.5px">
+          O saldo só muda por movimento ou entrega. Aqui você define quantas peças
+          de cada tamanho quer ter sempre em estoque — é esse número que manda na
+          lista de compra.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+        {% if pode('uniformes', 'editar') %}
+        <button class="btn btn-primario" id="tamSalvar">Salvar mínimos</button>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -102,9 +143,9 @@
             <select class="form-select" id="entregaItem"><option value="">— selecione —</option></select>
           </div>
           <div class="col-md-3">
-            <label class="form-label" for="entregaTamanho">Tamanho</label>
-            <input class="form-control" id="entregaTamanho" placeholder="P, M, G, 42...">
-            <div class="form-text" style="font-size:11.5px">Só uma informação da entrega — não existe saldo separado por tamanho.</div>
+            <label class="form-label" for="entregaTamanho">Tamanho <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="entregaTamanho"><option value="">— item —</option></select>
+            <div class="form-text" style="font-size:11.5px" id="avisoTamanhoEntrega">A baixa sai só deste tamanho.</div>
           </div>
           <div class="col-md-3">
             <label class="form-label" for="entregaQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
@@ -138,6 +179,19 @@
 
 {% block scripts %}
 <script>
+/* Mostra os tamanhos do item na listagem: "40: 3 · 42: 5 · 43: 0".
+   Só aparecem os tamanhos que têm saldo ou mínimo definido — senão um sapato
+   ocuparia a linha inteira com 13 números zerados. */
+function resumoTamanhos(item) {
+  const linhas = (item.saldos || []).filter(s => (s.quantidade || 0) > 0 || (s.estoque_minimo || 0) > 0);
+  if (!linhas.length) return '<span class="text-muted">sem saldo lançado</span>';
+  return linhas.map(s => {
+    const cor = s.abaixo_minimo ? 'var(--alerta)' : 'inherit';
+    const peso = s.abaixo_minimo ? '600' : '400';
+    return `<span style="color:${cor};font-weight:${peso}">${SGMF.esc(s.tamanho)}: ${SGMF.numero(s.quantidade, 0)}</span>`;
+  }).join(' · ');
+}
+
 const telaUniformes = SGMF.tela({
   recurso: 'itens_uniforme',
   tela: 'uniformes',
@@ -147,27 +201,43 @@ const telaUniformes = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição', col: 5, obrigatorio: true, exemplo: 'Calça, Camisa, Meia, Moletom, Luva, Sapato...' },
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 4, padrao: 'UN',
       opcoes: ['UN', 'PC', 'PAR', 'CX'] },
-    { nome: 'quantidade', rotulo: 'Quantidade em estoque', tipo: 'number', col: 4,
-      ajuda: 'Saldo inicial ao cadastrar. Depois, use o botão "Movimentar" na linha do item.' },
-    { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
-      ajuda: 'Abaixo disso o sistema avisa para repor.' },
+    { nome: 'tipo_tamanho', rotulo: 'Tipo de tamanho', tipo: 'select', col: 4, padrao: 'roupa',
+      opcoes: ['roupa', 'calcado', 'unico'],
+      ajuda: 'Define quais tamanhos o item terá em estoque.' },
+    { nome: 'estoque_minimo', rotulo: 'Mínimo por tamanho', tipo: 'number', col: 4,
+      ajuda: 'Sugestão aplicada a cada tamanho novo. Dá para ajustar tamanho a tamanho no botão de tamanhos.' },
     { nome: 'ativo', rotulo: 'Item ativo', tipo: 'checkbox', col: 4 }
   ],
   aoAbrirFormulario: () => {
     const campoCodigo = document.getElementById('campo_codigo');
     if (campoCodigo) campoCodigo.disabled = true;
+
+    /* O valor guardado é 'roupa'/'calcado'/'unico' (o backend compara por ele),
+       mas quem lê a tela merece o nome por extenso. */
+    const campoTipo = document.getElementById('campo_tipo_tamanho');
+    if (campoTipo) {
+      const rotulos = { roupa: 'Roupa — PP, P, M, G, GG, XG',
+                        calcado: 'Calçado — 34 a 46',
+                        unico: 'Único — sem tamanho' };
+      Array.from(campoTipo.options).forEach(o => {
+        if (rotulos[o.value]) o.textContent = rotulos[o.value];
+      });
+    }
   },
   colunas: [
     { campo: 'codigo', rotulo: 'Código', classe: 'num' },
     { campo: 'descricao', rotulo: 'Descrição' },
-    { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',
-      render: (v, i) => `<strong>${SGMF.numero(v, 2)}</strong> ${i.unidade}` },
-    { campo: 'estoque_minimo', rotulo: 'Mínimo', classe: 'num text-end', render: v => SGMF.numero(v, 2) },
+    { campo: 'tipo_tamanho_rotulo', rotulo: 'Tipo' },
+    { campo: 'saldos', rotulo: 'Saldo por tamanho', render: (v, i) => resumoTamanhos(i) },
+    { campo: 'quantidade', rotulo: 'Total', classe: 'num text-end',
+      render: (v, i) => `<strong>${SGMF.numero(v, 0)}</strong> ${i.unidade}` },
     { campo: 'abaixo_minimo', rotulo: 'Situação',
       render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') },
     { campo: 'ativo', rotulo: '', render: v => v ? '' : SGMF.etiqueta('Inativo', 'cinza') }
   ],
-  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-tam="${item.id}" title="Tamanhos e mínimos">
+                           <i class="fa-solid fa-list-ol"></i></button>
+                         <button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
                            <i class="fa-solid fa-right-left"></i></button>`,
   aoRenderizar: (linhas) => {
     const itens = linhas.length;
@@ -176,28 +246,56 @@ const telaUniformes = SGMF.tela({
     document.getElementById('resumoUniformes').innerHTML = `
       <div class="medidor"><div class="rotulo">Itens cadastrados</div><div class="valor num">${itens}</div></div>
       <div class="medidor"><div class="rotulo">Peças em estoque</div><div class="valor num">${SGMF.numero(totalPecas)}</div></div>
-      <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div><div class="valor num">${repor}</div></div>`;
+      <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Itens com tamanho a repor</div><div class="valor num">${repor}</div></div>`;
 
     document.querySelectorAll('[data-mov]').forEach(b => b.onclick = () => {
       const item = linhas.find(i => i.id == b.dataset.mov);
-      document.getElementById('movItemId').value = item.id;
-      document.getElementById('movItem').innerHTML =
-        `<strong>${SGMF.esc(item.codigo)}</strong> · ${SGMF.esc(item.descricao)}<br>
-         <span class="text-muted">Saldo atual: ${SGMF.numero(item.quantidade, 2)} ${item.unidade}</span>`;
-      document.getElementById('movQtd').value = '';
-      document.getElementById('movDoc').value = '';
-      document.getElementById('movObs').value = '';
-      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimentoUniforme')).show();
+      abrirModalMovimento(item);
+    });
+    document.querySelectorAll('[data-tam]').forEach(b => b.onclick = () => {
+      const item = linhas.find(i => i.id == b.dataset.tam);
+      abrirModalTamanhos(item);
     });
     carregarMovimentosUniforme();
   }
 });
 
+/* ------------------------------------------------------- movimentação */
+function opcoesDeTamanho(item, comSaldo) {
+  return (item.saldos || []).map(s => {
+    const extra = comSaldo ? ` (saldo ${SGMF.numero(s.quantidade, 0)})` : '';
+    return `<option value="${SGMF.esc(s.tamanho)}">${SGMF.esc(s.tamanho)}${extra}</option>`;
+  }).join('');
+}
+
+/* Busca o item no servidor antes de abrir os modais: é essa chamada que
+   garante as linhas de tamanho de um item recém-cadastrado. */
+async function buscarItemComSaldos(id) {
+  return SGMF.get(`/api/itens_uniforme/${id}/saldos`);
+}
+
+async function abrirModalMovimento(itemDaLinha) {
+  let item = itemDaLinha;
+  try { item = await buscarItemComSaldos(itemDaLinha.id); } catch (e) { /* usa o da linha */ }
+  document.getElementById('movItemId').value = item.id;
+  document.getElementById('movItem').innerHTML =
+    `<strong>${SGMF.esc(item.codigo)}</strong> · ${SGMF.esc(item.descricao)}<br>
+     <span class="text-muted">Total em estoque: ${SGMF.numero(item.quantidade, 0)} ${item.unidade}</span>`;
+  document.getElementById('movTamanho').innerHTML = opcoesDeTamanho(item, true);
+  document.getElementById('movQtd').value = '';
+  document.getElementById('movDoc').value = '';
+  document.getElementById('movObs').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimentoUniforme')).show();
+}
+
 document.getElementById('movSalvar').onclick = async () => {
+  const tamanho = document.getElementById('movTamanho').value;
+  if (!tamanho) return SGMF.aviso('Escolha o tamanho.');
   try {
     await SGMF.post('/api/uniformes/movimentos', {
       item_id: Number(document.getElementById('movItemId').value),
       tipo: document.getElementById('movTipo').value,
+      tamanho: tamanho,
       quantidade: Number(document.getElementById('movQtd').value),
       documento: document.getElementById('movDoc').value,
       observacao: document.getElementById('movObs').value
@@ -209,6 +307,62 @@ document.getElementById('movSalvar').onclick = async () => {
   } catch (e) { SGMF.falha(e.message); }
 };
 
+/* ------------------------------------------- tamanhos e mínimos do item */
+async function abrirModalTamanhos(itemDaLinha) {
+  let item = itemDaLinha;
+  try { item = await buscarItemComSaldos(itemDaLinha.id); } catch (e) { /* usa o da linha */ }
+  document.getElementById('tamItemId').value = item.id;
+  document.getElementById('tamItem').innerHTML =
+    `<strong>${SGMF.esc(item.codigo)}</strong> · ${SGMF.esc(item.descricao)}
+     <span class="text-muted"> — ${SGMF.esc(item.tipo_tamanho_rotulo)}</span>`;
+
+  const linhas = item.saldos || [];
+  document.getElementById('areaTamanhos').innerHTML = `
+    <table class="table table-sm align-middle mb-0" style="font-size:13px">
+      <thead><tr><th>Tamanho</th><th class="text-end">Saldo</th><th style="width:130px">Mínimo</th></tr></thead>
+      <tbody>${linhas.map(s => `<tr>
+        <td><strong>${SGMF.esc(s.tamanho)}</strong></td>
+        <td class="text-end num" style="color:${s.abaixo_minimo ? 'var(--alerta)' : 'inherit'}">
+          ${SGMF.numero(s.quantidade, 0)}</td>
+        <td><input type="number" step="any" min="0" class="form-control form-control-sm"
+                   data-minimo="${SGMF.esc(s.tamanho)}" value="${s.estoque_minimo || 0}"></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalTamanhos')).show();
+}
+
+/* Usa SGMF.put quando existir; senão fala direto com o servidor. Assim a
+   tela não depende de uma função que pode não estar no core.js. */
+async function salvarMinimos(id, tamanhos) {
+  if (typeof SGMF.put === 'function') {
+    return SGMF.put(`/api/itens_uniforme/${id}/saldos`, { tamanhos });
+  }
+  const resposta = await fetch(`/api/itens_uniforme/${id}/saldos`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tamanhos })
+  });
+  let dados = null;
+  try { dados = await resposta.json(); } catch (e) { dados = null; }
+  if (!resposta.ok) throw new Error((dados && dados.erro) || 'Não foi possível salvar os mínimos.');
+  return dados;
+}
+
+document.getElementById('tamSalvar')?.addEventListener('click', async () => {
+  const id = document.getElementById('tamItemId').value;
+  const tamanhos = Array.from(document.querySelectorAll('[data-minimo]')).map(campo => ({
+    tamanho: campo.dataset.minimo,
+    estoque_minimo: Number(campo.value) || 0
+  }));
+  try {
+    await salvarMinimos(id, tamanhos);
+    bootstrap.Modal.getInstance(document.getElementById('modalTamanhos')).hide();
+    SGMF.sucesso('Mínimos atualizados');
+    SGMF.limparCache('itens_uniforme');
+    telaUniformes.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+});
+
 async function carregarMovimentosUniforme() {
   const dados = await SGMF.get('/api/uniformes/movimentos');
   const area = document.getElementById('listaMovimentosUniforme');
@@ -219,11 +373,12 @@ async function carregarMovimentosUniforme() {
   }
   const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
   area.innerHTML = `<table class="table table-sm mb-0" style="font-size:13px">
-    <thead><tr><th class="ps-3">Data</th><th>Item</th><th>Tipo</th>
+    <thead><tr><th class="ps-3">Data</th><th>Item</th><th>Tamanho</th><th>Tipo</th>
     <th class="text-end">Qtde</th><th>Documento</th></tr></thead>
     <tbody>${dados.slice(0, 15).map(m => `<tr>
       <td class="ps-3 num">${SGMF.data(m.data)}</td>
       <td>${SGMF.esc(m.item_descricao) || '—'}</td>
+      <td class="num">${SGMF.esc(m.tamanho) || '—'}</td>
       <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
       <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
       <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td></tr>`).join('')}</tbody></table>`;
@@ -244,10 +399,31 @@ async function preencherSelectItemUniforme() {
     lista.map(o => `<option value="${SGMF.esc(o.valor)}">${SGMF.esc(o.texto)}</option>`).join('');
 }
 
+/* Ao escolher o item, os tamanhos dele (com o saldo de cada um) entram no
+   campo de tamanho — buscados do servidor para vir sempre atualizado. */
+async function carregarTamanhosDaEntrega() {
+  const id = document.getElementById('entregaItem').value;
+  const campo = document.getElementById('entregaTamanho');
+  const aviso = document.getElementById('avisoTamanhoEntrega');
+  if (!id) {
+    campo.innerHTML = '<option value="">— item —</option>';
+    aviso.textContent = 'A baixa sai só deste tamanho.';
+    return;
+  }
+  try {
+    const item = await buscarItemComSaldos(id);
+    campo.innerHTML = '<option value="">— selecione —</option>' + opcoesDeTamanho(item, true);
+    aviso.textContent = `A baixa sai só deste tamanho de ${item.descricao}.`;
+  } catch (e) {
+    campo.innerHTML = '<option value="">— selecione —</option>';
+    aviso.textContent = 'Não consegui carregar os tamanhos deste item.';
+  }
+}
+
 function abrirModalEntrega() {
   document.getElementById('entregaFuncionario').value = '';
   document.getElementById('entregaItem').value = '';
-  document.getElementById('entregaTamanho').value = '';
+  document.getElementById('entregaTamanho').innerHTML = '<option value="">— item —</option>';
   document.getElementById('entregaQuantidade').value = 1;
   document.getElementById('entregaTipo').value = 'Novo';
   document.getElementById('entregaData').value = SGMF.hoje();
@@ -258,13 +434,15 @@ function abrirModalEntrega() {
 document.getElementById('entregaSalvar').onclick = async () => {
   const funcionario_id = document.getElementById('entregaFuncionario').value;
   const item_id = document.getElementById('entregaItem').value;
+  const tamanho = document.getElementById('entregaTamanho').value;
   if (!funcionario_id || !item_id) return SGMF.aviso('Selecione o funcionário e o item.');
+  if (!tamanho) return SGMF.aviso('Escolha o tamanho — a baixa é feita por tamanho.');
   const botao = document.getElementById('entregaSalvar');
   botao.disabled = true;
   try {
     await SGMF.post('/api/entregas_uniforme', {
       funcionario_id: Number(funcionario_id), item_id: Number(item_id),
-      tamanho: document.getElementById('entregaTamanho').value,
+      tamanho: tamanho,
       quantidade: Number(document.getElementById('entregaQuantidade').value) || 1,
       tipo_entrega: document.getElementById('entregaTipo').value,
       data: document.getElementById('entregaData').value,
@@ -300,7 +478,7 @@ async function carregarEntregas() {
       <td class="ps-3 num">${SGMF.data(e.data)}</td>
       <td>${SGMF.esc(e.funcionario_nome) || '—'}</td>
       <td>${SGMF.esc(e.item_descricao) || '—'}</td>
-      <td>${SGMF.esc(e.tamanho) || '—'}</td>
+      <td class="num">${SGMF.esc(e.tamanho) || '—'}</td>
       <td class="text-end num">${SGMF.numero(e.quantidade, 2)}</td>
       <td>${SGMF.etiqueta(e.tipo_entrega, CORES_TIPO_ENTREGA[e.tipo_entrega] || 'cinza')}</td>
       <td class="pe-3">
@@ -311,7 +489,7 @@ async function carregarEntregas() {
 
   document.querySelectorAll('[data-cancelar-entrega]').forEach(b => b.onclick = async () => {
     const ok = await SGMF.confirmar('Cancelar entrega?',
-      'A quantidade volta para o estoque de uniformes.', 'Cancelar entrega');
+      'A quantidade volta para o estoque, no mesmo tamanho.', 'Cancelar entrega');
     if (!ok) return;
     try {
       await SGMF.del(`/api/entregas_uniforme/${b.dataset.cancelarEntrega}`);
@@ -323,7 +501,86 @@ async function carregarEntregas() {
   });
 }
 
+/* --------------------------------------------------------- impressões
+   O documento é montado por createElement/innerHTML, e não por
+   document.write com uma string gigante: string longa de HTML dentro do
+   script já quebrou a tela de OS uma vez. */
+function imprimirDocumento(titulo, conteudo) {
+  const janela = window.open('', '_blank');
+  if (!janela) return SGMF.aviso('Libere a janela pop-up do navegador para imprimir.');
+  const doc = janela.document;
+  doc.title = titulo;
+  const estilo = doc.createElement('style');
+  estilo.textContent = 'body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#111}'
+    + 'h1{font-size:18px;margin:0 0 4px}'
+    + '.sub{font-size:12px;color:#555;margin-bottom:18px}'
+    + 'h2{font-size:14px;margin:18px 0 6px;border-bottom:1px solid #999;padding-bottom:3px}'
+    + 'table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:6px}'
+    + 'th,td{border:1px solid #bbb;padding:5px 7px;text-align:left}'
+    + 'th{background:#eee}'
+    + '.num{text-align:right}'
+    + '.total{font-size:12px;margin:0 0 10px;font-weight:bold}';
+  doc.head.appendChild(estilo);
+  const area = doc.createElement('div');
+  area.innerHTML = conteudo;
+  doc.body.appendChild(area);
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+function cabecalhoImpressao(titulo) {
+  const agora = new Date().toLocaleString('pt-BR');
+  return `<h1>${titulo}</h1><div class="sub">Emitido em ${agora}</div>`;
+}
+
+document.getElementById('botaoListaCompra').addEventListener('click', async () => {
+  try {
+    const itens = await SGMF.get('/api/uniformes/compra');
+    if (!itens.length) {
+      return SGMF.aviso('Nenhum tamanho está abaixo do mínimo — não há o que comprar.');
+    }
+    const corpo = itens.map(i => `
+      <h2>${SGMF.esc(i.descricao)} — ${SGMF.esc(i.tipo_tamanho_rotulo)}</h2>
+      <table>
+        <thead><tr><th>Tamanho</th><th class="num">Em estoque</th>
+        <th class="num">Mínimo</th><th class="num">Comprar</th></tr></thead>
+        <tbody>${i.tamanhos.map(t => `<tr>
+          <td>${SGMF.esc(t.tamanho)}</td>
+          <td class="num">${SGMF.numero(t.quantidade, 0)}</td>
+          <td class="num">${SGMF.numero(t.estoque_minimo, 0)}</td>
+          <td class="num">${SGMF.numero(t.falta_comprar, 0)}</td></tr>`).join('')}</tbody>
+      </table>
+      <p class="total">Total de ${SGMF.esc(i.descricao)}: ${SGMF.numero(i.total_comprar, 0)} ${SGMF.esc(i.unidade || '')}</p>`
+    ).join('');
+    imprimirDocumento('Lista de compra de uniformes',
+      cabecalhoImpressao('Lista de compra — uniformes e calçados') + corpo);
+  } catch (e) { SGMF.falha(e.message); }
+});
+
+document.getElementById('botaoPosicaoEstoque').addEventListener('click', async () => {
+  try {
+    const itens = await SGMF.get('/api/uniformes/posicao');
+    if (!itens.length) return SGMF.aviso('Nenhum item de uniforme cadastrado.');
+    const corpo = itens.map(i => `
+      <h2>${SGMF.esc(i.descricao)} — ${SGMF.esc(i.tipo_tamanho_rotulo)}</h2>
+      <table>
+        <thead><tr><th>Tamanho</th><th class="num">Saldo</th>
+        <th class="num">Mínimo</th><th>Situação</th></tr></thead>
+        <tbody>${(i.saldos || []).map(t => `<tr>
+          <td>${SGMF.esc(t.tamanho)}</td>
+          <td class="num">${SGMF.numero(t.quantidade, 0)}</td>
+          <td class="num">${SGMF.numero(t.estoque_minimo, 0)}</td>
+          <td>${t.abaixo_minimo ? 'Repor' : 'Normal'}</td></tr>`).join('')}</tbody>
+      </table>
+      <p class="total">Total de ${SGMF.esc(i.descricao)}: ${SGMF.numero(i.quantidade, 0)} ${SGMF.esc(i.unidade || '')}</p>`
+    ).join('');
+    imprimirDocumento('Posição do estoque de uniformes',
+      cabecalhoImpressao('Posição do estoque — uniformes por tamanho') + corpo);
+  } catch (e) { SGMF.falha(e.message); }
+});
+
 document.getElementById('botaoNovaEntrega')?.addEventListener('click', abrirModalEntrega);
+document.getElementById('entregaItem').addEventListener('change', carregarTamanhosDaEntrega);
 document.getElementById('filtroInicio').addEventListener('change', carregarEntregas);
 document.getElementById('filtroFim').addEventListener('change', carregarEntregas);
 document.getElementById('botaoImprimirEntregas').addEventListener('click', () =>

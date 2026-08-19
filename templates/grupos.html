@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block titulo %}Grupos de peças{% endblock %}
+{% block cabecalho %}Grupos de peças{% endblock %}
+{% block descricao %}
+Cadastro manual dos grupos usados nas peças — Elétrica, Arrefecimento, Motor, Freios...
+{% endblock %}
+
+{% block acoes %}
+{% if pode('grupos', 'editar') %}
+<button class="btn btn-primary" id="btnNovoGrupo">
+  <i class="fa-solid fa-plus"></i> Novo grupo
+</button>
+<button class="btn btn-outline-secondary" id="btnImportarGrupos"
+        title="Cadastra automaticamente os grupos que já aparecem nas peças">
+  <i class="fa-solid fa-wand-magic-sparkles"></i> Trazer das peças
+</button>
+{% endif %}
+{% endblock %}
+
+{% block conteudo %}
+<div class="card mb-3" id="cardFormGrupo" style="display:none">
+  <div class="card-body">
+    <h5 class="card-title" id="tituloFormGrupo">Novo grupo</h5>
+    <input type="hidden" id="grupoId">
+    <div class="row g-2">
+      <div class="col-md-4">
+        <label class="form-label" for="grupoNome">Nome do grupo *</label>
+        <input type="text" class="form-control" id="grupoNome" maxlength="60"
+               placeholder="Ex.: Arrefecimento" autocomplete="off">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="grupoDescricao">Descrição (opcional)</label>
+        <input type="text" class="form-control" id="grupoDescricao" maxlength="200"
+               placeholder="Ex.: radiador, mangueiras, válvula termostática">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="grupoAtivo">Situação</label>
+        <select class="form-control form-select" id="grupoAtivo">
+          <option value="1">Ativo</option>
+          <option value="0">Inativo</option>
+        </select>
+      </div>
+    </div>
+    <div class="mt-3">
+      <button class="btn btn-success" id="btnSalvarGrupo">
+        <i class="fa-solid fa-check"></i> Salvar
+      </button>
+      <button class="btn btn-secondary" id="btnCancelarGrupo">Cancelar</button>
+      <span class="ms-2 text-muted" id="avisoFormGrupo"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="row g-2 mb-3">
+      <div class="col-md-5">
+        <input type="text" class="form-control" id="buscaGrupo"
+               placeholder="Procurar grupo..." autocomplete="off">
+      </div>
+      <div class="col-md-3">
+        <select class="form-control form-select" id="filtroSituacaoGrupo">
+          <option value="">Todos</option>
+          <option value="1">Somente ativos</option>
+          <option value="0">Somente inativos</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-striped align-middle" id="tabelaGrupos">
+        <thead>
+          <tr>
+            <th>Grupo</th>
+            <th>Descrição</th>
+            <th class="text-center">Peças</th>
+            <th class="text-center">Situação</th>
+            <th class="text-end">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="corpoTabelaGrupos">
+          <tr><td colspan="5" class="text-muted">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var PODE_EDITAR = {% if pode('grupos', 'editar') %}true{% else %}false{% endif %};
+  var grupos = [];
+
+  var corpo = document.getElementById('corpoTabelaGrupos');
+  var cardForm = document.getElementById('cardFormGrupo');
+  var campoNome = document.getElementById('grupoNome');
+  var campoDescricao = document.getElementById('grupoDescricao');
+  var campoAtivo = document.getElementById('grupoAtivo');
+  var campoId = document.getElementById('grupoId');
+  var aviso = document.getElementById('avisoFormGrupo');
+  var busca = document.getElementById('buscaGrupo');
+  var filtro = document.getElementById('filtroSituacaoGrupo');
+
+  function escapar(texto) {
+    var div = document.createElement('div');
+    div.textContent = texto == null ? '' : String(texto);
+    return div.innerHTML;
+  }
+
+  function mensagemErro(resposta, padrao) {
+    return (resposta && resposta.erro) ? resposta.erro : padrao;
+  }
+
+  async function chamar(url, opcoes) {
+    var resposta = await fetch(url, opcoes || {});
+    var dados = null;
+    try { dados = await resposta.json(); } catch (e) { dados = null; }
+    if (!resposta.ok) {
+      throw new Error(mensagemErro(dados, 'Não foi possível concluir a operação.'));
+    }
+    return dados;
+  }
+
+  async function carregar() {
+    try {
+      grupos = await chamar('/api/grupos');
+      desenhar();
+    } catch (e) {
+      corpo.innerHTML = '<tr><td colspan="5" class="text-danger">' +
+        escapar(e.message) + '</td></tr>';
+    }
+  }
+
+  function visiveis() {
+    var termo = (busca.value || '').trim().toLowerCase();
+    var situacao = filtro.value;
+    return grupos.filter(function (g) {
+      if (situacao === '1' && !g.ativo) return false;
+      if (situacao === '0' && g.ativo) return false;
+      if (!termo) return true;
+      var alvo = ((g.nome || '') + ' ' + (g.descricao || '')).toLowerCase();
+      return alvo.indexOf(termo) >= 0;
+    });
+  }
+
+  function desenhar() {
+    var lista = visiveis();
+    if (!lista.length) {
+      corpo.innerHTML = '<tr><td colspan="5" class="text-muted">' +
+        'Nenhum grupo cadastrado ainda.</td></tr>';
+      return;
+    }
+    corpo.innerHTML = lista.map(function (g) {
+      var situacao = g.ativo
+        ? '<span class="badge bg-success">Ativo</span>'
+        : '<span class="badge bg-secondary">Inativo</span>';
+      var acoes = PODE_EDITAR
+        ? '<button class="btn btn-sm btn-outline-primary" data-editar="' + g.id + '">' +
+          '<i class="fa-solid fa-pen"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-danger" data-excluir="' + g.id + '">' +
+          '<i class="fa-solid fa-trash"></i></button>'
+        : '<span class="text-muted">—</span>';
+      return '<tr>' +
+        '<td><strong>' + escapar(g.nome) + '</strong></td>' +
+        '<td>' + escapar(g.descricao || '') + '</td>' +
+        '<td class="text-center">' + (g.qtd_pecas || 0) + '</td>' +
+        '<td class="text-center">' + situacao + '</td>' +
+        '<td class="text-end">' + acoes + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function abrirFormulario(grupo) {
+    campoId.value = grupo ? grupo.id : '';
+    campoNome.value = grupo ? (grupo.nome || '') : '';
+    campoDescricao.value = grupo ? (grupo.descricao || '') : '';
+    campoAtivo.value = (!grupo || grupo.ativo) ? '1' : '0';
+    document.getElementById('tituloFormGrupo').textContent =
+      grupo ? 'Editando: ' + grupo.nome : 'Novo grupo';
+    aviso.textContent = '';
+    cardForm.style.display = '';
+    campoNome.focus();
+  }
+
+  function fecharFormulario() {
+    cardForm.style.display = 'none';
+    aviso.textContent = '';
+  }
+
+  async function salvar() {
+    var nome = (campoNome.value || '').trim();
+    if (!nome) {
+      aviso.textContent = 'Informe o nome do grupo.';
+      campoNome.focus();
+      return;
+    }
+    var id = campoId.value;
+    var corpoEnvio = JSON.stringify({
+      nome: nome,
+      descricao: (campoDescricao.value || '').trim(),
+      ativo: campoAtivo.value === '1'
+    });
+    var opcoes = {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: corpoEnvio
+    };
+    try {
+      var salvo = await chamar(id ? '/api/grupos/' + id : '/api/grupos', opcoes);
+      fecharFormulario();
+      await carregar();
+      if (salvo && salvo.pecas_renomeadas) {
+        alert('Grupo renomeado. ' + salvo.pecas_renomeadas +
+              ' peça(s) foram atualizadas para o novo nome.');
+      }
+    } catch (e) {
+      aviso.textContent = e.message;
+    }
+  }
+
+  async function excluir(id) {
+    var grupo = grupos.filter(function (g) { return String(g.id) === String(id); })[0];
+    if (!grupo) return;
+    if (!confirm('Excluir o grupo "' + grupo.nome + '"?')) return;
+    try {
+      await chamar('/api/grupos/' + id, { method: 'DELETE' });
+      await carregar();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function importar() {
+    if (!confirm('Cadastrar automaticamente os grupos que já aparecem nas peças?')) return;
+    try {
+      var r = await chamar('/api/grupos/importar', { method: 'POST' });
+      await carregar();
+      alert(r.total
+        ? r.total + ' grupo(s) trazido(s) das peças: ' + r.criados.join(', ')
+        : 'Nenhum grupo novo encontrado nas peças.');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  corpo.addEventListener('click', function (evento) {
+    var botaoEditar = evento.target.closest('[data-editar]');
+    if (botaoEditar) {
+      var id = botaoEditar.getAttribute('data-editar');
+      var grupo = grupos.filter(function (g) { return String(g.id) === String(id); })[0];
+      if (grupo) abrirFormulario(grupo);
+      return;
+    }
+    var botaoExcluir = evento.target.closest('[data-excluir]');
+    if (botaoExcluir) excluir(botaoExcluir.getAttribute('data-excluir'));
+  });
+
+  busca.addEventListener('input', desenhar);
+  filtro.addEventListener('change', desenhar);
+  campoNome.addEventListener('keydown', function (e) { if (e.key === 'Enter') salvar(); });
+  campoDescricao.addEventListener('keydown', function (e) { if (e.key === 'Enter') salvar(); });
+
+  var btnNovo = document.getElementById('btnNovoGrupo');
+  if (btnNovo) btnNovo.addEventListener('click', function () { abrirFormulario(null); });
+  var btnImportar = document.getElementById('btnImportarGrupos');
+  if (btnImportar) btnImportar.addEventListener('click', importar);
+  var btnSalvar = document.getElementById('btnSalvarGrupo');
+  if (btnSalvar) btnSalvar.addEventListener('click', salvar);
+  var btnCancelar = document.getElementById('btnCancelarGrupo');
+  if (btnCancelar) btnCancelar.addEventListener('click', fecharFormulario);
+
+  carregar();
+})();
+</script>
+{% endblock %}

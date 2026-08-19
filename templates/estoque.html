@@ -6,6 +6,11 @@
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoEstoque"></div>
+
+<!-- Opções do campo Grupo: preenchidas pelo cadastro Cadastros > Grupos de peças.
+     Como é um <datalist>, a pessoa pode escolher da lista OU digitar um grupo
+     novo na hora, sem travar o cadastro da peça. -->
+<datalist id="listaGrupos"></datalist>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -228,6 +233,24 @@
 
 {% block scripts %}
 <script>
+/* ================================================== grupos cadastrados
+   A lista vem da tela Cadastros > Grupos de peças (/api/grupos/nomes).
+   Se o módulo de grupos ainda não estiver publicado, cai na lista antiga do
+   core.js (SGMF.GRUPOS) — a tela continua funcionando do mesmo jeito. */
+async function carregarGruposCadastrados() {
+  let nomes = [];
+  try {
+    const resposta = await fetch('/api/grupos/nomes');
+    if (resposta.ok) nomes = await resposta.json();
+  } catch (e) { nomes = []; }
+  if (!nomes.length && Array.isArray(SGMF.GRUPOS)) nomes = SGMF.GRUPOS;
+  const lista = document.getElementById('listaGrupos');
+  if (lista) {
+    lista.innerHTML = nomes.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
+  }
+}
+carregarGruposCadastrados();
+
 const telaEstoque = SGMF.tela({
   recurso: 'pecas',
   tela: 'estoque',
@@ -238,7 +261,8 @@ const telaEstoque = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Filtro de óleo motor MWM' },
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
       opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
-    { nome: 'grupo', rotulo: 'Grupo', tipo: 'select', col: 4, opcoes: SGMF.GRUPOS },
+    { nome: 'grupo', rotulo: 'Grupo', col: 4, exemplo: 'Elétrica, Arrefecimento…',
+      ajuda: 'Escolha um grupo já cadastrado ou digite um novo.' },
     { nome: 'fornecedor_id', rotulo: 'Fornecedor', tipo: 'ref', recurso: 'fornecedores', col: 5 },
     { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
     { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
@@ -254,6 +278,15 @@ const telaEstoque = SGMF.tela({
   aoAbrirFormulario: () => {
     const campoCodigo = document.getElementById('campo_codigo');
     if (campoCodigo) campoCodigo.disabled = true;
+
+    /* Grupo: liga o campo ao <datalist> e busca a lista de novo, para um grupo
+       cadastrado agora há pouco já aparecer sem precisar recarregar a página. */
+    const campoGrupo = document.getElementById('campo_grupo');
+    if (campoGrupo) {
+      campoGrupo.setAttribute('list', 'listaGrupos');
+      campoGrupo.setAttribute('autocomplete', 'off');
+    }
+    carregarGruposCadastrados();
   },
   colunas: [
     { campo: 'codigo', rotulo: 'Código', classe: 'num' },

@@ -37,7 +37,6 @@ TELAS_SISTEMA = [
     ("motoristas", "Motoristas", "Cadastros"),
     ("fornecedores", "Oficinas e postos", "Cadastros"),
     ("estoque", "Estoque de peças", "Cadastros"),
-    ("grupos", "Grupos de peças", "Cadastros"),
     ("importacao", "Importar planilha", "Cadastros"),
     ("orcamento", "Meta x realizado", "Gestão"),
     ("ranking", "Rankings", "Gestão"),
@@ -75,7 +74,6 @@ CARGOS_SUGERIDOS = {
             "dashboard": "visualizar", "estoque": "editar", "fornecedores": "editar",
             "manutencao": "visualizar", "pneus": "visualizar", "veiculos": "visualizar",
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
-            "grupos": "editar",
         },
     },
     # Quem aprova e efetiva a compra. 'compras' em nível 'editar' é o que
@@ -312,65 +310,6 @@ class Fornecedor(db.Model):
         return {"id": self.id, "nome": self.nome, "tipo": self.tipo, "cnpj": self.cnpj,
                 "telefone": self.telefone, "cidade": self.cidade, "contato": self.contato,
                 "ativo": self.ativo, "identificacao": f"{self.nome} ({self.tipo})"}
-
-
-class Grupo(db.Model):
-    """Cadastro manual dos grupos de peças (Elétrica, Arrefecimento, Motor...).
-
-    Detalhe importante: a peça continua guardando o grupo pelo NOME
-    (`Peca.grupo` é texto), e não pelo id desta tabela. Isso foi de propósito —
-    nenhuma peça antiga precisa ser convertida, os relatórios que filtram por
-    grupo continuam funcionando igual, e o campo segue aceitando um nome
-    digitado à mão quando faltar cadastro. Esta tabela é a lista oficial que
-    alimenta as opções da tela.
-
-    Por isso, ao renomear um grupo aqui, as peças que usavam o nome antigo são
-    atualizadas junto (ver routes/grupos.py) — do contrário elas ficariam
-    apontando para um nome que não existe mais.
-    """
-    __tablename__ = "grupos"
-    id = db.Column(db.Integer, primary_key=True)
-    nome = db.Column(db.String(60), unique=True, nullable=False, index=True)
-    descricao = db.Column(db.String(200))
-    ativo = db.Column(db.Boolean, default=True)
-
-    def quantidade_pecas(self):
-        return db.session.query(Peca.id).filter(Peca.grupo == self.nome).count()
-
-    def to_dict(self, com_contagem=True):
-        return {"id": self.id, "nome": self.nome, "descricao": self.descricao,
-                "ativo": self.ativo,
-                "qtd_pecas": self.quantidade_pecas() if com_contagem else None,
-                "identificacao": self.nome}
-
-
-def nomes_de_grupos(somente_ativos=True):
-    """Lista de nomes para preencher as opções de grupo nas outras telas."""
-    consulta = Grupo.query
-    if somente_ativos:
-        consulta = consulta.filter(Grupo.ativo.is_(True))
-    return [g.nome for g in consulta.order_by(Grupo.nome).all()]
-
-
-def importar_grupos_das_pecas():
-    """Cadastra automaticamente os grupos que já aparecem nas peças.
-
-    Usada na instalação do módulo (migrar_grupos.py) e no botão "Trazer das
-    peças" da tela. Não duplica: compara ignorando maiúsculas e espaços.
-    Devolve a lista de nomes que foram criados agora.
-    """
-    existentes = {(g.nome or "").strip().lower() for g in Grupo.query.all()}
-    criados = []
-    for (nome,) in db.session.query(Peca.grupo).distinct().all():
-        nome = (nome or "").strip()
-        if not nome or nome.lower() in existentes:
-            continue
-        db.session.add(Grupo(nome=nome, ativo=True))
-        existentes.add(nome.lower())
-        criados.append(nome)
-    if criados:
-        db.session.commit()
-    return sorted(criados)
 
 
 class Peca(db.Model):
@@ -927,39 +866,11 @@ def _sincronizar_oleo_ao_aplicar_item(session, _flush_context, _instances):
 # Módulo — Uniformes: cadastro de funcionários, estoque próprio de itens de
 # uniforme e entregas (baixas) desse estoque.
 #
-# Regra atual: o saldo é SEPARADO POR TAMANHO. "Sapato" não tem um saldo só —
-# tem um saldo para o 40, outro para o 42, outro para o 43 (tabela
-# saldos_uniforme). Ao entregar, o tamanho escolhido decide de qual saldo sai a
-# baixa: se o 42 está zerado, a entrega do 42 é recusada mesmo que sobrem pares
-# de outros números.
-#
-# ItemUniforme.quantidade continua existindo, mas passou a ser só o TOTAL —
-# a soma dos tamanhos, recalculada a cada movimento. Não se escreve nele
-# direto; quem manda é a linha do tamanho.
+# Regra pedida: o tamanho é só uma informação da entrega (guardada no
+# histórico), NÃO existe um saldo separado por tamanho — "Calça" tem um único
+# saldo em estoque, e a baixa acontece nesse saldo único independente do
+# tamanho registrado na entrega.
 # ============================================================================
-TAMANHOS_UNIFORME = {
-    "roupa": ["PP", "P", "M", "G", "GG", "XG"],
-    "calcado": [str(n) for n in range(34, 47)],   # 34 a 46
-    "unico": ["Único"],
-}
-ROTULOS_TIPO_TAMANHO = {"roupa": "Roupa", "calcado": "Calçado", "unico": "Único"}
-
-
-def normalizar_tipo_tamanho(valor):
-    """Aceita 'Calçado', 'calcado', 'CALÇADO'... e devolve a chave interna."""
-    texto = (valor or "").strip().lower()
-    equivalentes = {
-        "roupa": "roupa", "vestuario": "roupa", "vestuário": "roupa",
-        "calcado": "calcado", "calçado": "calcado", "sapato": "calcado",
-        "unico": "unico", "único": "unico", "sem tamanho": "unico",
-    }
-    return equivalentes.get(texto, "roupa")
-
-
-def tamanhos_do_tipo(tipo):
-    return list(TAMANHOS_UNIFORME.get(normalizar_tipo_tamanho(tipo), []))
-
-
 class Funcionario(db.Model):
     __tablename__ = "funcionarios"
     id = db.Column(db.Integer, primary_key=True)
@@ -977,77 +888,22 @@ class Funcionario(db.Model):
 
 
 class ItemUniforme(db.Model):
-    """Estoque próprio de uniformes — separado do estoque de peças.
-
-    O saldo real mora em SaldoUniforme (uma linha por tamanho). O campo
-    `quantidade` aqui é só o total somado, mantido para as telas e relatórios
-    que já liam esse número.
-    """
+    """Estoque próprio de uniformes — separado do estoque de peças."""
     __tablename__ = "itens_uniforme"
     id = db.Column(db.Integer, primary_key=True)
     codigo = db.Column(db.String(20), unique=True, nullable=False, index=True)
     descricao = db.Column(db.String(80), nullable=False)   # Calça, Camisa, Meia, Moletom, Luva, Sapato...
-    tipo_tamanho = db.Column(db.String(12), default="roupa")   # roupa | calcado | unico
     unidade = db.Column(db.String(10), default="UN")
-    quantidade = db.Column(db.Float, default=0)            # total = soma dos tamanhos
-    estoque_minimo = db.Column(db.Float, default=0)        # mínimo padrão de cada tamanho novo
-    ativo = db.Column(db.Boolean, default=True)
-    saldos = db.relationship("SaldoUniforme", back_populates="item",
-                             cascade="all, delete-orphan", lazy="selectin")
-
-    def tamanhos_previstos(self):
-        return tamanhos_do_tipo(self.tipo_tamanho)
-
-    def saldos_ordenados(self):
-        """Na ordem do tipo (PP→XG, 34→46), com qualquer tamanho estranho no fim."""
-        ordem = {t: i for i, t in enumerate(self.tamanhos_previstos())}
-        return sorted(self.saldos or [],
-                      key=lambda s: (ordem.get(s.tamanho, 999), s.tamanho or ""))
-
-    def total(self):
-        return round(sum((s.quantidade or 0) for s in (self.saldos or [])), 3)
-
-    def to_dict(self):
-        linhas = [s.to_dict() for s in self.saldos_ordenados()]
-        return {"id": self.id, "codigo": self.codigo, "descricao": self.descricao,
-                "tipo_tamanho": normalizar_tipo_tamanho(self.tipo_tamanho),
-                "tipo_tamanho_rotulo": ROTULOS_TIPO_TAMANHO.get(
-                    normalizar_tipo_tamanho(self.tipo_tamanho), "Roupa"),
-                "tamanhos_previstos": self.tamanhos_previstos(),
-                "unidade": self.unidade, "quantidade": self.total(),
-                "estoque_minimo": self.estoque_minimo, "ativo": self.ativo,
-                "saldos": linhas,
-                "abaixo_minimo": any(l["abaixo_minimo"] for l in linhas),
-                "identificacao": f"{self.codigo} · {self.descricao}"}
-
-
-class SaldoUniforme(db.Model):
-    """Saldo de UM tamanho de UM item — é aqui que a baixa acontece."""
-    __tablename__ = "saldos_uniforme"
-    id = db.Column(db.Integer, primary_key=True)
-    item_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"), nullable=False)
-    tamanho = db.Column(db.String(10), nullable=False)
     quantidade = db.Column(db.Float, default=0)
     estoque_minimo = db.Column(db.Float, default=0)
-    item = db.relationship("ItemUniforme", back_populates="saldos")
-
-    __table_args__ = (db.UniqueConstraint("item_id", "tamanho",
-                                          name="uq_saldo_item_tamanho"),)
-
-    @property
-    def falta_comprar(self):
-        """Quanto falta para chegar ao mínimo — é o número da lista de compra."""
-        if not self.estoque_minimo:
-            return 0
-        return max(0, round((self.estoque_minimo or 0) - (self.quantidade or 0), 3))
+    ativo = db.Column(db.Boolean, default=True)
 
     def to_dict(self):
-        return {"id": self.id, "item_id": self.item_id, "tamanho": self.tamanho,
-                "quantidade": self.quantidade or 0,
-                "estoque_minimo": self.estoque_minimo or 0,
-                "falta_comprar": self.falta_comprar,
-                "abaixo_minimo": bool(self.estoque_minimo)
-                                 and (self.quantidade or 0) <= (self.estoque_minimo or 0)}
+        return {"id": self.id, "codigo": self.codigo, "descricao": self.descricao,
+                "unidade": self.unidade, "quantidade": self.quantidade,
+                "estoque_minimo": self.estoque_minimo, "ativo": self.ativo,
+                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
+                "identificacao": f"{self.codigo} · {self.descricao}"}
 
 
 def proximo_codigo_item_uniforme():
@@ -1066,7 +922,6 @@ class MovimentoUniforme(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Date, default=_hoje)
     item_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"), nullable=False)
-    tamanho = db.Column(db.String(10))   # de qual tamanho entrou/saiu
     tipo = db.Column(db.String(10))   # entrada | saida | ajuste
     quantidade = db.Column(db.Float, default=0)
     documento = db.Column(db.String(60))
@@ -1078,7 +933,6 @@ class MovimentoUniforme(db.Model):
         return {"id": self.id, "data": self.data.isoformat() if self.data else None,
                 "item_id": self.item_id,
                 "item_descricao": f"{self.item.codigo} · {self.item.descricao}" if self.item else None,
-                "tamanho": self.tamanho,
                 "tipo": self.tipo, "quantidade": self.quantidade,
                 "documento": self.documento, "observacao": self.observacao}
 
@@ -1086,16 +940,15 @@ class MovimentoUniforme(db.Model):
 class EntregaUniforme(db.Model):
     """Entrega (baixa) de um item de uniforme para um funcionário.
 
-    O tamanho é obrigatório e decide de qual saldo sai a baixa — ver
-    SaldoUniforme. Entregas antigas (antes desta regra) podem estar sem
-    tamanho: elas ficam no histórico como estão.
+    O tamanho é só uma anotação da entrega — não existe saldo por tamanho,
+    a baixa sempre acontece no saldo único do item (ItemUniforme.quantidade).
     """
     __tablename__ = "entregas_uniforme"
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Date, default=_hoje)
     funcionario_id = db.Column(db.Integer, db.ForeignKey("funcionarios.id"), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"), nullable=False)
-    tamanho = db.Column(db.String(10))                 # P, M, G, GG, 38, 40...
+    tamanho = db.Column(db.String(10))                 # P, M, G, GG, 38, 40... — só informativo
     tipo_entrega = db.Column(db.String(15), default="Novo")  # Novo | Emergencial
     quantidade = db.Column(db.Float, default=1)
     observacao = db.Column(db.String(200))
@@ -1111,62 +964,6 @@ class EntregaUniforme(db.Model):
                 "tamanho": self.tamanho, "tipo_entrega": self.tipo_entrega,
                 "quantidade": self.quantidade, "observacao": self.observacao,
                 "identificacao": f"Entrega #{self.id}"}
-
-
-def garantir_saldos(item):
-    """Cria as linhas de saldo que faltarem para os tamanhos do tipo do item.
-
-    Chamada antes de qualquer leitura ou movimento — assim um item recém
-    cadastrado (ou que mudou de tipo) já aparece com todos os tamanhos
-    zerados, e a lista de compra consegue enxergar o que falta comprar.
-    O mínimo de cada tamanho novo começa igual ao mínimo padrão do item.
-    """
-    previstos = item.tamanhos_previstos()
-
-    # Item que trocou de tipo (era roupa, virou calçado) fica com as linhas
-    # antigas penduradas. As que estão zeradas saem daqui — não servem para
-    # nada e só atrapalham na hora de escolher o tamanho. As que têm saldo
-    # ficam: nada some do estoque sem passar por um movimento.
-    for sobra in list(item.saldos or []):
-        if sobra.tamanho not in previstos and not (sobra.quantidade or 0):
-            item.saldos.remove(sobra)
-
-    existentes = {s.tamanho for s in (item.saldos or [])}
-    criados = 0
-    for tamanho in previstos:
-        if tamanho in existentes:
-            continue
-        # append na relação (e não db.session.add avulso): assim a linha nova
-        # já aparece em item.saldos na mesma requisição, sem esperar o próximo
-        # carregamento — senão a função abaixo criaria uma segunda linha do
-        # mesmo tamanho e esbarraria na trava de unicidade.
-        item.saldos.append(SaldoUniforme(tamanho=tamanho, quantidade=0,
-                                         estoque_minimo=item.estoque_minimo or 0))
-        criados += 1
-    if criados:
-        db.session.flush()
-    return criados
-
-
-def saldo_do_tamanho(item, tamanho, criar=True):
-    """Devolve a linha de saldo daquele tamanho (criando se necessário)."""
-    alvo = (tamanho or "").strip()
-    for s in (item.saldos or []):
-        if (s.tamanho or "").strip().lower() == alvo.lower():
-            return s
-    if not criar:
-        return None
-    novo = SaldoUniforme(tamanho=alvo, quantidade=0,
-                         estoque_minimo=item.estoque_minimo or 0)
-    item.saldos.append(novo)
-    db.session.flush()
-    return novo
-
-
-def recalcular_total_uniforme(item):
-    """Mantém ItemUniforme.quantidade como a soma dos tamanhos."""
-    item.quantidade = item.total()
-    return item.quantidade
 
 
 # ============================================================================

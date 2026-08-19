@@ -1,0 +1,276 @@
+"""Módulo — Ordens de compra.
+
+Fluxo pedido:
+
+    Pendente ──▶ Aprovada ──▶ Comprada
+        └─────▶ Reprovada ──▶ (reabrir) ──▶ Pendente
+
+A ordem nasce Pendente com a operação lançando os itens. O financeiro
+Aprova ou Reprova, e depois de comprar marca como Comprada. Aprovar,
+reprovar e comprar exigem nível 'editar' na tela 'compras' — é assim que
+se separa quem pede de quem autoriza (dê 'visualizar' a quem só solicita).
+
+Nada aqui mexe no saldo do estoque: a ordem de compra é o documento do
+pedido. A entrada continua sendo feita pela nota fiscal ou pelo movimento
+manual, como sempre foi.
+
+Os itens seguem o mesmo desenho do ItemOS: `peca_id` preenchido quando a
+peça foi escolhida no estoque, ou só `descricao` quando foi escrita à mão.
+"""
+from datetime import datetime
+
+from flask import Blueprint, jsonify, request, session
+
+from extensions import db
+from models import ItemOrdemCompra, OrdemCompra, Peca, proximo_numero_ordem_compra
+from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_log,
+                           visualizar_tela)
+from services.tempo import hoje
+
+# Se o app.py registrar as blueprints já com url_prefix="/api"
+# (app.register_blueprint(bp_compras, url_prefix="/api")), troque a linha
+# abaixo por:  bp_compras = Blueprint("compras", __name__)
+bp_compras = Blueprint("compras", __name__, url_prefix="/api")
+
+TELA = "compras"
+ROTA = "ordens_compra"
+
+
+# --------------------------------------------------------------- auxiliares
+def _usuario():
+    return session.get("usuario_nome", "sistema")
+
+
+def _data(texto):
+    try:
+        return datetime.strptime(str(texto)[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _numero(valor, padrao=0.0):
+    try:
+        return float(str(valor).replace(",", "."))
+    except (ValueError, TypeError):
+        return padrao
+
+
+def _exigir_pendente(ordem):
+    if ordem.status != "Pendente":
+        raise ErroNegocio(
+            f"Esta ordem já está {ordem.status.lower()} e não aceita mais alteração de itens.")
+
+
+def _resposta(ordem):
+    return jsonify(ordem.to_dict(com_itens=True))
+
+
+# ------------------------------------------------------- CRUD do cabeçalho
+def _filtrar(q, args):
+    """Mesmo filtro de período das outras telas (inicio/fim), mais um filtro
+    opcional por situação usado pelos atalhos do topo da tela."""
+    inicio, fim = _data(args.get("inicio")), _data(args.get("fim"))
+    if inicio:
+        q = q.filter(OrdemCompra.data_solicitacao >= inicio)
+    if fim:
+        q = q.filter(OrdemCompra.data_solicitacao <= fim)
+    status = (args.get("status") or "").strip()
+    if status:
+        q = q.filter(OrdemCompra.status == status)
+    return q
+
+
+def _antes_salvar(obj, dados, anterior):
+    if anterior is None:                     # criação
+        obj.numero = obj.numero or proximo_numero_ordem_compra()
+        obj.solicitante = obj.solicitante or _usuario()
+        obj.status = "Pendente"              # status só muda pelas rotas de fluxo
+        if not obj.data_solicitacao:
+            obj.data_solicitacao = hoje()
+    elif anterior.get("status") != "Pendente":
+        raise ErroNegocio("Só dá para alterar uma ordem que ainda está Pendente. "
+                          "Reabra a ordem reprovada ou abra uma nova.")
+
+
+def _antes_excluir(obj):
+    if obj.status in ("Aprovada", "Comprada"):
+        raise ErroNegocio(f"Uma ordem {obj.status.lower()} não pode ser excluída — "
+                          "ela já faz parte do histórico de aprovação.")
+
+
+# `status` fica de fora dos campos aceitos de propósito: quem muda a situação
+# são as rotas /aprovar, /reprovar e /comprar, que registram quem decidiu.
+registrar_crud(
+    bp_compras, ROTA, OrdemCompra,
+    campos={
+        "data_solicitacao": "date",
+        "setor": "str",
+        "fornecedor_id": "int",
+        "prioridade": "str",
+        "justificativa": "str",
+        "observacao": "str",
+        "solicitante": "str",
+    },
+    ordem=OrdemCompra.data_solicitacao.desc(),
+    obrigatorios=("data_solicitacao", "justificativa"),
+    antes_salvar=_antes_salvar,
+    antes_excluir=_antes_excluir,
+    filtrar=_filtrar,
+    tela=TELA,
+)
+
+
+# --------------------------------------------------------- itens da ordem
+@bp_compras.get(f"/{ROTA}/<int:ordem_id>/itens")
+@visualizar_tela(TELA)
+def listar_itens(ordem_id):
+    return _resposta(db.get_or_404(OrdemCompra, ordem_id))
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/itens")
+@editar_tela(TELA)
+def adicionar_item(ordem_id):
+    """Aceita as duas formas de lançar item:
+
+    1) peca_id  -> item escolhido no estoque (descrição, unidade e valor
+       vêm da peça quando não forem informados);
+    2) descricao -> item escrito à mão, para o que não existe cadastrado.
+    """
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        _exigir_pendente(ordem)
+
+        peca_id = dados.get("peca_id") or None
+        descricao = (dados.get("descricao") or "").strip()
+        unidade = (dados.get("unidade") or "").strip()
+        valor = dados.get("valor_unitario")
+        peca = None
+
+        if peca_id:
+            peca = db.session.get(Peca, int(peca_id))
+            if peca is None:
+                raise ErroNegocio("A peça escolhida não existe mais no estoque.")
+            descricao = descricao or peca.descricao
+            unidade = unidade or (peca.unidade or "UN")
+            if valor in (None, ""):
+                valor = peca.custo_unitario or 0
+        elif not descricao:
+            raise ErroNegocio("Escolha uma peça do estoque ou escreva a descrição do item.")
+
+        quantidade = _numero(dados.get("quantidade"), 1) or 1
+        if quantidade <= 0:
+            raise ErroNegocio("A quantidade precisa ser maior que zero.")
+
+        item = ItemOrdemCompra(
+            ordem_compra_id=ordem.id,
+            peca_id=peca.id if peca else None,
+            descricao=descricao[:160],
+            unidade=(unidade or "UN")[:10],
+            quantidade=quantidade,
+            valor_unitario=_numero(valor, 0),
+            observacao=(dados.get("observacao") or "").strip()[:200] or None,
+        )
+        db.session.add(item)
+        db.session.flush()
+        registrar_log("criar", "itens_ordem_compra", item.id,
+                      f"{ordem.numero} · {item.descricao}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception:
+        db.session.rollback()
+        return jsonify({"erro": "Não foi possível lançar o item. Confira a quantidade "
+                                "e o valor informados."}), 400
+    return _resposta(ordem)
+
+
+@bp_compras.delete(f"/{ROTA}/<int:ordem_id>/itens/<int:item_id>")
+@editar_tela(TELA)
+def remover_item(ordem_id, item_id):
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    item = db.session.get(ItemOrdemCompra, item_id)
+    if item is None or item.ordem_compra_id != ordem.id:
+        return jsonify({"erro": "Este item não pertence a esta ordem de compra."}), 404
+    try:
+        _exigir_pendente(ordem)
+        db.session.delete(item)
+        registrar_log("excluir", "itens_ordem_compra", item_id, ordem.numero or "")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return _resposta(ordem)
+
+
+# ------------------------------------------------------------- fluxo/status
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/aprovar")
+@editar_tela(TELA)
+def aprovar(ordem_id):
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    if ordem.status != "Pendente":
+        return jsonify({"erro": f"Só uma ordem Pendente pode ser aprovada "
+                                f"(esta está {ordem.status.lower()})."}), 400
+    if not ordem.itens:
+        return jsonify({"erro": "Lance ao menos um item antes de aprovar."}), 400
+    ordem.status = "Aprovada"
+    ordem.aprovado_por = _usuario()
+    ordem.data_aprovacao = hoje()
+    ordem.motivo_reprovacao = None
+    registrar_log("editar", ROTA, ordem.id, f"aprovada por {ordem.aprovado_por}")
+    db.session.commit()
+    return _resposta(ordem)
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/reprovar")
+@editar_tela(TELA)
+def reprovar(ordem_id):
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    dados = request.get_json(silent=True) or {}
+    motivo = (dados.get("motivo") or "").strip()
+    if ordem.status != "Pendente":
+        return jsonify({"erro": f"Só uma ordem Pendente pode ser reprovada "
+                                f"(esta está {ordem.status.lower()})."}), 400
+    if not motivo:
+        return jsonify({"erro": "Escreva o motivo da reprovação — é ele que volta "
+                                "para quem pediu."}), 400
+    ordem.status = "Reprovada"
+    ordem.motivo_reprovacao = motivo[:200]
+    ordem.aprovado_por = _usuario()
+    ordem.data_aprovacao = hoje()
+    registrar_log("editar", ROTA, ordem.id, f"reprovada por {ordem.aprovado_por}: {motivo[:80]}")
+    db.session.commit()
+    return _resposta(ordem)
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/comprar")
+@editar_tela(TELA)
+def comprar(ordem_id):
+    """Marca o pedido como comprado. Continua sem tocar no estoque — a peça
+    entra quando a nota fiscal for lançada."""
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    if ordem.status != "Aprovada":
+        return jsonify({"erro": "Só uma ordem Aprovada pode ser marcada como comprada."}), 400
+    ordem.status = "Comprada"
+    ordem.comprado_por = _usuario()
+    ordem.data_compra = hoje()
+    registrar_log("editar", ROTA, ordem.id, f"comprada por {ordem.comprado_por}")
+    db.session.commit()
+    return _resposta(ordem)
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/reabrir")
+@editar_tela(TELA)
+def reabrir(ordem_id):
+    """Ordem reprovada volta a Pendente para ser corrigida e reenviada —
+    evita ter que redigitar tudo quando o financeiro pede um ajuste."""
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    if ordem.status != "Reprovada":
+        return jsonify({"erro": "Só uma ordem Reprovada pode ser reaberta."}), 400
+    ordem.status = "Pendente"
+    ordem.aprovado_por = None
+    ordem.data_aprovacao = None
+    registrar_log("editar", ROTA, ordem.id, f"reaberta por {_usuario()}")
+    db.session.commit()
+    return _resposta(ordem)

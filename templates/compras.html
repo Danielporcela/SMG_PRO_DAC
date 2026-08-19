@@ -1,0 +1,758 @@
+{% extends "lista.html" %}
+{% block titulo %}Ordens de compra{% endblock %}
+{% block cabecalho %}Ordens de compra{% endblock %}
+{% block descricao %}Solicitação de material que vai ao financeiro aprovar e comprar. Não movimenta estoque — a entrada continua sendo pela nota fiscal.{% endblock %}
+{% block rotulo_novo %}Nova ordem de compra{% endblock %}
+{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+
+{% block antes_tabela %}
+<div class="d-flex gap-2 flex-wrap justify-content-end mb-2">
+  <button class="btn btn-contorno btn-sm" id="ocRelatorioImprimir">
+    <i class="fa-solid fa-print me-1"></i> Relatório do período
+  </button>
+  <a class="btn btn-contorno btn-sm" id="ocRelatorioExcel" href="/relatorios/ordens_compra.xlsx">
+    <i class="fa-solid fa-file-excel me-1"></i> Exportar Excel
+  </a>
+</div>
+<div class="instrumentos mb-3" id="resumoCompras"></div>
+{% endblock %}
+
+{% block depois_tabela %}
+<div class="modal fade" id="modalItensCompra" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="ocTitulo">Itens da ordem</h5>
+          <small style="color:var(--hi-vis)" id="ocSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ocId">
+        <div id="ocAviso" class="mb-3"></div>
+
+        <div id="ocFormularioItem">
+          <div class="mb-2">
+            <label class="form-label" for="ocBuscaPeca">Procurar peça no estoque</label>
+            <div class="input-group input-group-sm">
+              <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+              <input class="form-control" id="ocBuscaPeca" autocomplete="off"
+                     placeholder="Digite o código, a referência ou o nome — ex.: 0018, FIL-001, filtro de óleo">
+              <button class="btn btn-contorno" type="button" id="ocLimparPeca"
+                      title="Limpar a peça escolhida"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="ocResultadoPecas" class="resultado-pecas d-none"></div>
+            <div id="ocPecaEscolhida" class="form-text mt-1"></div>
+          </div>
+
+          <div class="row g-2 align-items-end mb-1">
+            <div class="col-md-4">
+              <label class="form-label" for="ocPeca">Peça do estoque (lista completa)</label>
+              <select class="form-select form-select-sm" id="ocPeca">
+                <option value="">— item escrito à mão —</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="ocDescricao">Descrição do item</label>
+              <input class="form-control form-control-sm" id="ocDescricao"
+                     placeholder="Ex.: correia dentada 6PK 1200">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label" for="ocUnidade">Un.</label>
+              <input class="form-control form-control-sm" id="ocUnidade" value="UN">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label" for="ocQtd">Qtde</label>
+              <input type="number" step="any" class="form-control form-control-sm" id="ocQtd" value="1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" for="ocValor">Valor unit. estimado</label>
+              <input type="number" step="any" class="form-control form-control-sm" id="ocValor">
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-10">
+              <label class="form-label" for="ocObsItem">Observação do item (opcional)</label>
+              <input class="form-control form-control-sm" id="ocObsItem"
+                     placeholder="Ex.: marca preferida, aplicação, prazo">
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-primario btn-sm w-100" id="ocAdicionar">
+                <i class="fa-solid fa-plus me-1"></i> Adicionar
+              </button>
+            </div>
+          </div>
+          <p class="form-text mt-0">Duas formas de lançar: <strong>escolha a peça</strong> (o sistema
+            traz descrição, unidade e último custo) ou <strong>escreva a descrição</strong> quando o
+            material ainda não existe no cadastro. O valor é só uma estimativa para o financeiro
+            — nada aqui altera o saldo do estoque.</p>
+        </div>
+
+        <div id="ocListaItens"></div>
+      </div>
+      <div class="modal-footer justify-content-between flex-wrap gap-2">
+        <div id="ocTotais" class="num"></div>
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-contorno btn-sm" id="ocImprimir">
+            <i class="fa-solid fa-print me-1"></i> Imprimir
+          </button>
+          <button class="btn btn-contorno btn-sm" id="ocReabrir" style="display:none">
+            <i class="fa-solid fa-rotate-left me-1"></i> Reabrir
+          </button>
+          <button class="btn btn-contorno btn-sm" id="ocReprovar" style="display:none">
+            <i class="fa-solid fa-ban me-1"></i> Reprovar
+          </button>
+          <button class="btn btn-primario btn-sm" id="ocAprovar" style="display:none">
+            <i class="fa-solid fa-check me-1"></i> Aprovar
+          </button>
+          <button class="btn btn-primario btn-sm" id="ocComprar" style="display:none">
+            <i class="fa-solid fa-cart-shopping me-1"></i> Marcar como comprada
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalReprovarCompra" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <h5 class="modal-title display">Reprovar ordem de compra</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="ocMotivo">Motivo da reprovação
+          <span style="color:var(--alerta)">*</span></label>
+        <textarea class="form-control" id="ocMotivo" rows="3"
+                  placeholder="Ex.: sem orçamento neste mês; cotar com mais dois fornecedores"></textarea>
+        <p class="form-text">O motivo volta para quem pediu, junto com a ordem.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="ocConfirmarReprovacao">Reprovar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  /* Lista que aparece embaixo da caixa "Procurar peça no estoque" —
+     mesmo visual usado na tela de ordens de serviço. */
+  .resultado-pecas { border: 1px solid #D3DBE2; border-radius: 6px; background: #fff;
+                     max-height: 240px; overflow-y: auto; margin-top: 4px; }
+  .opcao-peca { display: block; width: 100%; text-align: left; border: 0;
+                border-bottom: 1px solid #EEF1F4; background: transparent;
+                padding: 7px 10px; font-size: 13px; line-height: 1.35; }
+  .opcao-peca:last-child { border-bottom: 0; }
+  .opcao-peca:hover, .opcao-peca.ativa { background: #EAF2F7; }
+  .opcao-peca .codigo { font-weight: 700; margin-right: 6px; }
+  .opcao-peca .detalhe { display: block; font-size: 11.5px; color: #6B7C8A; }
+  .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
+</style>
+<script>
+/* Quem tem 'editar' nesta tela é quem aprova, reprova e compra. Para separar
+   quem pede de quem autoriza, deixe o solicitante com 'visualizar'. */
+const PODE_DECIDIR_COMPRA = {{ 'true' if pode('compras', 'editar') else 'false' }};
+const CORES_STATUS_OC = { Pendente: 'ambar', Aprovada: 'verde', Reprovada: 'vermelha', Comprada: 'azul' };
+
+/* Guarda o que está na tela agora — é o que alimenta o relatório de
+   impressão, para o papel bater exatamente com o que a pessoa está vendo. */
+let ultimasLinhas = [];
+
+const telaCompras = SGMF.tela({
+  recurso: 'ordens_compra',
+  tela: 'compras',
+  titulo: 'ordem de compra',
+  filtroPeriodo: true,
+  ordem: [[1, 'desc']],
+  campos: [
+    { nome: 'data_solicitacao', rotulo: 'Data da solicitação', tipo: 'date', col: 3,
+      obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'setor', rotulo: 'Setor solicitante', col: 4, exemplo: 'Oficina, Almoxarifado…' },
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 5, padrao: 'Média',
+      opcoes: ['Baixa', 'Média', 'Alta', 'Urgente'] },
+    { nome: 'fornecedor_id', rotulo: 'Fornecedor sugerido', tipo: 'ref', recurso: 'fornecedores',
+      col: 6, ajuda: 'Opcional — o financeiro pode cotar em outro.' },
+    { nome: 'solicitante', rotulo: 'Solicitante', col: 6,
+      ajuda: 'Deixe em branco para usar o seu nome.' },
+    { nome: 'justificativa', rotulo: 'Justificativa da compra', tipo: 'textarea', col: 12,
+      obrigatorio: true, ajuda: 'É o que o financeiro lê para decidir.' },
+    { nome: 'observacao', rotulo: 'Observação', col: 12 }
+  ],
+  colunas: [
+    { campo: 'numero', rotulo: 'OC', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
+    { campo: 'data_solicitacao', rotulo: 'Solicitada em', render: v => SGMF.data(v) },
+    { campo: 'solicitante', rotulo: 'Solicitante', render: v => v || '—' },
+    { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
+    { campo: 'fornecedor_nome', rotulo: 'Fornecedor sugerido', render: v => v || '—' },
+    { campo: 'prioridade', rotulo: 'Prioridade', render: v => SGMF.status(v) },
+    { campo: 'qtd_itens', rotulo: 'Itens', classe: 'num text-end' },
+    { campo: 'valor_total', rotulo: 'Valor estimado', classe: 'num text-end',
+      render: v => `<strong>${SGMF.moeda(v)}</strong>` },
+    { campo: 'status', rotulo: 'Situação',
+      render: v => SGMF.etiqueta(v, CORES_STATUS_OC[v] || 'cinza') }
+  ],
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-itens-oc="${item.id}"
+                           title="Itens e aprovação"><i class="fa-solid fa-list"></i></button>
+                         <button class="btn btn-contorno btn-icone" data-imprimir-oc="${item.id}"
+                           title="Imprimir"><i class="fa-solid fa-print"></i></button>`,
+  aoRenderizar: (linhas) => {
+    ultimasLinhas = linhas;
+    atualizarLinkExcel();
+    const conta = (s) => linhas.filter(o => o.status === s).length;
+    const valorPendente = linhas.filter(o => o.status === 'Pendente')
+                                .reduce((s, o) => s + (o.valor_total || 0), 0);
+    const valorAprovado = linhas.filter(o => o.status === 'Aprovada')
+                                .reduce((s, o) => s + (o.valor_total || 0), 0);
+    document.getElementById('resumoCompras').innerHTML = `
+      <div class="medidor"><div class="rotulo">Ordens no período</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor ${conta('Pendente') ? 'atencao' : 'ok'}"><div class="rotulo">Aguardando o financeiro</div>
+        <div class="valor num">${conta('Pendente')}</div><div class="nota">${SGMF.moeda(valorPendente)} estimados</div></div>
+      <div class="medidor ok"><div class="rotulo">Aprovadas a comprar</div>
+        <div class="valor num">${conta('Aprovada')}</div><div class="nota">${SGMF.moeda(valorAprovado)} estimados</div></div>
+      <div class="medidor"><div class="rotulo">Compradas</div><div class="valor num">${conta('Comprada')}</div>
+        <div class="nota">${conta('Reprovada')} reprovada(s)</div></div>`;
+
+    document.querySelectorAll('[data-itens-oc]').forEach(b =>
+      b.onclick = () => abrirItensCompra(b.dataset.itensOc));
+
+    document.querySelectorAll('[data-imprimir-oc]').forEach(b =>
+      b.onclick = () => imprimirCompra(b.dataset.imprimirOc));
+  }
+});
+
+/* ==================================== procurar a peça (mesma lógica da OS)
+   A lista completa é carregada uma vez em `pecasDisponiveis`, então a busca
+   acontece no navegador: responde na hora. Ignora acento e maiúscula
+   ("oleo" acha "Óleo") e, no código, ignora a pontuação ("fil001" acha
+   "FIL-001"). O <select id="ocPeca"> continua guardando a escolha — quem
+   preferir a listinha pode usar só ela.                                   */
+let pecasDisponiveis = [];
+const MAX_RESULTADOS_PECA = 12;
+let resultadoPecas = [];
+let indicePeca = -1;
+let cronometroPeca = null;
+
+SGMF.get('/api/pecas').then(lista => {
+  pecasDisponiveis = lista;
+  document.getElementById('ocPeca').innerHTML = '<option value="">— item escrito à mão —</option>' +
+    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
+});
+
+const semAcento = (t) => String(t == null ? '' : t)
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const soAlfanumerico = (t) => semAcento(t).replace(/[^a-z0-9]/g, '');
+
+function procurarPecas(termo) {
+  const termos = semAcento(termo).split(/\s+/).filter(Boolean);
+  if (!termos.length) return [];
+  return pecasDisponiveis.filter(p => {
+    const alvo = semAcento([p.codigo, p.referencia, p.descricao, p.grupo, p.localizacao].join(' '));
+    const compacto = [p.codigo, p.referencia, p.descricao].map(soAlfanumerico).join(' ');
+    return termos.every(t => alvo.includes(t) ||
+      (soAlfanumerico(t) && compacto.includes(soAlfanumerico(t))));
+  });
+}
+
+function esconderResultadoPecas() {
+  document.getElementById('ocResultadoPecas').classList.add('d-none');
+  resultadoPecas = [];
+  indicePeca = -1;
+}
+
+function realcarOpcaoPeca() {
+  const botoes = document.querySelectorAll('#ocResultadoPecas .opcao-peca');
+  botoes.forEach((b, i) => b.classList.toggle('ativa', i === indicePeca));
+  if (botoes[indicePeca]) botoes[indicePeca].scrollIntoView({ block: 'nearest' });
+}
+
+function mostrarResultadoPecas(lista) {
+  const area = document.getElementById('ocResultadoPecas');
+  resultadoPecas = lista.slice(0, MAX_RESULTADOS_PECA);
+  indicePeca = resultadoPecas.length ? 0 : -1;
+  area.classList.remove('d-none');
+
+  if (!lista.length) {
+    area.innerHTML = `<div class="sem-resultado">Nenhuma peça com esse texto.
+      Você ainda pode escrever a descrição do item à mão.</div>`;
+    return;
+  }
+
+  area.innerHTML = resultadoPecas.map((p, i) => `
+    <button type="button" class="opcao-peca ${i === indicePeca ? 'ativa' : ''}" data-peca="${p.id}">
+      <span class="codigo num">${SGMF.esc(p.codigo)}</span>${SGMF.esc(p.descricao)}
+      <span class="detalhe">saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}${
+        p.localizacao ? ' · ' + SGMF.esc(p.localizacao) : ''} · ${SGMF.moeda(p.custo_unitario)}${
+        p.referencia ? ' · ref. ' + SGMF.esc(p.referencia) : ''}</span>
+    </button>`).join('') +
+    (lista.length > resultadoPecas.length
+      ? `<div class="sem-resultado">Mostrando ${resultadoPecas.length} de ${lista.length}.
+         Digite mais um pedaço para reduzir a lista.</div>`
+      : '');
+
+  area.querySelectorAll('[data-peca]').forEach(b =>
+    b.onclick = () => escolherPeca(b.dataset.peca));
+}
+
+/* Escolher a peça preenche descrição, unidade e último custo — tudo continua
+   editável, porque a compra pode ser de uma variação do que está cadastrado. */
+document.getElementById('ocPeca').addEventListener('change', (e) => {
+  const peca = pecasDisponiveis.find(p => p.id == e.target.value);
+  if (!peca) return;
+  document.getElementById('ocDescricao').value = peca.descricao || '';
+  document.getElementById('ocUnidade').value = peca.unidade || 'UN';
+  if (!document.getElementById('ocValor').value)
+    document.getElementById('ocValor').value = peca.custo_unitario || '';
+});
+
+function escolherPeca(id) {
+  const peca = pecasDisponiveis.find(p => p.id == id);
+  if (!peca) return;
+
+  const select = document.getElementById('ocPeca');
+  if (!Array.from(select.options).some(o => o.value == String(peca.id))) {
+    const opcao = document.createElement('option');
+    opcao.value = peca.id;
+    opcao.textContent = `${peca.codigo} · ${peca.descricao}`;
+    select.appendChild(opcao);
+  }
+  select.value = String(peca.id);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+
+  document.getElementById('ocBuscaPeca').value = `${peca.codigo} · ${peca.descricao}`;
+  document.getElementById('ocPecaEscolhida').innerHTML =
+    `<i class="fa-solid fa-check me-1" style="color:#2E7D32"></i>
+     <strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)} — saldo atual
+     ${SGMF.numero(peca.quantidade, 2)} ${SGMF.esc(peca.unidade || '')}` +
+    ((peca.quantidade || 0) <= (peca.estoque_minimo || 0)
+      ? ' <strong style="color:#C62828">(no mínimo ou abaixo)</strong>' : '');
+
+  esconderResultadoPecas();
+  document.getElementById('ocQtd').focus();
+  document.getElementById('ocQtd').select();
+}
+
+function limparEscolhaPeca(focar) {
+  document.getElementById('ocPeca').value = '';
+  document.getElementById('ocBuscaPeca').value = '';
+  document.getElementById('ocPecaEscolhida').innerHTML = '';
+  esconderResultadoPecas();
+  if (focar) document.getElementById('ocBuscaPeca').focus();
+}
+
+document.getElementById('ocBuscaPeca').addEventListener('input', () => {
+  clearTimeout(cronometroPeca);
+  cronometroPeca = setTimeout(() => {
+    const termo = document.getElementById('ocBuscaPeca').value.trim();
+    if (!termo) { esconderResultadoPecas(); return; }
+    mostrarResultadoPecas(procurarPecas(termo));
+  }, 180);
+});
+
+document.getElementById('ocBuscaPeca').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') e.preventDefault();
+  if (!resultadoPecas.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    indicePeca = (indicePeca + 1) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    indicePeca = (indicePeca - 1 + resultadoPecas.length) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'Enter') {
+    if (indicePeca >= 0) escolherPeca(resultadoPecas[indicePeca].id);
+  } else if (e.key === 'Escape') {
+    esconderResultadoPecas();
+  }
+});
+
+document.getElementById('ocLimparPeca').onclick = () => limparEscolhaPeca(true);
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#ocResultadoPecas') || e.target.closest('#ocBuscaPeca')) return;
+  if (resultadoPecas.length) esconderResultadoPecas();
+});
+
+/* ============================================ itens e fluxo da ordem */
+let ordemAtual = null;
+
+function limparFormularioItem() {
+  limparEscolhaPeca(false);
+  document.getElementById('ocDescricao').value = '';
+  document.getElementById('ocUnidade').value = 'UN';
+  document.getElementById('ocQtd').value = 1;
+  document.getElementById('ocValor').value = '';
+  document.getElementById('ocObsItem').value = '';
+}
+
+async function abrirItensCompra(ordemId) {
+  try {
+    ordemAtual = await SGMF.get(`/api/ordens_compra/${ordemId}/itens`);
+  } catch (e) { return SGMF.falha(e.message); }
+
+  document.getElementById('ocId').value = ordemAtual.id;
+  document.getElementById('ocTitulo').textContent = ordemAtual.identificacao;
+  document.getElementById('ocSubtitulo').textContent =
+    `${ordemAtual.solicitante || 'sem solicitante'} · ${ordemAtual.setor || 'sem setor'}` +
+    ` · solicitada em ${SGMF.data(ordemAtual.data_solicitacao)} · ${ordemAtual.status}`;
+  limparFormularioItem();
+  renderizarItensCompra();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalItensCompra')).show();
+}
+
+function renderizarItensCompra() {
+  const pendente = ordemAtual.status === 'Pendente';
+  const itens = ordemAtual.itens || [];
+
+  document.getElementById('ocFormularioItem').style.display = pendente ? '' : 'none';
+  document.getElementById('ocAprovar').style.display = (pendente && PODE_DECIDIR_COMPRA) ? '' : 'none';
+  document.getElementById('ocReprovar').style.display = (pendente && PODE_DECIDIR_COMPRA) ? '' : 'none';
+  document.getElementById('ocComprar').style.display =
+    (ordemAtual.status === 'Aprovada' && PODE_DECIDIR_COMPRA) ? '' : 'none';
+  document.getElementById('ocReabrir').style.display =
+    (ordemAtual.status === 'Reprovada' && PODE_DECIDIR_COMPRA) ? '' : 'none';
+
+  const aviso = document.getElementById('ocAviso');
+  if (ordemAtual.status === 'Reprovada') {
+    aviso.innerHTML = `<div class="alert alert-danger py-2 mb-0" style="font-size:13px">
+      <strong>Reprovada</strong> por ${SGMF.esc(ordemAtual.aprovado_por) || '—'} em
+      ${SGMF.data(ordemAtual.data_aprovacao)} — ${SGMF.esc(ordemAtual.motivo_reprovacao) || 'sem motivo registrado'}</div>`;
+  } else if (ordemAtual.status === 'Aprovada') {
+    aviso.innerHTML = `<div class="alert alert-success py-2 mb-0" style="font-size:13px">
+      <strong>Aprovada</strong> por ${SGMF.esc(ordemAtual.aprovado_por) || '—'} em
+      ${SGMF.data(ordemAtual.data_aprovacao)} — aguardando a compra.</div>`;
+  } else if (ordemAtual.status === 'Comprada') {
+    aviso.innerHTML = `<div class="alert alert-primary py-2 mb-0" style="font-size:13px">
+      <strong>Comprada</strong> por ${SGMF.esc(ordemAtual.comprado_por) || '—'} em
+      ${SGMF.data(ordemAtual.data_compra)}. Lance a nota fiscal no estoque quando o material chegar.</div>`;
+  } else {
+    aviso.innerHTML = '';
+  }
+
+  const area = document.getElementById('ocListaItens');
+  if (!itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-cart-shopping"></i>
+      <strong>Nenhum item nesta ordem</strong>Escolha a peça no estoque ou escreva a descrição.</div>`;
+  } else {
+    area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
+      <thead><tr><th>Item</th><th>Origem</th><th class="text-end">Qtde</th>
+      <th class="text-end">Valor unit.</th><th class="text-end">Total</th>${pendente ? '<th></th>' : ''}</tr></thead>
+      <tbody>${itens.map(i => `<tr>
+        <td>${SGMF.esc(i.descricao)}${i.observacao
+          ? `<span class="d-block" style="font-size:11.5px;color:#6B7C8A">${SGMF.esc(i.observacao)}</span>` : ''}</td>
+        <td>${i.origem === 'estoque'
+          ? SGMF.etiqueta('estoque', 'azul') + `<span class="d-block" style="font-size:11px;color:#6B7C8A">${SGMF.esc(i.peca_descricao) || ''}</span>`
+          : SGMF.etiqueta('digitado', 'cinza')}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)} ${SGMF.esc(i.unidade || '')}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+        ${pendente ? `<td class="text-end"><button class="btn btn-contorno btn-icone"
+          data-remover-item-oc="${i.id}" title="Remover"><i class="fa-solid fa-trash"></i></button></td>` : ''}
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  document.getElementById('ocTotais').innerHTML =
+    `${itens.length} item(ns) · valor estimado
+     <span style="color:var(--petroleo);font-size:16px"><strong>${SGMF.moeda(ordemAtual.valor_total)}</strong></span>`;
+
+  document.querySelectorAll('[data-remover-item-oc]').forEach(b => b.onclick = async () => {
+    if (!await SGMF.confirmar('Remover item?', 'Ele sai desta ordem de compra.', 'Remover')) return;
+    try {
+      ordemAtual = await SGMF.del(`/api/ordens_compra/${ordemAtual.id}/itens/${b.dataset.removerItemOc}`);
+      SGMF.sucesso('Item removido');
+      renderizarItensCompra();
+      telaCompras.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+document.getElementById('ocAdicionar').onclick = async () => {
+  const pecaId = document.getElementById('ocPeca').value;
+  const descricao = document.getElementById('ocDescricao').value.trim();
+  if (!pecaId && !descricao)
+    return SGMF.aviso('Escolha uma peça do estoque ou escreva a descrição do item.');
+
+  const botao = document.getElementById('ocAdicionar');
+  botao.disabled = true;
+  try {
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/itens`, {
+      peca_id: Number(pecaId) || null,
+      descricao,
+      unidade: document.getElementById('ocUnidade').value.trim(),
+      quantidade: Number(document.getElementById('ocQtd').value) || 1,
+      valor_unitario: Number(document.getElementById('ocValor').value) || 0,
+      observacao: document.getElementById('ocObsItem').value.trim()
+    });
+    SGMF.sucesso('Item adicionado');
+    limparFormularioItem();
+    renderizarItensCompra();
+    telaCompras.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+async function mudarStatus(acao, corpo, mensagem) {
+  try {
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/${acao}`, corpo);
+    SGMF.sucesso(mensagem);
+    renderizarItensCompra();
+    telaCompras.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+document.getElementById('ocAprovar').onclick = async () => {
+  if (!await SGMF.confirmar('Aprovar esta ordem?',
+      'Ela fica liberada para o financeiro comprar. O estoque não é alterado.', 'Aprovar')) return;
+  mudarStatus('aprovar', null, 'Ordem aprovada');
+};
+
+document.getElementById('ocReprovar').onclick = () => {
+  document.getElementById('ocMotivo').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalReprovarCompra')).show();
+};
+
+document.getElementById('ocConfirmarReprovacao').onclick = async () => {
+  const motivo = document.getElementById('ocMotivo').value.trim();
+  if (!motivo) return SGMF.aviso('Escreva o motivo da reprovação.');
+  bootstrap.Modal.getInstance(document.getElementById('modalReprovarCompra')).hide();
+  mudarStatus('reprovar', { motivo }, 'Ordem reprovada');
+};
+
+document.getElementById('ocComprar').onclick = async () => {
+  if (!await SGMF.confirmar('Marcar como comprada?',
+      'Registra que a compra foi feita. A peça só entra no estoque ao lançar a nota fiscal.',
+      'Marcar')) return;
+  mudarStatus('comprar', null, 'Ordem marcada como comprada');
+};
+
+document.getElementById('ocReabrir').onclick = async () => {
+  if (!await SGMF.confirmar('Reabrir esta ordem?',
+      'Ela volta para Pendente e pode ser corrigida e reenviada.', 'Reabrir')) return;
+  mudarStatus('reabrir', null, 'Ordem reaberta');
+};
+
+document.getElementById('ocImprimir').onclick = () => imprimirCompra(ordemAtual.id);
+
+/* ------------------------------------------------ imprimir a ordem de compra
+   Mesmo cuidado da impressão da OS: o documento é montado por partes na
+   janela já aberta, em vez de uma string gigante em document.write. */
+async function imprimirCompra(ordemId) {
+  let oc;
+  try {
+    oc = await SGMF.get(`/api/ordens_compra/${ordemId}/itens`);
+  } catch (e) { return SGMF.falha(e.message); }
+
+  const janela = window.open('', '_blank', 'width=900,height=720');
+  if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+  const itens = oc.itens || [];
+  const linhaItens = itens.length
+    ? itens.map((i, n) => `<tr>
+        <td class="text-end num">${n + 1}</td>
+        <td>${SGMF.esc(i.descricao)}${i.peca_descricao ? ` <small>(${SGMF.esc(i.peca_descricao)})</small>` : ''}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)} ${SGMF.esc(i.unidade || '')}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_total)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;color:#888">Nenhum item lançado nesta ordem.</td></tr>`;
+
+  const doc = janela.document;
+  doc.title = `${oc.identificacao} · SGMF Pro`;
+
+  const estilo = doc.createElement('style');
+  estilo.textContent = `
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; margin: 0; }
+    h1 { font-size: 20px; margin: 0 0 2px; color: #0F3D56; }
+    h3 { font-size: 13.5px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
+    .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
+    table.dados { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
+    table.dados th { text-align: left; background: #F5F7F9; padding: 6px 9px; width: 130px; border: 1px solid #D3DBE2; font-weight: 600; }
+    table.dados td { padding: 6px 9px; border: 1px solid #D3DBE2; }
+    table.itens { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+    table.itens th, table.itens td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+    table.itens th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+    .num, .text-end { text-align: right; }
+    .texto-livre { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
+    .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
+    .assinaturas { margin-top: 42px; display: flex; gap: 40px; font-size: 11.5px; color: #444; }
+    .assinaturas div { flex: 1; border-top: 1px solid #666; padding-top: 5px; text-align: center; }
+    .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
+    @media print { @page { margin: 14mm; } }
+  `;
+  doc.head.appendChild(estilo);
+
+  const corpo = doc.createElement('div');
+  corpo.innerHTML = `
+    <h1>Ordem de Compra ${SGMF.esc(oc.numero)}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+
+    <table class="dados">
+      <tr><th>Solicitante</th><td>${SGMF.esc(oc.solicitante) || '—'}</td>
+          <th>Situação</th><td>${SGMF.esc(oc.status) || '—'}</td></tr>
+      <tr><th>Setor</th><td>${SGMF.esc(oc.setor) || '—'}</td>
+          <th>Prioridade</th><td>${SGMF.esc(oc.prioridade) || '—'}</td></tr>
+      <tr><th>Data da solicitação</th><td>${SGMF.data(oc.data_solicitacao)}</td>
+          <th>Fornecedor sugerido</th><td>${SGMF.esc(oc.fornecedor_nome) || '—'}</td></tr>
+      <tr><th>Aprovação</th><td>${SGMF.esc(oc.aprovado_por) || '—'} ${oc.data_aprovacao ? '· ' + SGMF.data(oc.data_aprovacao) : ''}</td>
+          <th>Compra</th><td>${SGMF.esc(oc.comprado_por) || '—'} ${oc.data_compra ? '· ' + SGMF.data(oc.data_compra) : ''}</td></tr>
+    </table>
+
+    <h3>Justificativa</h3>
+    <div class="texto-livre">${SGMF.esc(oc.justificativa) || '—'}</div>
+    ${oc.motivo_reprovacao ? `<h3>Motivo da reprovação</h3>
+      <div class="texto-livre">${SGMF.esc(oc.motivo_reprovacao)}</div>` : ''}
+
+    <h3>Itens solicitados</h3>
+    <table class="itens">
+      <thead><tr><th class="text-end">#</th><th>Item</th><th class="text-end">Qtde</th>
+      <th class="text-end">Valor unit. estimado</th><th class="text-end">Total</th></tr></thead>
+      <tbody>${linhaItens}</tbody>
+    </table>
+    <div class="total-geral">Valor estimado: <strong>${SGMF.moeda(oc.valor_total)}</strong></div>
+    ${oc.observacao ? `<h3>Observação</h3><div class="texto-livre">${SGMF.esc(oc.observacao)}</div>` : ''}
+
+    <div class="assinaturas">
+      <div>Solicitante</div><div>Aprovação — financeiro</div><div>Compra</div>
+    </div>
+    <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas — documento de solicitação, não movimenta estoque.</div>
+  `;
+  doc.body.appendChild(corpo);
+
+  janela.focus();
+  janela.print();
+}
+
+/* ============================================ relatório do período
+   Excel: o servidor monta (Resumo / Ordens / Itens) respeitando o mesmo
+   período do filtro. Impressão: monta aqui com o que já está na tela, então
+   o papel sai exatamente igual ao que a pessoa está vendo. */
+function periodoAtual() {
+  // O filtro de período é um include compartilhado; para não depender do nome
+  // exato dos campos, tenta os ids conhecidos e cai nos dois primeiros
+  // campos de data da página.
+  const porId = (ids) => {
+    for (const id of ids) {
+      const campo = document.getElementById(id);
+      if (campo && campo.value) return campo.value;
+    }
+    return '';
+  };
+  let inicio = porId(['filtroInicio', 'inicio', 'periodoInicio', 'dataInicio']);
+  let fim = porId(['filtroFim', 'fim', 'periodoFim', 'dataFim']);
+  if (!inicio || !fim) {
+    const datas = Array.from(document.querySelectorAll('input[type="date"]'))
+      .filter(c => !c.closest('.modal'));
+    inicio = inicio || (datas[0] ? datas[0].value : '');
+    fim = fim || (datas[1] ? datas[1].value : '');
+  }
+  return { inicio, fim };
+}
+
+function atualizarLinkExcel() {
+  const { inicio, fim } = periodoAtual();
+  const parametros = new URLSearchParams();
+  if (inicio) parametros.set('inicio', inicio);
+  if (fim) parametros.set('fim', fim);
+  const consulta = parametros.toString();
+  document.getElementById('ocRelatorioExcel').href =
+    '/relatorios/ordens_compra.xlsx' + (consulta ? '?' + consulta : '');
+}
+
+document.getElementById('ocRelatorioImprimir').onclick = () => {
+  if (!ultimasLinhas.length) return SGMF.aviso('Não há ordens no período selecionado.');
+
+  const janela = window.open('', '_blank', 'width=980,height=760');
+  if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+  const { inicio, fim } = periodoAtual();
+  const soma = (lista) => lista.reduce((s, o) => s + (o.valor_total || 0), 0);
+  const situacoes = ['Pendente', 'Aprovada', 'Reprovada', 'Comprada'];
+  const total = soma(ultimasLinhas);
+
+  const linhasResumo = situacoes.map(s => {
+    const grupo = ultimasLinhas.filter(o => o.status === s);
+    return `<tr><td>${s}</td><td class="text-end num">${grupo.length}</td>
+      <td class="text-end num">${SGMF.moeda(soma(grupo))}</td>
+      <td class="text-end num">${total ? Math.round(soma(grupo) / total * 100) : 0}%</td></tr>`;
+  }).join('');
+
+  // Por setor, do maior valor para o menor — é a leitura que o financeiro faz.
+  const setores = {};
+  ultimasLinhas.forEach(o => {
+    const nome = o.setor || '— não informado —';
+    setores[nome] = (setores[nome] || 0) + (o.valor_total || 0);
+  });
+  const linhasSetor = Object.entries(setores).sort((a, b) => b[1] - a[1])
+    .map(([nome, valor]) => `<tr><td>${SGMF.esc(nome)}</td>
+      <td class="text-end num">${ultimasLinhas.filter(o => (o.setor || '— não informado —') === nome).length}</td>
+      <td class="text-end num">${SGMF.moeda(valor)}</td></tr>`).join('');
+
+  const linhasOrdens = ultimasLinhas.map(o => `<tr>
+      <td class="num">${SGMF.esc(o.numero)}</td>
+      <td class="num">${SGMF.data(o.data_solicitacao)}</td>
+      <td>${SGMF.esc(o.solicitante) || '—'}</td>
+      <td>${SGMF.esc(o.setor) || '—'}</td>
+      <td>${SGMF.esc(o.prioridade) || '—'}</td>
+      <td>${SGMF.esc(o.status)}</td>
+      <td class="text-end num">${SGMF.numero(o.qtd_itens)}</td>
+      <td class="text-end num">${SGMF.moeda(o.valor_total)}</td>
+    </tr>`).join('');
+
+  const doc = janela.document;
+  doc.title = 'Relatório de ordens de compra · SGMF Pro';
+
+  const estilo = doc.createElement('style');
+  estilo.textContent = `
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 24px 28px; margin: 0; }
+    h1 { font-size: 19px; margin: 0 0 2px; color: #0F3D56; }
+    h3 { font-size: 13px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
+    .sub { font-size: 11.5px; color: #666; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #D3DBE2; padding: 5px 8px; text-align: left; }
+    th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10px; letter-spacing: .02em; }
+    .text-end, .num { text-align: right; }
+    tfoot td { font-weight: bold; background: #F5F7F9; }
+    .rodape-impressao { margin-top: 18px; font-size: 10.5px; color: #888; }
+    @media print { @page { margin: 12mm; } thead { display: table-header-group; } }
+  `;
+  doc.head.appendChild(estilo);
+
+  const corpo = doc.createElement('div');
+  corpo.innerHTML = `
+    <h1>Relatório de ordens de compra</h1>
+    <div class="sub">Período: ${inicio ? SGMF.data(inicio) : 'início'} a ${fim ? SGMF.data(fim) : 'hoje'}
+      · ${ultimasLinhas.length} ordem(ns) · gerado em ${new Date().toLocaleString('pt-BR')}</div>
+
+    <h3>Por situação</h3>
+    <table><thead><tr><th>Situação</th><th class="text-end">Ordens</th>
+      <th class="text-end">Valor estimado</th><th class="text-end">% do valor</th></tr></thead>
+      <tbody>${linhasResumo}</tbody>
+      <tfoot><tr><td>Total</td><td class="text-end num">${ultimasLinhas.length}</td>
+        <td class="text-end num">${SGMF.moeda(total)}</td><td></td></tr></tfoot></table>
+
+    <h3>Por setor solicitante</h3>
+    <table><thead><tr><th>Setor</th><th class="text-end">Ordens</th>
+      <th class="text-end">Valor estimado</th></tr></thead><tbody>${linhasSetor}</tbody></table>
+
+    <h3>Ordens do período</h3>
+    <table><thead><tr><th>OC</th><th>Solicitada em</th><th>Solicitante</th><th>Setor</th>
+      <th>Prioridade</th><th>Situação</th><th class="text-end">Itens</th>
+      <th class="text-end">Valor estimado</th></tr></thead><tbody>${linhasOrdens}</tbody></table>
+
+    <div class="rodape-impressao">Valores estimados pela operação — a ordem de compra não movimenta estoque.
+      A entrada das peças continua sendo feita pela nota fiscal.</div>
+  `;
+  doc.body.appendChild(corpo);
+
+  janela.focus();
+  janela.print();
+};
+</script>
+{% endblock %}
