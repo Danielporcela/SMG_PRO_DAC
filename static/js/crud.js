@@ -240,12 +240,28 @@ SGMF.tela = function (config) {
   const botaoNovo = document.getElementById('botaoNovo');
   if (botaoNovo && bloqueado()) botaoNovo.remove();
   else if (botaoNovo) botaoNovo.onclick = () => abrir();
+  /* dataset.ligadoCrud evita ligar o mesmo listener duas vezes caso a tela
+     tambem registre os filtros por conta propria. */
   ['filtroInicio', 'filtroFim'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', carregar);
+    if (el && !el.dataset.ligadoCrud) {
+      el.dataset.ligadoCrud = '1';
+      el.addEventListener('change', carregar);
+    }
   });
 
-  preencherSelects().then(carregar).catch(e => SGMF.falha(e.message));
+  /* Se a carga inicial falhar, a mensagem aparece TAMBEM dentro da area da
+     tabela. So o alerta nao bastava: ele some sozinho e a tela continua em
+     branco, dando a impressao de que travou carregando. */
+  preencherSelects().then(carregar).catch(e => {
+    const area = document.getElementById('areaTabela');
+    if (area) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"
+        style="color:var(--alerta)"></i><strong>Não consegui carregar esta tela</strong>
+        ${SGMF.esc(e.message)}</div>`;
+    }
+    SGMF.falha(e.message);
+  });
 
   return { carregar, abrir, dados: () => registros };
 };

@@ -9,9 +9,15 @@ const SGMF = (() => {
       ...opcoes,
       body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : opcoes.body
     });
+    /* Sessão expirada: manda para o login — mas só se ainda não estivermos
+       nele. Sem essa checagem, se a própria tela de login (ou algo carregado
+       nela) chamar a API, o navegador entra em recarga infinita: pede /login,
+       recebe 401, pede /login de novo, sem parar. */
     if (resposta.status === 401) {
-      window.location.href = '/login';
-      throw new Error('Sessão expirada');
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+      throw new Error('Sessão expirada. Entre novamente.');
     }
     let dados = null;
     try { dados = await resposta.json(); } catch (e) { dados = null; }

@@ -257,8 +257,19 @@ const telaUniformes = SGMF.tela({
       abrirModalTamanhos(item);
     });
     carregarMovimentosUniforme();
+    carregarEntregas();
   }
 });
+
+/* Mostra o erro dentro da própria área, no lugar do "carregando".
+   Sem isto, qualquer falha de rede ou de permissão deixa o spinner
+   girando para sempre e a tela parece travada. */
+function mostrarFalhaNaArea(idArea, titulo, mensagem) {
+  const area = document.getElementById(idArea);
+  if (!area) return;
+  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"
+      style="color:var(--alerta)"></i><strong>${SGMF.esc(titulo)}</strong>${SGMF.esc(mensagem)}</div>`;
+}
 
 /* ------------------------------------------------------- movimentação */
 function opcoesDeTamanho(item, comSaldo) {
@@ -364,7 +375,13 @@ document.getElementById('tamSalvar')?.addEventListener('click', async () => {
 });
 
 async function carregarMovimentosUniforme() {
-  const dados = await SGMF.get('/api/uniformes/movimentos');
+  let dados;
+  try {
+    dados = await SGMF.get('/api/uniformes/movimentos');
+  } catch (e) {
+    return mostrarFalhaNaArea('listaMovimentosUniforme',
+      'Não consegui carregar as movimentações', e.message);
+  }
   const area = document.getElementById('listaMovimentosUniforme');
   if (!dados.length) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
@@ -462,7 +479,13 @@ const CORES_TIPO_ENTREGA = { Novo: 'verde', Emergencial: 'vermelha' };
 async function carregarEntregas() {
   const inicio = document.getElementById('filtroInicio').value;
   const fim = document.getElementById('filtroFim').value;
-  const entregas = await SGMF.get(`/api/entregas_uniforme?inicio=${inicio}&fim=${fim}`);
+  let entregas;
+  try {
+    entregas = await SGMF.get(`/api/entregas_uniforme?inicio=${inicio}&fim=${fim}`);
+  } catch (e) {
+    return mostrarFalhaNaArea('areaEntregas',
+      'Não consegui carregar as entregas', e.message);
+  }
   const area = document.getElementById('areaEntregas');
 
   if (!entregas.length) {
@@ -581,11 +604,15 @@ document.getElementById('botaoPosicaoEstoque').addEventListener('click', async (
 
 document.getElementById('botaoNovaEntrega')?.addEventListener('click', abrirModalEntrega);
 document.getElementById('entregaItem').addEventListener('change', carregarTamanhosDaEntrega);
-document.getElementById('filtroInicio').addEventListener('change', carregarEntregas);
-document.getElementById('filtroFim').addEventListener('change', carregarEntregas);
+/* filtroInicio/filtroFim NAO recebem listener aqui: o crud.js ja liga os dois
+   e recarrega a tela, que por sua vez chama carregarEntregas() no aoRenderizar.
+   Ligar de novo aqui so duplicava as requisicoes. */
 document.getElementById('botaoImprimirEntregas').addEventListener('click', () =>
   SGMF.imprimir('tabelaEntregas', 'Entregas de uniforme'));
 
-Promise.all([preencherSelectFuncionario(), preencherSelectItemUniforme(), carregarEntregas()]);
+/* As entregas sao carregadas pelo aoRenderizar da tela. Aqui ficam apenas os
+   selects do formulario — com catch, para uma falha nao derrubar a tela. */
+Promise.all([preencherSelectFuncionario(), preencherSelectItemUniforme()])
+  .catch(e => SGMF.falha(`Não consegui carregar as listas do formulário: ${e.message}`));
 </script>
 {% endblock %}
