@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block titulo %}Pesquisa de peças{% endblock %}
+{% block cabecalho %}Pesquisa de peças{% endblock %}
+{% block descricao %}Ache a peça pelo código, pela referência do fabricante ou pelo nome.{% endblock %}
+
+{% block acoes %}
+<button class="btn btn-contorno" id="botaoImprimirBusca">
+  <i class="fa-solid fa-print me-1"></i> Imprimir
+</button>
+{% endblock %}
+
+{% block conteudo %}
+
+<div class="cartao">
+  <div class="cartao-corpo">
+    <label class="form-label" for="campoBusca">O que você procura?</label>
+    <div class="input-group input-group-lg mb-3">
+      <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+      <input class="form-control" id="campoBusca" autocomplete="off" autofocus
+             placeholder="Ex.: 0018, FIL-001, filtro de óleo, cubo de roda">
+      <button class="btn btn-contorno" id="botaoLimpar" title="Limpar a pesquisa">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div class="d-flex flex-wrap gap-3 align-items-end">
+      <div>
+        <label class="form-label mb-1" style="font-size:11.5px">Procurar em</label>
+        <div class="btn-group d-block" role="group">
+          <button type="button" class="btn btn-contorno btn-sm modo-busca ativo-modo" data-modo="tudo">Tudo</button>
+          <button type="button" class="btn btn-contorno btn-sm modo-busca" data-modo="codigo">Código / referência</button>
+          <button type="button" class="btn btn-contorno btn-sm modo-busca" data-modo="nome">Nome da peça</button>
+        </div>
+      </div>
+
+      <div>
+        <label class="form-label mb-1" style="font-size:11.5px" for="filtroGrupo">Grupo</label>
+        <select class="form-select form-select-sm" id="filtroGrupo" style="min-width:170px">
+          <option value="">Todos os grupos</option>
+        </select>
+      </div>
+
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" id="filtroComSaldo">
+        <label class="form-check-label" for="filtroComSaldo" style="font-size:13px">Só com saldo</label>
+      </div>
+
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" id="filtroRepor">
+        <label class="form-check-label" for="filtroRepor" style="font-size:13px">Só abaixo do mínimo</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="instrumentos my-3" id="resumoBusca"></div>
+
+<div class="cartao">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-boxes-stacked me-2" style="color:var(--petroleo)"></i>Resultado</h3>
+    <span class="text-muted ms-auto" style="font-size:12px" id="contagemBusca"></span>
+  </div>
+  <div class="cartao-corpo p-0">
+    <div id="areaBuscaPecas">
+      <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando peças…</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .modo-busca.ativo-modo { background: var(--petroleo); color: #fff; border-color: var(--petroleo); }
+  #areaBuscaPecas table { width: 100%; }
+  .linha-repor td { background: rgba(214, 69, 65, .06); }
+</style>
+<script>
+/* =======================================================================
+   Pesquisa de peças — tela somente de consulta.
+   Nada aqui grava no banco: só lê /api/busca-pecas e mostra o resultado.
+   ===================================================================== */
+
+/* Atalhos do sistema, com alternativa caso o core.js mude de nome. */
+const esc = (v) => (window.SGMF && SGMF.esc) ? SGMF.esc(v)
+  : String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = (v) => (window.SGMF && SGMF.numero) ? SGMF.numero(v, 2)
+  : Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dinheiro = (v) => (window.SGMF && SGMF.moeda) ? SGMF.moeda(v)
+  : Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const selo = (texto, cor) => (window.SGMF && SGMF.etiqueta) ? SGMF.etiqueta(texto, cor)
+  : `<span class="etiqueta ${cor}">${texto}</span>`;
+
+let modoAtual = 'tudo';
+let gruposCarregados = false;
+let cronometro = null;
+let ultimoResultado = { pecas: [], total: 0 };
+
+function parametros() {
+  const dados = new URLSearchParams();
+  dados.set('q', document.getElementById('campoBusca').value.trim());
+  dados.set('modo', modoAtual);
+  dados.set('grupo', document.getElementById('filtroGrupo').value);
+  if (document.getElementById('filtroComSaldo').checked) dados.set('com_saldo', '1');
+  if (document.getElementById('filtroRepor').checked) dados.set('repor', '1');
+  return dados.toString();
+}
+
+async function pesquisar() {
+  const area = document.getElementById('areaBuscaPecas');
+  try {
+    const resposta = await fetch('/api/busca-pecas?' + parametros(), { credentials: 'same-origin' });
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível pesquisar agora.');
+    ultimoResultado = dados;
+    preencherGrupos(dados.grupos || []);
+    mostrarResumo(dados);
+    mostrarTabela(dados);
+  } catch (erro) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
+      ${esc(erro.message)}</div>`;
+  }
+}
+
+function preencherGrupos(grupos) {
+  if (gruposCarregados) return;
+  const select = document.getElementById('filtroGrupo');
+  select.innerHTML = '<option value="">Todos os grupos</option>' +
+    grupos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  gruposCarregados = true;
+}
+
+function mostrarResumo(dados) {
+  document.getElementById('resumoBusca').innerHTML = `
+    <div class="medidor"><div class="rotulo">Peças encontradas</div>
+      <div class="valor num">${dados.total}</div></div>
+    <div class="medidor"><div class="rotulo">Valor em estoque</div>
+      <div class="valor num" style="font-size:20px">${dinheiro(dados.valor_total)}</div></div>
+    <div class="medidor ${dados.repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div>
+      <div class="valor num">${dados.repor}</div>
+      <div class="nota">${dados.repor ? 'Providencie a compra' : 'Nenhuma peça para repor'}</div></div>`;
+}
+
+function mostrarTabela(dados) {
+  const area = document.getElementById('areaBuscaPecas');
+  const contagem = document.getElementById('contagemBusca');
+  const lista = dados.pecas || [];
+
+  if (!lista.length) {
+    contagem.textContent = '';
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      Nenhuma peça encontrada. Tente outro pedaço do código ou do nome.</div>`;
+    return;
+  }
+
+  contagem.textContent = dados.total > lista.length
+    ? `Mostrando as ${lista.length} primeiras de ${dados.total}. Digite mais um pedaço para reduzir a lista.`
+    : `${dados.total} ${dados.total === 1 ? 'peça' : 'peças'}`;
+
+  area.innerHTML = `<div class="table-responsive">
+    <table id="tabelaBuscaPecas" class="table table-hover align-middle mb-0" style="width:100%">
+      <thead><tr>
+        <th>Código</th><th>Referência</th><th>Descrição</th><th>Grupo</th>
+        <th class="text-end">Saldo</th><th class="text-end">Mínimo</th>
+        <th class="text-end">Custo unit.</th><th class="text-end">Valor em estoque</th>
+        <th>Local</th><th>Fornecedor</th><th>Situação</th>
+      </tr></thead>
+      <tbody>${lista.map(p => `
+        <tr class="${p.abaixo_minimo ? 'linha-repor' : ''}">
+          <td class="num"><strong>${esc(p.codigo)}</strong></td>
+          <td class="num">${esc(p.referencia) || '—'}</td>
+          <td>${esc(p.descricao)}</td>
+          <td>${esc(p.grupo) || '—'}</td>
+          <td class="num text-end"><strong>${num(p.quantidade)}</strong> ${esc(p.unidade)}</td>
+          <td class="num text-end">${num(p.estoque_minimo)}</td>
+          <td class="num text-end">${dinheiro(p.custo_unitario)}</td>
+          <td class="num text-end">${dinheiro(p.valor_total)}</td>
+          <td>${esc(p.localizacao) || '—'}</td>
+          <td>${esc(p.fornecedor_nome) || '—'}</td>
+          <td>${p.abaixo_minimo ? selo('Repor', 'vermelha') : selo('Normal', 'verde')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+/* ----------------------------------------------------------- eventos */
+function pesquisarComPausa() {
+  clearTimeout(cronometro);
+  cronometro = setTimeout(pesquisar, 250);
+}
+
+document.getElementById('campoBusca').addEventListener('input', pesquisarComPausa);
+document.getElementById('campoBusca').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { clearTimeout(cronometro); pesquisar(); }
+});
+document.getElementById('filtroGrupo').addEventListener('change', pesquisar);
+document.getElementById('filtroComSaldo').addEventListener('change', pesquisar);
+document.getElementById('filtroRepor').addEventListener('change', pesquisar);
+
+document.getElementById('botaoLimpar').onclick = () => {
+  document.getElementById('campoBusca').value = '';
+  document.getElementById('filtroGrupo').value = '';
+  document.getElementById('filtroComSaldo').checked = false;
+  document.getElementById('filtroRepor').checked = false;
+  document.getElementById('campoBusca').focus();
+  pesquisar();
+};
+
+document.querySelectorAll('.modo-busca').forEach(botao => {
+  botao.onclick = () => {
+    document.querySelectorAll('.modo-busca').forEach(b => b.classList.remove('ativo-modo'));
+    botao.classList.add('ativo-modo');
+    modoAtual = botao.dataset.modo;
+    document.getElementById('campoBusca').focus();
+    pesquisar();
+  };
+});
+
+document.getElementById('botaoImprimirBusca').onclick = () => {
+  if (!ultimoResultado.pecas || !ultimoResultado.pecas.length) {
+    if (window.SGMF && SGMF.falha) SGMF.falha('Não há resultado para imprimir.');
+    return;
+  }
+  if (window.SGMF && SGMF.imprimir) SGMF.imprimir('tabelaBuscaPecas', 'Pesquisa de peças');
+  else window.print();
+};
+
+pesquisar();
+</script>
+{% endblock %}

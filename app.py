@@ -26,6 +26,7 @@ def criar_app(config=Config):
 
     from routes.api import bp_api
     from routes.auth import bp_auth, bp_usuarios
+    from routes.busca_pecas import bp_busca_pecas
     from routes.auth_senha import bp_auth_senha
     from routes.extras import bp_extras
     from routes.paginas import bp_paginas
@@ -42,6 +43,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_paginas)
     app.register_blueprint(bp_correcao_os)
     app.register_blueprint(bp_uniformes)
+    app.register_blueprint(bp_busca_pecas)
 
     @app.after_request
     def carregar_correcao_os(response):

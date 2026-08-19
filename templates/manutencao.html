@@ -22,9 +22,23 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="pecasOsId">
+
+        <div class="mb-2">
+          <label class="form-label" for="itemBuscaPeca">Procurar peça no estoque</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <input class="form-control" id="itemBuscaPeca" autocomplete="off"
+                   placeholder="Digite o código, a referência ou o nome — ex.: 0018, FIL-001, filtro de óleo">
+            <button class="btn btn-contorno" type="button" id="itemLimparPeca"
+                    title="Limpar a peça escolhida"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div id="itemResultadoPecas" class="resultado-pecas d-none"></div>
+          <div id="itemPecaEscolhida" class="form-text mt-1"></div>
+        </div>
+
         <div class="row g-2 align-items-end mb-3">
           <div class="col-md-4">
-            <label class="form-label" for="itemPeca">Peça do estoque</label>
+            <label class="form-label" for="itemPeca">Peça do estoque (lista completa)</label>
             <select class="form-select form-select-sm" id="itemPeca">
               <option value="">— serviço avulso —</option>
             </select>
@@ -61,6 +75,19 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+  /* Lista que aparece embaixo da caixa "Procurar peça no estoque". */
+  .resultado-pecas { border: 1px solid #D3DBE2; border-radius: 6px; background: #fff;
+                     max-height: 240px; overflow-y: auto; margin-top: 4px; }
+  .opcao-peca { display: block; width: 100%; text-align: left; border: 0;
+                border-bottom: 1px solid #EEF1F4; background: transparent;
+                padding: 7px 10px; font-size: 13px; line-height: 1.35; }
+  .opcao-peca:last-child { border-bottom: 0; }
+  .opcao-peca:hover, .opcao-peca.ativa { background: #EAF2F7; }
+  .opcao-peca .codigo { font-weight: 700; margin-right: 6px; }
+  .opcao-peca .detalhe { display: block; font-size: 11.5px; color: #6B7C8A; }
+  .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
+</style>
 <script>
 const telaOS = SGMF.tela({
   recurso: 'ordens',
@@ -138,11 +165,152 @@ document.getElementById('itemPeca').addEventListener('change', (e) => {
   }
 });
 
+/* ------------------------------------ procurar a peça por nome ou código
+   A lista completa já foi carregada em `pecasDisponiveis` (/api/pecas), então
+   a procura acontece aqui mesmo, sem ir ao servidor: responde na hora.
+   Ignora acento e maiúscula ("oleo" acha "Óleo") e, no código, ignora a
+   pontuação ("fil001" acha "FIL-001"). Todas as palavras digitadas precisam
+   aparecer, em qualquer ordem ("cubo roda" acha "Cubo de roda dianteiro").
+
+   O <select id="itemPeca"> continua existindo e é ele que guarda a escolha —
+   quem já usava a listinha pode continuar usando; a caixa de procura só
+   preenche o mesmo campo.                                                  */
+const MAX_RESULTADOS_PECA = 12;
+let resultadoPecas = [];
+let indicePeca = -1;
+let cronometroPeca = null;
+
+const semAcento = (t) => String(t == null ? '' : t)
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const soAlfanumerico = (t) => semAcento(t).replace(/[^a-z0-9]/g, '');
+
+function procurarPecas(termo) {
+  const termos = semAcento(termo).split(/\s+/).filter(Boolean);
+  if (!termos.length) return [];
+  return pecasDisponiveis.filter(p => {
+    const alvo = semAcento([p.codigo, p.referencia, p.descricao, p.grupo, p.localizacao].join(' '));
+    const compacto = [p.codigo, p.referencia, p.descricao].map(soAlfanumerico).join(' ');
+    return termos.every(t => alvo.includes(t) ||
+      (soAlfanumerico(t) && compacto.includes(soAlfanumerico(t))));
+  });
+}
+
+function esconderResultadoPecas() {
+  document.getElementById('itemResultadoPecas').classList.add('d-none');
+  resultadoPecas = [];
+  indicePeca = -1;
+}
+
+function realcarOpcaoPeca() {
+  const botoes = document.querySelectorAll('#itemResultadoPecas .opcao-peca');
+  botoes.forEach((b, i) => b.classList.toggle('ativa', i === indicePeca));
+  if (botoes[indicePeca]) botoes[indicePeca].scrollIntoView({ block: 'nearest' });
+}
+
+function mostrarResultadoPecas(lista) {
+  const area = document.getElementById('itemResultadoPecas');
+  resultadoPecas = lista.slice(0, MAX_RESULTADOS_PECA);
+  indicePeca = resultadoPecas.length ? 0 : -1;
+  area.classList.remove('d-none');
+
+  if (!lista.length) {
+    area.innerHTML = '<div class="sem-resultado">Nenhuma peça encontrada com esse texto.</div>';
+    return;
+  }
+
+  area.innerHTML = resultadoPecas.map((p, i) => `
+    <button type="button" class="opcao-peca ${i === indicePeca ? 'ativa' : ''}" data-peca="${p.id}">
+      <span class="codigo num">${SGMF.esc(p.codigo)}</span>${SGMF.esc(p.descricao)}
+      <span class="detalhe">saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}${
+        p.localizacao ? ' · ' + SGMF.esc(p.localizacao) : ''} · ${SGMF.moeda(p.custo_unitario)}${
+        p.referencia ? ' · ref. ' + SGMF.esc(p.referencia) : ''}</span>
+    </button>`).join('') +
+    (lista.length > resultadoPecas.length
+      ? `<div class="sem-resultado">Mostrando ${resultadoPecas.length} de ${lista.length}.
+         Digite mais um pedaço para reduzir a lista.</div>`
+      : '');
+
+  area.querySelectorAll('[data-peca]').forEach(b =>
+    b.onclick = () => escolherPeca(b.dataset.peca));
+}
+
+function escolherPeca(id) {
+  const peca = pecasDisponiveis.find(p => p.id == id);
+  if (!peca) return;
+
+  const select = document.getElementById('itemPeca');
+  if (!Array.from(select.options).some(o => o.value == String(peca.id))) {
+    const opcao = document.createElement('option');
+    opcao.value = peca.id;
+    opcao.textContent = `${peca.codigo} · ${peca.descricao}`;
+    select.appendChild(opcao);
+  }
+  select.value = String(peca.id);
+  // Avisa quem escuta o campo (é isso que preenche descrição e valor unitário).
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+
+  document.getElementById('itemBuscaPeca').value = `${peca.codigo} · ${peca.descricao}`;
+  document.getElementById('itemPecaEscolhida').innerHTML =
+    `<i class="fa-solid fa-check me-1" style="color:#2E7D32"></i>
+     <strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)} — saldo
+     ${SGMF.numero(peca.quantidade, 2)} ${SGMF.esc(peca.unidade || '')}` +
+    ((peca.quantidade || 0) <= 0
+      ? ' <strong style="color:#C62828">(sem saldo no estoque)</strong>' : '');
+
+  esconderResultadoPecas();
+  document.getElementById('itemQtd').focus();
+  document.getElementById('itemQtd').select();
+}
+
+function limparEscolhaPeca(focar) {
+  document.getElementById('itemPeca').value = '';
+  document.getElementById('itemBuscaPeca').value = '';
+  document.getElementById('itemPecaEscolhida').innerHTML = '';
+  esconderResultadoPecas();
+  if (focar) document.getElementById('itemBuscaPeca').focus();
+}
+
+document.getElementById('itemBuscaPeca').addEventListener('input', () => {
+  clearTimeout(cronometroPeca);
+  cronometroPeca = setTimeout(() => {
+    const termo = document.getElementById('itemBuscaPeca').value.trim();
+    if (!termo) { esconderResultadoPecas(); return; }
+    mostrarResultadoPecas(procurarPecas(termo));
+  }, 180);
+});
+
+document.getElementById('itemBuscaPeca').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') e.preventDefault();   // não deixa o formulário enviar sozinho
+  if (!resultadoPecas.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    indicePeca = (indicePeca + 1) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    indicePeca = (indicePeca - 1 + resultadoPecas.length) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'Enter') {
+    if (indicePeca >= 0) escolherPeca(resultadoPecas[indicePeca].id);
+  } else if (e.key === 'Escape') {
+    esconderResultadoPecas();
+  }
+});
+
+document.getElementById('itemLimparPeca').onclick = () => limparEscolhaPeca(true);
+
+// Clicou fora: fecha a listinha de resultados.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#itemResultadoPecas') || e.target.closest('#itemBuscaPeca')) return;
+  if (resultadoPecas.length) esconderResultadoPecas();
+});
+
 async function abrirPecas(os) {
   document.getElementById('pecasOsId').value = os.id;
   document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
   document.getElementById('pecasSubtitulo').textContent =
     `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+  limparEscolhaPeca(false);
   await recarregarItens(os.id);
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
@@ -193,6 +361,7 @@ document.getElementById('itemAdicionar').onclick = async () => {
       valor_unitario: Number(document.getElementById('itemValor').value) || 0
     });
     document.getElementById('itemPeca').value = '';
+    limparEscolhaPeca(false);
     document.getElementById('itemDescricao').value = '';
     document.getElementById('itemQtd').value = 1;
     document.getElementById('itemValor').value = '';

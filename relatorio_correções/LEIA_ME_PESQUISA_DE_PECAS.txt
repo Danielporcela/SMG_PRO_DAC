@@ -1,0 +1,92 @@
+PESQUISA DE PECAS — SGMF PRO
+=============================
+
+O QUE FOI FEITO
+---------------
+Uma tela nova chamada "Pesquisa de pecas", que aparece no menu da
+esquerda, logo abaixo de "Pneus".
+
+Voce digita numa caixa unica e o sistema acha a peca:
+
+  - pelo CODIGO (0018, FIL-001...) — pode digitar so um pedaco
+  - pela REFERENCIA do fabricante/fornecedor
+  - pelo NOME (descricao) — "cubo roda" acha "Cubo de roda dianteiro
+    VW Delivery"
+
+Nao precisa acertar acento nem maiuscula: "oleo" acha "Oleo".
+Na busca por codigo, a pontuacao tambem e' ignorada: "fil001" acha
+"FIL-001".
+
+Tem ainda: botoes para escolher onde procurar (Tudo / Codigo e
+referencia / Nome), filtro por Grupo, caixinhas "So com saldo" e "So
+abaixo do minimo", resumo com quantidade e valor em estoque, e botao
+Imprimir.
+
+A tela e' SO DE CONSULTA: ela nao grava nada, nao altera saldo e nao
+mexe em nenhuma tela que ja existe. Nao precisa rodar "flask db
+upgrade" — o banco nao muda em nada.
+
+QUEM ENXERGA
+------------
+Administrador sempre. Os demais usuarios enxergam se tiverem permissao
+de visualizar em "Estoque" ou em "Ordens de servico".
+
+
+ARQUIVOS DESTE PACOTE (4)
+--------------------------
+  busca_pecas.py     -> vai para a pasta  routes    (arquivo NOVO)
+  busca_pecas.html   -> vai para a pasta  templates (arquivo NOVO)
+  app.py             -> substitui o app.py da raiz do projeto
+  base.html          -> substitui o base.html da pasta templates
+
+
+COMO PUBLICAR PELO SITE DO GITHUB (sem programas)
+--------------------------------------------------
+IMPORTANTE: envie NESTA ORDEM. O base.html e' o ultimo, porque ele e' o
+que coloca o link no menu — se ele subir antes dos outros, o link
+aparece antes da tela existir.
+
+1. Entre em github.com e abra o repositorio do SGMF.
+
+2. Clique na pasta "routes". Dentro dela, clique em "Add file" (canto
+   direito) e escolha "Upload files". Arraste o arquivo
+   busca_pecas.py. Escreva embaixo "pesquisa de pecas" e clique no
+   botao verde "Commit changes".
+
+3. Volte para a pagina inicial do repositorio e clique na pasta
+   "templates". Faca o mesmo com o arquivo busca_pecas.html
+   ("Add file" > "Upload files" > arrastar > "Commit changes").
+
+4. Volte para a pagina inicial do repositorio (a raiz, onde aparecem
+   app.py, config.py, models.py). Clique em "Add file" > "Upload
+   files" e arraste o app.py. O GitHub avisa que vai substituir o
+   arquivo existente — e' isso mesmo. Clique em "Commit changes".
+
+5. Entre de novo na pasta "templates" e envie o base.html, tambem
+   substituindo o que ja existe. Clique em "Commit changes".
+
+6. O Render publica sozinho em alguns minutos. Se nao publicar, va no
+   painel do Render e use "Manual Deploy" > "Deploy latest commit".
+
+
+COMO USAR DEPOIS DE PUBLICADO
+------------------------------
+1. Abra o sistema e entre normalmente.
+2. No menu da esquerda, clique em "Pesquisa de pecas" (icone de lupa).
+3. Digite o que voce lembra: o numero do codigo, a referencia do
+   fornecedor ou qualquer palavra do nome da peca. O resultado aparece
+   sozinho enquanto voce digita.
+4. Se quiser, use os botoes "Codigo / referencia" ou "Nome da peca"
+   para limitar onde ele procura.
+5. Para levar a lista impressa, clique em "Imprimir" no alto da tela.
+
+O endereco direto da tela e':
+   https://smg-pro-dac-1.onrender.com/pesquisa-pecas
+
+
+SE ALGO DER ERRADO
+------------------
+Nada foi apagado nem alterado no banco. Para voltar atras, basta enviar
+de novo o app.py e o base.html antigos (o GitHub guarda as versoes
+anteriores em "History"), e os dois arquivos novos ficam parados sem
+atrapalhar nada.

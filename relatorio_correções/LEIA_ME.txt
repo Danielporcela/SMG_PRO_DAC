@@ -1,0 +1,58 @@
+SGMF Pro — Eixo truck + identificação do pneu na OS
+====================================================
+
+ONDE COLOCAR CADA ARQUIVO
+-------------------------
+1) posicoes_pneu.py   ->  services/posicoes_pneu.py     (ARQUIVO NOVO)
+2) correcao_os.py     ->  routes/correcao_os.py         (SUBSTITUI o atual)
+
+NÃO precisa de migração. Não mexe no banco de dados.
+O arquivo services/correcoes_os.py antigo pode continuar onde está.
+
+
+O QUE MUDOU
+-----------
+* Passaram a existir 11 posições, agrupadas por eixo:
+
+  Eixo dianteiro
+    - Dianteiro esquerdo
+    - Dianteiro direito
+
+  Eixo de tração
+    - Tração traseiro externo esquerdo
+    - Tração traseiro interno esquerdo
+    - Tração traseiro interno direito
+    - Tração traseiro externo direito
+
+  Eixo truck            <-- NOVO
+    - Truck traseiro externo esquerdo
+    - Truck traseiro interno esquerdo
+    - Truck traseiro interno direito
+    - Truck traseiro externo direito
+
+  Estepe
+
+* No lançamento do pneu na OS entrou o campo "Nº de fogo do pneu",
+  ao lado da posição. Uma prévia mostra o texto final enquanto digita.
+
+* O item da OS passa a guardar a identificação completa. Exemplo:
+      PNEU 275/80 R22.5 · Pneu truck traseiro interno esquerdo — nº 3456
+
+* Ao aplicar, o sistema também atualiza o módulo de Pneus:
+    - cria (ou atualiza) o pneu com aquele número de fogo
+    - marca como "Em uso", no veículo e na posição escolhida
+    - grava data de instalação e o km do hodômetro do veículo
+    - o pneu que estava naquela posição vira "Descartado" e fica no
+      histórico, ligado ao item da OS
+
+* A tela de Pneus também recebe as posições novas automaticamente.
+
+* As posições antigas ("Traseiro Esquerdo Interno" etc.) continuam
+  válidas nos registros já existentes — elas são lidas como sendo do
+  eixo de tração. Só não aparecem mais na lista de escolha.
+
+
+DEPOIS DE SUBIR
+---------------
+Abra uma OS, lance um pneu e clique no botão verde
+"Definir posição do pneu" no canto inferior direito.
