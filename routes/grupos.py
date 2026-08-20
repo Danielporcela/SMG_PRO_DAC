@@ -20,6 +20,34 @@ TELA = "grupos"
 PESOS = {"nenhum": 0, "visualizar": 1, "editar": 2}
 
 
+# ---------------------------------------------------- instalação automática
+# A tabela `grupos` pode ainda não existir no banco (o módulo chegou ao
+# código antes de a migração ser rodada). Em vez de exigir um comando manual,
+# a primeira chamada a qualquer rota deste módulo cria a tabela sozinha e a
+# preenche com os grupos que já estão escritos nas peças — o cadastro nasce
+# com a lista real da oficina. Nenhuma outra tabela é tocada, e o
+# `flask db migrate` segue funcionando normal depois: ele enxerga a tabela
+# criada e não tenta criá-la de novo.
+_tabela_conferida = False
+
+
+@bp_grupos.before_request
+def _garantir_tabela_grupos():
+    global _tabela_conferida
+    if _tabela_conferida:
+        return
+    try:
+        existentes = set(db.inspect(db.engine).get_table_names())
+        if Grupo.__tablename__ not in existentes:
+            Grupo.__table__.create(db.engine, checkfirst=True)
+            importar_grupos_das_pecas()
+        _tabela_conferida = True
+    except Exception:
+        # Se algo falhar aqui, a rota segue e devolve o erro dela mesma —
+        # este passo nunca pode ser o motivo de a tela cair.
+        db.session.rollback()
+
+
 # --------------------------------------------------------------- permissões
 def _nivel_do_usuario():
     perfil = session.get("perfil")

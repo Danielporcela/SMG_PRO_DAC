@@ -237,19 +237,57 @@
    A lista vem da tela Cadastros > Grupos de peças (/api/grupos/nomes).
    Se o módulo de grupos ainda não estiver publicado, cai na lista antiga do
    core.js (SGMF.GRUPOS) — a tela continua funcionando do mesmo jeito. */
+let nomesGruposCadastrados = [];   // só o que está de fato no cadastro
 async function carregarGruposCadastrados() {
   let nomes = [];
   try {
     const resposta = await fetch('/api/grupos/nomes');
     if (resposta.ok) nomes = await resposta.json();
   } catch (e) { nomes = []; }
-  if (!nomes.length && Array.isArray(SGMF.GRUPOS)) nomes = SGMF.GRUPOS;
+  nomesGruposCadastrados = Array.isArray(nomes) ? nomes : [];
+  /* O <datalist> mostra o cadastro; enquanto o cadastro estiver vazio,
+     mostra a lista antiga do core.js só para o campo não ficar sem opções. */
+  let opcoesLista = nomesGruposCadastrados;
+  if (!opcoesLista.length && Array.isArray(SGMF.GRUPOS)) opcoesLista = SGMF.GRUPOS;
   const lista = document.getElementById('listaGrupos');
   if (lista) {
-    lista.innerHTML = nomes.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
+    lista.innerHTML = opcoesLista.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
   }
 }
 carregarGruposCadastrados();
+
+/* ======================================= botão "+" ao lado do campo Grupo
+   Cadastra na hora o grupo digitado (ex.: Acessórios, Arrefecimento,
+   Lataria), sem sair da tela da peça: grava em Cadastros > Grupos de peças
+   e o nome já fica disponível para as próximas peças. */
+async function cadastrarGrupoDoCampo() {
+  const campo = document.getElementById('campo_grupo');
+  const nome = (campo.value || '').trim();
+  if (!nome) {
+    SGMF.aviso('Digite o nome do novo grupo no campo Grupo (ex.: Acessórios, Arrefecimento, Lataria) e clique no + de novo.');
+    campo.focus();
+    return;
+  }
+  const jaExiste = nomesGruposCadastrados.find(
+    n => (n || '').trim().toLowerCase() === nome.toLowerCase());
+  if (jaExiste) {
+    campo.value = jaExiste;   // aproveita a grafia já cadastrada
+    SGMF.sucesso(`O grupo "${jaExiste}" já estava na lista`);
+    return;
+  }
+  const botao = document.getElementById('botaoNovoGrupoPeca');
+  if (botao) botao.disabled = true;
+  try {
+    const criado = await SGMF.post('/api/grupos', { nome: nome });
+    campo.value = criado.nome;
+    SGMF.sucesso(`Grupo "${criado.nome}" cadastrado`);
+    await carregarGruposCadastrados();
+  } catch (e) {
+    SGMF.falha(e.message);
+  } finally {
+    if (botao) botao.disabled = false;
+  }
+}
 
 const telaEstoque = SGMF.tela({
   recurso: 'pecas',
@@ -262,7 +300,7 @@ const telaEstoque = SGMF.tela({
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
       opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
     { nome: 'grupo', rotulo: 'Grupo', col: 4, exemplo: 'Elétrica, Arrefecimento…',
-      ajuda: 'Escolha um grupo já cadastrado ou digite um novo.' },
+      ajuda: 'Escolha um grupo, ou digite um novo e clique no + para incluí-lo na lista.' },
     { nome: 'fornecedor_id', rotulo: 'Fornecedor', tipo: 'ref', recurso: 'fornecedores', col: 5 },
     { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
     { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
@@ -285,6 +323,23 @@ const telaEstoque = SGMF.tela({
     if (campoGrupo) {
       campoGrupo.setAttribute('list', 'listaGrupos');
       campoGrupo.setAttribute('autocomplete', 'off');
+
+      /* Botão "+" colado no campo: cadastra o grupo digitado na hora.
+         O formulário é montado uma vez só, então o botão é criado na
+         primeira abertura — nas seguintes ele já está lá. */
+      if (!document.getElementById('botaoNovoGrupoPeca')) {
+        const moldura = document.createElement('div');
+        moldura.className = 'input-group';
+        campoGrupo.parentNode.insertBefore(moldura, campoGrupo);
+        moldura.appendChild(campoGrupo);
+        moldura.insertAdjacentHTML('beforeend',
+          `<button class="btn btn-contorno" type="button" id="botaoNovoGrupoPeca"
+                   title="Cadastrar este grupo na lista de grupos">
+             <i class="fa-solid fa-plus"></i>
+           </button>`);
+        document.getElementById('botaoNovoGrupoPeca')
+          .addEventListener('click', cadastrarGrupoDoCampo);
+      }
     }
     carregarGruposCadastrados();
   },
