@@ -80,4 +80,43 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script>
+(function () {
+  const painel = document.getElementById("instrumentos");
+  if (!painel) return;
+
+  function normalizar(texto) {
+    return (texto || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+  }
+
+  function removerMtbf() {
+    const candidatos = Array.from(painel.querySelectorAll("*"))
+      .filter(function (elemento) {
+        const texto = normalizar(elemento.textContent);
+        return texto.includes("MTBF") && texto.includes("ENTRE FALHAS");
+      })
+      .sort(function (a, b) {
+        return normalizar(a.textContent).length - normalizar(b.textContent).length;
+      });
+
+    if (candidatos.length) {
+      candidatos[0].remove();
+    }
+  }
+
+  removerMtbf();
+
+  const observador = new MutationObserver(function () {
+    removerMtbf();
+  });
+
+  observador.observe(painel, {
+    childList: true,
+    subtree: true
+  });
+})();
+</script>
 {% endblock %}
