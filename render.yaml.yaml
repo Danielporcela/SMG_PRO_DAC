@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: sgmf-pro
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python corrigir_uniformes_500.py && flask db upgrade && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    preDeployCommand: python corrigir_uniformes_500.py && flask db upgrade
+    healthCheckPath: /saude
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: app.py
+      - key: TZ
+        value: America/Sao_Paulo
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: SMTP_SENHA
+        sync: false
+      - key: EMAIL_DESTINATARIOS
+        value: estudosti20@gmail.com
+      - key: ALERTAS_EMAIL_ATIVO
+        value: "1"
+      - key: ALERTAS_MUDANCA_EMAIL_ATIVO
+        value: "1"
+      - key: ALERTAS_SANADO_EMAIL_ATIVO
+        value: "1"
+      - key: AGENDADOR_ATIVO
+        value: "1"
+      - key: INTERVALO_AGENDADOR
+        value: "600"
+      - key: ALERTAS_HORA
+        value: "7"
+      - key: ADMIN_SENHA
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sgmf-banco
+          property: connectionString
+
+databases:
+  - name: sgmf-banco
+    databaseName: sgmf
+    plan: free
