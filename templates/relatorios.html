@@ -20,6 +20,13 @@
         <select class="form-select" id="rFornecedor"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rGrupo">Grupo (peças)</label>
         <select class="form-select" id="rGrupo"><option value="">Todos</option></select></div>
+      <div class="col-md-2"><label class="form-label" for="rStatusPeca">Impressão de peças</label>
+        <select class="form-select" id="rStatusPeca">
+          <option value="inventario">Inventário completo</option>
+          <option value="repor">Para repor</option>
+          <option value="ok">Estoque OK</option>
+          <option value="grupo">Por grupo</option>
+        </select></div>
     </div>
   </div>
 </div>
@@ -77,7 +84,7 @@ const RELATORIOS = [
   { id: 'lubrificantes', nome: 'Óleos e fluidos', icone: 'fa-oil-can',
     texto: 'Entradas e saídas de óleos, fluidos e graxas, com veículo e OS.' },
   { id: 'estoque', nome: 'Posição de estoque', icone: 'fa-boxes-stacked',
-    texto: 'Saldo, custo médio e itens abaixo do mínimo. Aceita o filtro de grupo.' },
+    texto: 'Inventário completo, itens para repor, estoque OK ou impressão por grupo.' },
   { id: 'movimentos', nome: 'Movimentação de estoque', icone: 'fa-right-left',
     texto: 'Entradas, saídas e ajustes do período. Aceita o filtro de grupo.' }
 ];
@@ -88,7 +95,7 @@ function parametros() {
     fim: document.getElementById('rFim').value
   });
   ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id',
-   'rGrupo:grupo'].forEach(par => {
+   'rGrupo:grupo', 'rStatusPeca:status_peca'].forEach(par => {
     const [campo, chave] = par.split(':');
     const v = document.getElementById(campo).value;
     if (v) p.set(chave, v);
@@ -96,13 +103,25 @@ function parametros() {
   return p.toString();
 }
 
+function validarFiltroEstoque(relatorio) {
+  if (relatorio !== 'estoque') return true;
+  const tipo = document.getElementById('rStatusPeca').value;
+  const grupo = document.getElementById('rGrupo').value;
+  if (tipo === 'grupo' && !grupo) {
+    SGMF.aviso('Selecione um grupo de peças para usar a impressão por grupo.');
+    return false;
+  }
+  return true;
+}
+
 function baixar(relatorio, formato) {
+  if (!validarFiltroEstoque(relatorio)) return;
   window.location = `/relatorios/${relatorio}.${formato}?${parametros()}`;
 }
 
-/* Abre o PDF do relatório (já formatado, com título e período) numa nova
-   aba e dispara o diálogo de impressão do navegador assim que ele carrega. */
+/* Abre o PDF do relatório já formatado em uma nova aba e inicia a impressão. */
 function imprimir(relatorio) {
+  if (!validarFiltroEstoque(relatorio)) return;
   const janela = window.open(`/relatorios/${relatorio}.pdf?${parametros()}`, '_blank');
   if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
   const tentarImprimir = setInterval(() => {

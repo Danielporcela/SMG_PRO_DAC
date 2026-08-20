@@ -49,6 +49,7 @@ def montar_dados(relatorio):
     fornecedor_id = request.args.get("fornecedor_id", type=int)
     centro_custo = request.args.get("centro_custo")
     grupo = request.args.get("grupo")
+    status_peca = (request.args.get("status_peca") or "inventario").strip().lower()
 
     if relatorio == "abastecimentos":
         q = Abastecimento.query.filter(Abastecimento.data.between(inicio, fim))
@@ -156,6 +157,15 @@ def montar_dados(relatorio):
         q = Peca.query
         if grupo:
             q = q.filter(Peca.grupo == grupo)
+
+        saldo = db.func.coalesce(Peca.quantidade, 0)
+        minimo = db.func.coalesce(Peca.estoque_minimo, 0)
+
+        if status_peca == "repor":
+            q = q.filter(saldo <= minimo)
+        elif status_peca == "ok":
+            q = q.filter(saldo > minimo)
+
         cab = ["Código", "Descrição", "Grupo", "Un.", "Saldo", "Mínimo",
                "Custo unit. R$", "Valor total R$", "Situação"]
         linhas = [[p.codigo, p.descricao, p.grupo or "—", p.unidade,
@@ -163,7 +173,7 @@ def montar_dados(relatorio):
                    round(p.custo_unitario or 0, 2),
                    round((p.quantidade or 0) * (p.custo_unitario or 0), 2),
                    "REPOR" if (p.quantidade or 0) <= (p.estoque_minimo or 0) else "OK"]
-                  for p in q.order_by(Peca.descricao).all()]
+                  for p in q.order_by(Peca.grupo, Peca.descricao).all()]
 
     elif relatorio == "movimentos":
         q = MovimentoEstoque.query.filter(MovimentoEstoque.data.between(inicio, fim))
@@ -231,6 +241,26 @@ def montar_dados(relatorio):
     return cab, linhas, inicio, fim
 
 
+def _rotulo_status_peca():
+    status = (request.args.get("status_peca") or "inventario").strip().lower()
+    return {
+        "inventario": "Inventário completo",
+        "repor": "Para repor",
+        "ok": "Estoque OK",
+        "grupo": "Por grupo",
+    }.get(status, "Inventário completo")
+
+
+def _descricao_filtros(relatorio):
+    partes = []
+    grupo = request.args.get("grupo")
+    if relatorio == "estoque":
+        partes.append(_rotulo_status_peca())
+    if grupo:
+        partes.append(f"Grupo: {grupo}")
+    return " · ".join(partes)
+
+
 @bp_relatorios.get("/<relatorio>.csv")
 @visualizar_tela("relatorios")
 def exportar_csv(relatorio):
@@ -252,9 +282,9 @@ def exportar_excel(relatorio):
     ws = wb.active
     ws.title = TITULOS.get(relatorio, "Relatório")[:31]
 
-    grupo = request.args.get("grupo")
+    descricao_filtros = _descricao_filtros(relatorio)
     ws.append([f"SGMF Pro · {TITULOS.get(relatorio, relatorio)}"
-               + (f" — Grupo: {grupo}" if grupo else "")])
+               + (f" · {descricao_filtros}" if descricao_filtros else "")])
     ws.append([f"Período: {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} · "
                f"emitido em {agora():%d/%m/%Y %H:%M}"])
     ws.append([])
@@ -293,17 +323,19 @@ def exportar_pdf(relatorio):
                             topMargin=12 * mm, bottomMargin=12 * mm,
                             title=f"SGMF Pro - {TITULOS.get(relatorio, relatorio)}")
     estilos = getSampleStyleSheet()
-    grupo = request.args.get("grupo")
+    descricao_filtros = _descricao_filtros(relatorio)
     elementos = [
         Paragraph(f"<b>SGMF Pro</b> · {TITULOS.get(relatorio, relatorio)}"
-                  + (f" — Grupo: {grupo}" if grupo else ""), estilos["Title"]),
+                  + (f" · {descricao_filtros}" if descricao_filtros else ""), estilos["Title"]),
         Paragraph(f"Período de {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} — emitido em "
                   f"{agora():%d/%m/%Y às %H:%M}", estilos["Normal"]),
         Spacer(1, 8),
     ]
 
+    mensagem_vazia = ("Nenhuma peça encontrada para os filtros selecionados."
+                     if relatorio == "estoque" else "Nenhum lançamento no período.")
     dados = [cab] + [[str(c) for c in linha] for linha in linhas] if linhas else \
-            [cab, ["Nenhum lançamento no período."] + [""] * (len(cab) - 1)]
+            [cab, [mensagem_vazia] + [""] * (len(cab) - 1)]
     tabela = Table(dados, repeatRows=1)
     tabela.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F3D56")),
