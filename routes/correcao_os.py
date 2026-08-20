@@ -217,6 +217,7 @@ PATCH_JS = r'''
 
       const campoPos = document.createElement('div'); campoPos.className = 'sgmf-campo';
       const sel = document.createElement('select');
+      sel.name = `posicao_${reg.item_id}`; sel.id = `sgmf-posicao-${reg.item_id}`;
       sel.innerHTML = '<option value="">Selecione a posição</option>' + opcoesAgrupadas(reg.posicoes);
       campoPos.innerHTML = '<label>Posição no veículo</label>';
       campoPos.appendChild(sel);
@@ -224,6 +225,9 @@ PATCH_JS = r'''
       const campoFogo = document.createElement('div'); campoFogo.className = 'sgmf-campo';
       const fogo = document.createElement('input');
       fogo.type = 'text'; fogo.placeholder = 'ex.: 3456'; fogo.maxLength = 30;
+      fogo.autocomplete = 'off'; fogo.setAttribute('autocorrect', 'off');
+      fogo.setAttribute('autocapitalize', 'off'); fogo.spellcheck = false;
+      fogo.name = `fogo_${reg.item_id}`; fogo.id = `sgmf-fogo-${reg.item_id}`;
       campoFogo.innerHTML = '<label>Nº de fogo do pneu</label>';
       campoFogo.appendChild(fogo);
 
