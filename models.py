@@ -940,9 +940,10 @@ def _sincronizar_oleo_ao_aplicar_item(session, _flush_context, _instances):
 TAMANHOS_UNIFORME = {
     "roupa": ["PP", "P", "M", "G", "GG", "XG"],
     "calcado": [str(n) for n in range(34, 47)],   # 34 a 46
+    "luva": ["07", "08", "09", "10"],
     "unico": ["Único"],
 }
-ROTULOS_TIPO_TAMANHO = {"roupa": "Roupa", "calcado": "Calçado", "unico": "Único"}
+ROTULOS_TIPO_TAMANHO = {"roupa": "Roupa", "calcado": "Calçado", "luva": "Luva", "unico": "Único"}
 
 
 def normalizar_tipo_tamanho(valor):
@@ -951,6 +952,7 @@ def normalizar_tipo_tamanho(valor):
     equivalentes = {
         "roupa": "roupa", "vestuario": "roupa", "vestuário": "roupa",
         "calcado": "calcado", "calçado": "calcado", "sapato": "calcado",
+        "luva": "luva", "luvas": "luva",
         "unico": "unico", "único": "unico", "sem tamanho": "unico",
     }
     return equivalentes.get(texto, "roupa")

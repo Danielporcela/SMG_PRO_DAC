@@ -202,7 +202,7 @@ const telaUniformes = SGMF.tela({
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 4, padrao: 'UN',
       opcoes: ['UN', 'PC', 'PAR', 'CX'] },
     { nome: 'tipo_tamanho', rotulo: 'Tipo de tamanho', tipo: 'select', col: 4, padrao: 'roupa',
-      opcoes: ['roupa', 'calcado', 'unico'],
+      opcoes: ['roupa', 'calcado', 'luva', 'unico'],
       ajuda: 'Define quais tamanhos o item terá em estoque.' },
     { nome: 'estoque_minimo', rotulo: 'Mínimo por tamanho', tipo: 'number', col: 4,
       ajuda: 'Sugestão aplicada a cada tamanho novo. Dá para ajustar tamanho a tamanho no botão de tamanhos.' },
@@ -218,6 +218,7 @@ const telaUniformes = SGMF.tela({
     if (campoTipo) {
       const rotulos = { roupa: 'Roupa — PP, P, M, G, GG, XG',
                         calcado: 'Calçado — 34 a 46',
+                        luva: 'Luva — 07, 08, 09, 10',
                         unico: 'Único — sem tamanho' };
       Array.from(campoTipo.options).forEach(o => {
         if (rotulos[o.value]) o.textContent = rotulos[o.value];

@@ -18,6 +18,7 @@ from sqlalchemy import (
 TAMANHOS = {
     "roupa": ["PP", "P", "M", "G", "GG", "XG"],
     "calcado": [str(n) for n in range(34, 47)],
+    "luva": ["07", "08", "09", "10"],
     "unico": ["Único"],
 }
 
@@ -28,6 +29,8 @@ EQUIVALENTES = {
     "calcado": "calcado",
     "calçado": "calcado",
     "sapato": "calcado",
+    "luva": "luva",
+    "luvas": "luva",
     "unico": "unico",
     "único": "unico",
     "sem tamanho": "unico",
