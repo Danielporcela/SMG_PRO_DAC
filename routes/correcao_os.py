@@ -35,7 +35,7 @@ def _nao_autorizado():
 
 @bp_correcao_os.get("/api/correcao_os/posicoes")
 def posicoes():
-    """Lista completa das posições, usada também pela tela de Pneus."""
+    """Lista completa das posições disponíveis para um veículo."""
     if not session.get("usuario_id"):
         return _nao_autorizado()
     return jsonify({"posicoes": listar_posicoes()})
@@ -119,40 +119,24 @@ PATCH_JS = r'''
   if (window.__sgmfCorrecaoOsCarregada) return;
   window.__sgmfCorrecaoOsCarregada = true;
 
-  const caminho = (location.pathname || '').toLowerCase();
-  const ehTelaManutencao = caminho.includes('manutenc') || caminho.includes('ordem') || caminho.includes('/os');
-  const ehTelaPneus = caminho.includes('pneu');
+  /* Este script só é incluído por templates/manutencao.html — antes ele
+     era injetado em TODAS as páginas do sistema (ver app.py), o que
+     causava dois problemas: 1) na tela de Pneus, ele reescrevia o select
+     de posição do formulário a cada 1,2s, atrapalhando o preenchimento
+     (inclusive o campo "Número de fogo"); 2) o modal aqui embaixo era um
+     <div> avulso, fora do controle de foco/aria do Bootstrap, então
+     disputava foco com o modal oficial da tela (modalPecas) e gerava o
+     aviso "Blocked aria-hidden ... descendant retained focus" no
+     console. Agora o modal usa bootstrap.Modal normalmente, como
+     qualquer outro modal do sistema. */
+
+  const idModal = 'sgmfModalPosicaoPneu';
   const fetchOriginal = window.fetch.bind(window);
   let pendentes = [];
   let idsConhecidos = new Set();
   let inicializado = false;
-  let catalogoPosicoes = null;
 
   function escapar(t) { return String(t == null ? '' : t).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
-
-  function estilo() {
-    if (document.getElementById('sgmf-correcao-style')) return;
-    const s = document.createElement('style');
-    s.id = 'sgmf-correcao-style';
-    s.textContent = `
-      #sgmf-pneu-btn{position:fixed;right:22px;bottom:22px;z-index:2147483000;border:0;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.22);background:#0f766e;color:#fff;display:none}
-      #sgmf-pneu-btn.tem-pendente{display:block;animation:sgmfPulse 1.4s infinite}
-      @keyframes sgmfPulse{50%{transform:scale(1.035)}}
-      #sgmf-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:18px}
-      #sgmf-modal{width:min(760px,96vw);max-height:88vh;overflow:auto;background:#fff;color:#111;border-radius:16px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.35)}
-      #sgmf-modal h3{margin:0 0 8px;font-size:22px} #sgmf-modal p{margin:0 0 16px;color:#555}
-      .sgmf-item{border:1px solid #ddd;border-radius:12px;padding:14px;margin:10px 0}
-      .sgmf-linha{display:grid;grid-template-columns:1fr 180px auto;gap:10px;align-items:end}
-      @media(max-width:640px){.sgmf-linha{grid-template-columns:1fr}}
-      .sgmf-campo label{display:block;font-size:12px;color:#555;margin:8px 0 4px;font-weight:600}
-      .sgmf-item select,.sgmf-item input{width:100%;padding:10px;border:1px solid #bbb;border-radius:8px;font-size:14px;box-sizing:border-box}
-      .sgmf-item button{padding:10px 14px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer;height:42px}
-      .sgmf-fechar{float:right;border:0;background:transparent;font-size:26px;cursor:pointer}
-      .sgmf-ok{font-size:13px;color:#166534;margin-top:8px}.sgmf-erro{font-size:13px;color:#b91c1c;margin-top:8px}
-      .sgmf-previa{font-size:13px;color:#0f766e;margin-top:8px;font-weight:600;min-height:18px}
-    `;
-    document.head.appendChild(s);
-  }
 
   function opcoesAgrupadas(posicoes) {
     const eixos = [];
@@ -172,163 +156,161 @@ PATCH_JS = r'''
   }
 
   function botao() {
-    if (!ehTelaManutencao) return null;
     let b = document.getElementById('sgmf-pneu-btn');
     if (!b) {
       b = document.createElement('button');
       b.id = 'sgmf-pneu-btn';
       b.type = 'button';
-      b.addEventListener('click', abrirModal);
+      b.className = 'btn btn-primario';
+      b.style.cssText = 'position:fixed;right:22px;bottom:22px;z-index:1030;border-radius:12px;padding:12px 16px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,.22);display:none';
+      b.addEventListener('click', () => { montarConteudoModal(); bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show(); });
       document.body.appendChild(b);
     }
     return b;
   }
 
   function atualizarBotao() {
-    const b = botao(); if (!b) return;
+    const b = botao();
     if (pendentes.length) {
-      b.classList.add('tem-pendente');
+      b.style.display = 'block';
       b.textContent = `Definir posição do pneu (${pendentes.length})`;
     } else {
-      b.classList.remove('tem-pendente');
       b.style.display = 'none';
     }
   }
 
-  function abrirModal() {
-    document.getElementById('sgmf-modal-bg')?.remove();
-    const bg = document.createElement('div'); bg.id = 'sgmf-modal-bg';
-    const modal = document.createElement('div'); modal.id = 'sgmf-modal';
-    modal.innerHTML = `<button class="sgmf-fechar" type="button">×</button><h3>Posição do pneu na OS</h3><p>Escolha o eixo e a posição em que o pneu foi instalado e informe o número de fogo. O pneu que estava nessa posição fica preservado no histórico como descartado.</p>`;
-    modal.querySelector('.sgmf-fechar').onclick = () => bg.remove();
-    bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  function montarModalBase() {
+    if (document.getElementById(idModal)) return;
+    const html = `
+    <div class="modal fade" id="${idModal}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" style="border-radius:6px">
+          <div class="modal-header" style="background:var(--petroleo);color:#fff">
+            <h5 class="modal-title display" style="font-size:18px">Posição do pneu na OS</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size:13px;color:var(--texto-suave)" class="mb-3">
+              Escolha o eixo e a posição em que o pneu foi instalado e informe o número de fogo.
+              O pneu que estava nessa posição fica preservado no histórico como descartado.
+            </p>
+            <div id="${idModal}_lista"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
+
+  function montarConteudoModal() {
+    montarModalBase();
+    const lista = document.getElementById(`${idModal}_lista`);
+    lista.innerHTML = '';
 
     if (!pendentes.length) {
-      const vazio = document.createElement('div'); vazio.textContent = 'Não existem pneus sem posição neste momento.'; modal.appendChild(vazio);
+      lista.innerHTML = '<div class="text-muted">Não existem pneus sem posição neste momento.</div>';
+      return;
     }
 
     pendentes.forEach(reg => {
-      const box = document.createElement('div'); box.className = 'sgmf-item';
+      const box = document.createElement('div');
+      box.className = 'border rounded p-3 mb-3';
+
       const titulo = document.createElement('strong');
       titulo.textContent = `${reg.ordem_numero || 'OS'} · ${reg.veiculo || 'Veículo'} · ${reg.descricao || 'Pneu'}`;
       box.appendChild(titulo);
 
-      const linha = document.createElement('div'); linha.className = 'sgmf-linha';
+      const linha = document.createElement('div');
+      linha.className = 'row g-2 mt-1 align-items-end';
 
-      const campoPos = document.createElement('div'); campoPos.className = 'sgmf-campo';
+      const colPos = document.createElement('div'); colPos.className = 'col-md-6';
+      colPos.innerHTML = '<label class="form-label" style="font-size:12px">Posição no veículo</label>';
       const sel = document.createElement('select');
-      sel.name = `posicao_${reg.item_id}`; sel.id = `sgmf-posicao-${reg.item_id}`;
+      sel.className = 'form-select';
       sel.innerHTML = '<option value="">Selecione a posição</option>' + opcoesAgrupadas(reg.posicoes);
-      campoPos.innerHTML = '<label>Posição no veículo</label>';
-      campoPos.appendChild(sel);
+      colPos.appendChild(sel);
 
-      const campoFogo = document.createElement('div'); campoFogo.className = 'sgmf-campo';
+      const colFogo = document.createElement('div'); colFogo.className = 'col-md-4';
+      colFogo.innerHTML = '<label class="form-label" style="font-size:12px">Nº de fogo do pneu</label>';
       const fogo = document.createElement('input');
-      fogo.type = 'text'; fogo.placeholder = 'ex.: 3456'; fogo.maxLength = 30;
-      fogo.autocomplete = 'off'; fogo.setAttribute('autocorrect', 'off');
-      fogo.setAttribute('autocapitalize', 'off'); fogo.spellcheck = false;
-      fogo.name = `fogo_${reg.item_id}`; fogo.id = `sgmf-fogo-${reg.item_id}`;
-      campoFogo.innerHTML = '<label>Nº de fogo do pneu</label>';
-      campoFogo.appendChild(fogo);
+      fogo.type = 'text'; fogo.className = 'form-control'; fogo.placeholder = 'ex.: 3456'; fogo.maxLength = 30;
+      colFogo.appendChild(fogo);
 
-      const aplicar = document.createElement('button'); aplicar.type = 'button'; aplicar.textContent = 'Aplicar';
+      const colBotao = document.createElement('div'); colBotao.className = 'col-md-2';
+      const aplicar = document.createElement('button');
+      aplicar.type = 'button'; aplicar.className = 'btn btn-primario w-100'; aplicar.textContent = 'Aplicar';
+      colBotao.appendChild(aplicar);
 
-      const previa = document.createElement('div'); previa.className = 'sgmf-previa';
+      const previa = document.createElement('div');
+      previa.className = 'mt-2'; previa.style.cssText = 'font-size:13px;color:var(--petroleo-claro);font-weight:600;min-height:18px';
       const msg = document.createElement('div');
+      msg.style.fontSize = '13px';
 
       function atualizarPrevia() {
         if (!sel.value) { previa.textContent = ''; return; }
         const numero = fogo.value.trim();
         previa.textContent = 'Pneu ' + sel.value.toLowerCase() + (numero ? ' — nº ' + numero : '');
       }
-      sel.addEventListener('change', () => { msg.textContent = ''; msg.className = ''; atualizarPrevia(); });
-      fogo.addEventListener('input', () => { msg.textContent = ''; msg.className = ''; atualizarPrevia(); });
+      sel.addEventListener('change', () => { msg.textContent = ''; atualizarPrevia(); });
+      fogo.addEventListener('input', () => { msg.textContent = ''; atualizarPrevia(); });
 
       aplicar.onclick = async () => {
-        if (!sel.value) { msg.className='sgmf-erro'; msg.textContent='Selecione uma posição.'; return; }
+        if (!sel.value) { msg.style.color = '#b91c1c'; msg.textContent = 'Selecione uma posição.'; return; }
         aplicar.disabled = true;
         try {
           const r = await fetchOriginal(`/api/correcao_os/pneu/${reg.item_id}/posicao`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({posicao: sel.value, numero_fogo: fogo.value.trim()})
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ posicao: sel.value, numero_fogo: fogo.value.trim() })
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.erro || 'Falha ao registrar a posição.');
           const ident = d.resultado?.identificacao || 'Posição registrada.';
-          msg.className='sgmf-ok';
+          msg.style.color = '#166534';
           msg.textContent = d.resultado?.pneu_substituido
             ? `${ident} · pneu ${d.resultado.pneu_substituido} retirado e mantido no histórico.`
             : `${ident} · registrado com sucesso.`;
           await carregarPendentes(false);
-          setTimeout(() => { box.remove(); if (!pendentes.length) bg.remove(); }, 900);
-        } catch (e) { msg.className='sgmf-erro'; msg.textContent=e.message || String(e); }
-        finally { aplicar.disabled=false; }
+          setTimeout(() => {
+            box.remove();
+            if (!pendentes.length) bootstrap.Modal.getInstance(document.getElementById(idModal))?.hide();
+          }, 900);
+        } catch (e) { msg.style.color = '#b91c1c'; msg.textContent = e.message || String(e); }
+        finally { aplicar.disabled = false; }
       };
 
-      linha.append(campoPos, campoFogo, aplicar);
+      linha.append(colPos, colFogo, colBotao);
       box.append(linha, previa, msg);
-      modal.appendChild(box);
-    });
-    bg.appendChild(modal); document.body.appendChild(bg);
-  }
-
-  async function carregarCatalogo() {
-    if (catalogoPosicoes) return catalogoPosicoes;
-    try {
-      const r = await fetchOriginal('/api/correcao_os/posicoes', {credentials:'same-origin'});
-      if (!r.ok) return null;
-      const d = await r.json();
-      catalogoPosicoes = d.posicoes || [];
-      return catalogoPosicoes;
-    } catch (_) { return null; }
-  }
-
-  // Na tela de Pneus, atualiza os campos de posição com os eixos novos.
-  async function ajustarSelectsDePosicao() {
-    if (!ehTelaPneus) return;
-    const lista = await carregarCatalogo();
-    if (!lista || !lista.length) return;
-    const alvos = document.querySelectorAll('select[name="posicao"],select#posicao,select[data-campo="posicao"]');
-    alvos.forEach(sel => {
-      if (sel.dataset.sgmfPosicoes === '1') return;
-      const atual = sel.value;
-      sel.innerHTML = '<option value="">Selecione a posição</option>' + opcoesAgrupadas(lista);
-      if (atual) {
-        const existe = Array.from(sel.options).some(o => o.value === atual);
-        if (!existe) sel.insertAdjacentHTML('beforeend', `<option value="${escapar(atual)}">${escapar(atual)}</option>`);
-        sel.value = atual;
-      }
-      sel.dataset.sgmfPosicoes = '1';
+      lista.appendChild(box);
     });
   }
 
   async function recalcular() {
     try {
-      const r = await fetchOriginal('/api/correcao_os/recalcular_alertas', {method:'POST'});
-      if (r.ok) document.dispatchEvent(new CustomEvent('sgmf:alertas-atualizados', {detail: await r.json()}));
+      const r = await fetchOriginal('/api/correcao_os/recalcular_alertas', { method: 'POST' });
+      if (r.ok) document.dispatchEvent(new CustomEvent('sgmf:alertas-atualizados', { detail: await r.json() }));
     } catch (_) {}
   }
 
-  async function carregarPendentes(abrirNovos=true) {
-    if (!ehTelaManutencao) return;
+  async function carregarPendentes(abrirNovos = true) {
     try {
-      const r = await fetchOriginal('/api/correcao_os/pneus_pendentes', {credentials:'same-origin'});
+      const r = await fetchOriginal('/api/correcao_os/pneus_pendentes', { credentials: 'same-origin' });
       if (!r.ok) return;
       const d = await r.json(); pendentes = d.itens || [];
       const atuais = new Set(pendentes.map(x => x.item_id));
       const novos = pendentes.filter(x => !idsConhecidos.has(x.item_id));
       atualizarBotao();
-      if (inicializado && abrirNovos && novos.length) abrirModal();
+      if (inicializado && abrirNovos && novos.length) {
+        montarConteudoModal();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
+      }
       idsConhecidos = atuais; inicializado = true;
     } catch (_) {}
   }
 
-  function iniciar() { carregarPendentes(false); recalcular(); ajustarSelectsDePosicao(); }
+  function iniciar() { montarModalBase(); carregarPendentes(false); recalcular(); }
 
-  estilo();
   document.addEventListener('DOMContentLoaded', iniciar);
   if (document.readyState !== 'loading') iniciar();
-  if (ehTelaPneus) setInterval(ajustarSelectsDePosicao, 1200);
 
   window.fetch = async (...args) => {
     const resp = await fetchOriginal(...args);
