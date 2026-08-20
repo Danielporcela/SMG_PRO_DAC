@@ -38,8 +38,6 @@
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
-      medidor('MTBF', `${SGMF.numero(d.mtbf_dias, 1)} <small>dias</small>`, {
-        icone: 'fa-stopwatch', nota: 'entre falhas' }),
       medidor('MTTR', `${SGMF.numero(d.mttr_dias, 1)} <small>dias</small>`, {
         icone: 'fa-clock-rotate-left', nota: 'para reparo' }),
       medidor('Economia no período', d.economia_periodo === null
