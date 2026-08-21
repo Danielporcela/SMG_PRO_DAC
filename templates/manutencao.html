@@ -351,21 +351,53 @@ async function recarregarItens(osId) {
   });
 }
 
+/* Diz se o item lançado é um pneu — mesma regra usada no backend
+   (services/posicoes_pneu.eh_item_pneu): procura "pneu" na descrição
+   digitada ou no grupo/descrição da peça do estoque escolhida,
+   ignorando acento e maiúscula. */
+function ehItemPneu(descricao, peca) {
+  const semAcento = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return [descricao, peca && peca.grupo, peca && peca.descricao]
+    .some(t => semAcento(t).includes('pneu'));
+}
+
 document.getElementById('itemAdicionar').onclick = async () => {
   const osId = document.getElementById('pecasOsId').value;
+  const pecaId = Number(document.getElementById('itemPeca').value) || null;
+  const peca = pecaId ? pecasDisponiveis.find(p => p.id === pecaId) : null;
+  const descricao = document.getElementById('itemDescricao').value;
+  const valorUnitario = Number(document.getElementById('itemValor').value) || 0;
+  const quantidade = Number(document.getElementById('itemQtd').value) || 1;
+
+  // Pneu com quantidade > 1: em vez de 1 item com Qtde 3, lança 3 itens
+  // separados (1 pneu cada). Assim a janela de "posição do pneu" (que já
+  // existe no sistema) pede a posição e o número de fogo de cada um deles,
+  // em vez de um único número para os 3.
+  const ehPneu = ehItemPneu(descricao, peca);
+  const qtdItens = ehPneu ? Math.max(1, Math.round(quantidade)) : 1;
+
+  if (ehPneu && qtdItens > 1) {
+    const ok = await SGMF.confirmar('Lançar pneus separadamente?',
+      `Serão criados ${qtdItens} itens (1 por pneu). Em seguida, informe a posição e o número de fogo de cada um na janela que vai abrir.`,
+      'Lançar');
+    if (!ok) return;
+  }
+
   try {
-    await SGMF.post(`/api/ordens/${osId}/itens`, {
-      peca_id: Number(document.getElementById('itemPeca').value) || null,
-      descricao: document.getElementById('itemDescricao').value,
-      quantidade: Number(document.getElementById('itemQtd').value) || 1,
-      valor_unitario: Number(document.getElementById('itemValor').value) || 0
-    });
+    for (let i = 0; i < qtdItens; i++) {
+      await SGMF.post(`/api/ordens/${osId}/itens`, {
+        peca_id: pecaId,
+        descricao: descricao,
+        quantidade: ehPneu ? 1 : quantidade,
+        valor_unitario: valorUnitario
+      });
+    }
     document.getElementById('itemPeca').value = '';
     limparEscolhaPeca(false);
     document.getElementById('itemDescricao').value = '';
     document.getElementById('itemQtd').value = 1;
     document.getElementById('itemValor').value = '';
-    SGMF.sucesso('Item adicionado');
+    SGMF.sucesso(qtdItens > 1 ? `${qtdItens} pneus adicionados` : 'Item adicionado');
     SGMF.limparCache('pecas');
     pecasDisponiveis = await SGMF.get('/api/pecas');
     await recarregarItens(osId);
