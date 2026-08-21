@@ -406,18 +406,25 @@ const telaEstoque = SGMF.tela({
       <div class="medidor"><div class="rotulo">Valor em estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(valor)}</div></div>
       <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div><div class="valor num">${repor}</div><div class="nota">${repor ? 'Providencie a compra' : 'Estoque saudável'}</div></div>`;
 
-    document.querySelectorAll('[data-mov]').forEach(b => b.onclick = () => {
-      const peca = linhas.find(p => p.id == b.dataset.mov);
-      document.getElementById('movPecaId').value = peca.id;
-      document.getElementById('movPeca').innerHTML =
-        `<strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)}<br>
-         <span class="text-muted">Saldo atual: ${SGMF.numero(peca.quantidade, 2)} ${peca.unidade}</span>`;
-      document.getElementById('movQtd').value = '';
-      document.getElementById('movCusto').value = peca.custo_unitario || '';
-      document.getElementById('movDoc').value = '';
-      document.getElementById('movObs').value = '';
-      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimento')).show();
-    });
+    const areaTabela = document.getElementById('areaTabela');
+    if (areaTabela && !areaTabela.dataset.movLigado) {
+      areaTabela.dataset.movLigado = '1';
+      areaTabela.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-mov]');
+        if (!b) return;
+        const peca = telaEstoque.dados().find(p => p.id == b.dataset.mov);
+        if (!peca) return;
+        document.getElementById('movPecaId').value = peca.id;
+        document.getElementById('movPeca').innerHTML =
+          `<strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)}<br>
+           <span class="text-muted">Saldo atual: ${SGMF.numero(peca.quantidade, 2)} ${SGMF.esc(peca.unidade || '')}</span>`;
+        document.getElementById('movQtd').value = '';
+        document.getElementById('movCusto').value = peca.custo_unitario || '';
+        document.getElementById('movDoc').value = '';
+        document.getElementById('movObs').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimento')).show();
+      });
+    }
     carregarMovimentos();
   }
 });
