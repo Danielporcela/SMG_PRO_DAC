@@ -6,7 +6,8 @@ from flask import current_app
 from sqlalchemy import func
 
 from extensions import db
-from models import Abastecimento, ItemOS, OrdemServico, Orcamento, Peca, Pneu, Veiculo
+from models import (Abastecimento, ItemOS, MovimentoEstoque, OrdemServico,
+                    Orcamento, Peca, Pneu, Veiculo)
 from services.tempo import hoje as data_de_hoje
 
 GRUPOS = ["Motor", "Suspensão", "Freios", "Elétrica", "Hidráulica", "Pneus",
@@ -178,12 +179,51 @@ def series_graficos(inicio=None, fim=None):
         })
     por_veiculo.sort(key=lambda x: x["total"], reverse=True)
 
-    # custo por grupo de peças
+    # custo por grupo de peças + consumo por produto (alimenta o Top 15)
     grupos = {}
+    consumo = {}
+
+    def _somar_consumo(chave, rotulo, qtd, valor):
+        registro = consumo.setdefault(chave, {"peca": rotulo, "quantidade": 0.0,
+                                              "valor": 0.0})
+        registro["quantidade"] += qtd
+        registro["valor"] += valor
+
     for item in (db.session.query(ItemOS).join(OrdemServico)
                  .filter(OrdemServico.data_abertura.between(inicio, fim)).all()):
         chave = item.grupo or (item.peca.grupo if item.peca else None) or "Outros"
         grupos[chave] = round(grupos.get(chave, 0) + (item.quantidade or 0) * (item.valor_unitario or 0), 2)
+
+        qtd = item.quantidade or 0
+        valor = qtd * (item.valor_unitario or 0)
+        if item.peca:
+            _somar_consumo(f"p{item.peca.id}",
+                           f"{item.peca.codigo} · {item.peca.descricao}", qtd, valor)
+        elif (item.descricao or "").strip():
+            texto = item.descricao.strip()
+            _somar_consumo("d" + texto.casefold(), texto, qtd, valor)
+
+    # Saídas de estoque sem OS (ex.: óleo entregue direto no balcão) também
+    # contam como uso da frota. As saídas ligadas a uma OS já entraram acima,
+    # pelos itens da própria OS — ficam de fora aqui para não contar em dobro.
+    for mov in (MovimentoEstoque.query
+                .filter(MovimentoEstoque.tipo == "saida",
+                        MovimentoEstoque.ordem_servico_id.is_(None),
+                        MovimentoEstoque.data.between(inicio, fim)).all()):
+        if not mov.peca:
+            continue
+        qtd = mov.quantidade or 0
+        _somar_consumo(f"p{mov.peca.id}", f"{mov.peca.codigo} · {mov.peca.descricao}",
+                       qtd, qtd * (mov.custo_unitario or 0))
+
+    # Uniformes nunca entram: vivem em tabelas próprias (itens_uniforme /
+    # movimentos_uniforme), separadas do estoque de peças.
+    top_pecas = sorted(consumo.values(), key=lambda p: p["quantidade"], reverse=True)[:15]
+    for p in top_pecas:
+        p["quantidade"] = round(p["quantidade"], 2)
+        p["valor"] = round(p["valor"], 2)
+        if len(p["peca"]) > 58:      # etiqueta curta para caber no gráfico
+            p["peca"] = p["peca"][:57] + "…"
 
     ordens_periodo = OrdemServico.query.filter(
         OrdemServico.data_abertura.between(inicio, fim)).all()
@@ -198,6 +238,7 @@ def series_graficos(inicio=None, fim=None):
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
+        "top_pecas": top_pecas,
         "consumo_veiculo": sorted(
             [{"veiculo": v["veiculo"], "consumo": v["consumo"]} for v in por_veiculo if v["consumo"]],
             key=lambda x: x["consumo"], reverse=True)[:10],

@@ -3,6 +3,8 @@
   const inicio = () => document.getElementById('filtroInicio').value;
   const fim = () => document.getElementById('filtroFim').value;
 
+  let ultimosGraficos = null; // guarda o retorno de /api/painel/graficos para a impressão
+
   function medidor(rotulo, valor, opcoes = {}) {
     return `<div class="medidor ${opcoes.classe || ''}">
       <div class="rotulo">${opcoes.icone ? `<i class="fa-solid ${opcoes.icone}"></i>` : ''}${rotulo}</div>
@@ -65,6 +67,7 @@
 
   async function carregarGraficos() {
     const g = await SGMF.get(`/api/painel/graficos?inicio=${inicio()}&fim=${fim()}`);
+    ultimosGraficos = g;
 
     SGMF.grafico('graficoMeses', {
       data: {
@@ -150,6 +153,25 @@
       }
     });
 
+    SGMF.grafico('graficoTopPecas', {
+      type: 'bar',
+      data: {
+        labels: g.top_pecas.map(p => p.peca),
+        datasets: [{ label: 'Quantidade consumida', data: g.top_pecas.map(p => p.quantidade),
+                     backgroundColor: '#0F3D56', borderRadius: 2 }]
+      },
+      options: {
+        indexAxis: 'y', maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            label: c => `Qtde: ${SGMF.numero(c.parsed.x, 2)} · ${SGMF.moeda(g.top_pecas[c.dataIndex].valor)}`
+          } }
+        },
+        scales: { x: { ticks: { callback: v => SGMF.numero(v) } }, y: { grid: { display: false } } }
+      }
+    });
+
     const top = g.por_veiculo.slice(0, 8);
     document.getElementById('tabelaTop').innerHTML = top.length
       ? `<table class="table table-sm mb-0 align-middle" style="font-size:13px">
@@ -180,6 +202,160 @@
       : `<div class="vazio"><i class="fa-solid fa-circle-check" style="color:var(--ok)"></i>
           <strong>Nenhum alerta ativo</strong>Preventivas, pneus e orçamento estão dentro do previsto.</div>`;
   }
+
+  /* Impressão genérica de "gráfico + tabela": qualquer card de gráfico do
+     painel usa esta mesma função, só muda o título, o canvas e as colunas.
+     Canvas não sai no SGMF.imprimir() normal (que só copia outerHTML de
+     tabelas), então aqui a gente converte o gráfico em imagem
+     (canvas.toDataURL) e monta a janela de impressão na mão, no mesmo
+     estilo da impressão de OS. */
+  function abrirImpressaoRelatorio({ titulo, canvasId, colunas, linhas, notaExtra = '', semPeriodo = false }) {
+    if (!linhas || !linhas.length) return SGMF.aviso('Não há dados para imprimir neste período.');
+
+    const canvas = canvasId ? document.getElementById(canvasId) : null;
+    const imagem = canvas ? canvas.toDataURL('image/png', 1.0) : null;
+
+    const janela = window.open('', '_blank', 'width=900,height=720');
+    if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+    const cabecalho = colunas.map(c => `<th class="${c.classe || ''}">${SGMF.esc(c.rotulo)}</th>`).join('');
+    const corpo = linhas.map((linha, i) => `<tr>${colunas.map(c =>
+      `<td class="${c.classe || ''}">${c.render ? c.render(linha, i) : SGMF.esc(linha[c.campo])}</td>`
+    ).join('')}</tr>`).join('');
+
+    const doc = janela.document;
+    doc.title = `${titulo} · SGMF Pro`;
+
+    const estilo = doc.createElement('style');
+    estilo.textContent = `
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; margin: 0; }
+      h1 { font-size: 19px; margin: 0 0 2px; color: #0F3D56; }
+      .sub { font-size: 12px; color: #666; margin-bottom: 18px; }
+      img.grafico { width: 100%; max-height: 320px; object-fit: contain; margin-bottom: 18px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      th, td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+      th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+      tr:nth-child(even) td { background: #F5F7F9; }
+      .num, .text-end { text-align: right; }
+      .rodape-impressao { margin-top: 16px; font-size: 10.5px; color: #888; }
+      @media print { @page { margin: 14mm; } }
+    `;
+    doc.head.appendChild(estilo);
+
+    const corpoDoc = doc.createElement('div');
+    corpoDoc.innerHTML = `
+      <h1>${SGMF.esc(titulo)}</h1>
+      <div class="sub">${semPeriodo ? 'Últimos 12 meses' : `Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())}`}${notaExtra}
+        · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+      ${imagem ? `<img class="grafico" src="${imagem}">` : ''}
+      <table>
+        <thead><tr>${cabecalho}</tr></thead>
+        <tbody>${corpo}</tbody>
+      </table>
+      <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
+    `;
+    doc.body.appendChild(corpoDoc);
+
+    janela.onload = () => { janela.focus(); janela.print(); };
+    if (doc.readyState === 'complete') { janela.focus(); janela.print(); }
+  }
+
+  function precisaGraficos() {
+    if (!ultimosGraficos) SGMF.aviso('Aguarde os gráficos carregarem e tente novamente.');
+    return ultimosGraficos;
+  }
+
+  function imprimirGraficoMeses() {
+    const g = precisaGraficos(); if (!g) return;
+    const linhas = g.meses.map((mes, i) => ({
+      mes, combustivel: g.combustivel_mes[i], manutencao: g.manutencao_mes[i],
+      meta: g.meta_mes[i], realizado: g.realizado_mes[i]
+    }));
+    abrirImpressaoRelatorio({
+      titulo: 'Gasto mensal e meta (últimos 12 meses)', canvasId: 'graficoMeses', semPeriodo: true,
+      colunas: [
+        { rotulo: 'Mês', campo: 'mes' },
+        { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
+        { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
+        { rotulo: 'Meta', classe: 'text-end num', render: l => SGMF.moeda(l.meta) },
+        { rotulo: 'Realizado', classe: 'text-end num', render: l => SGMF.moeda(l.realizado) }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirGraficoVeiculos() {
+    const g = precisaGraficos(); if (!g) return;
+    abrirImpressaoRelatorio({
+      titulo: 'Custo por veículo', canvasId: 'graficoVeiculos',
+      colunas: [
+        { rotulo: 'Veículo', render: l => `${SGMF.esc(l.veiculo)}${l.placa ? ' · ' + SGMF.esc(l.placa) : ''}` },
+        { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
+        { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
+        { rotulo: 'Total', classe: 'text-end num', render: l => SGMF.moeda(l.total) }
+      ],
+      linhas: g.por_veiculo
+    });
+  }
+
+  function imprimirGraficoTipos() {
+    const g = precisaGraficos(); if (!g) return;
+    const linhas = Object.entries(g.tipos_manutencao).map(([tipo, qtd]) => ({ tipo, qtd }));
+    abrirImpressaoRelatorio({
+      titulo: 'Preventiva × corretiva × emergencial', canvasId: 'graficoTipos',
+      colunas: [
+        { rotulo: 'Tipo', campo: 'tipo' },
+        { rotulo: 'Quantidade de OS', classe: 'text-end num', campo: 'qtd' }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirGraficoGrupos() {
+    const g = precisaGraficos(); if (!g) return;
+    const linhas = g.grupos.labels.map((grupo, i) => ({ grupo, valor: g.grupos.valores[i] }));
+    abrirImpressaoRelatorio({
+      titulo: 'Custo por grupo de peças', canvasId: 'graficoGrupos',
+      colunas: [
+        { rotulo: 'Grupo', campo: 'grupo' },
+        { rotulo: 'Custo', classe: 'text-end num', render: l => SGMF.moeda(l.valor) }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirGraficoConsumo() {
+    const g = precisaGraficos(); if (!g) return;
+    abrirImpressaoRelatorio({
+      titulo: 'Consumo por veículo (km/L)', canvasId: 'graficoConsumo',
+      colunas: [
+        { rotulo: 'Veículo', campo: 'veiculo' },
+        { rotulo: 'Km/L', classe: 'text-end num', render: l => SGMF.numero(l.consumo, 2) }
+      ],
+      linhas: g.consumo_veiculo
+    });
+  }
+
+  function imprimirTopPecas() {
+    const g = precisaGraficos(); if (!g) return;
+    abrirImpressaoRelatorio({
+      titulo: `Peças com maior consumo (Top ${g.top_pecas.length})`, canvasId: 'graficoTopPecas',
+      notaExtra: ' · exceto uniformes',
+      colunas: [
+        { rotulo: '#', classe: 'num', render: (l, i) => i + 1 },
+        { rotulo: 'Peça', campo: 'peca' },
+        { rotulo: 'Qtde consumida', classe: 'text-end num', render: l => SGMF.numero(l.quantidade, 2) },
+        { rotulo: 'Valor', classe: 'text-end num', render: l => SGMF.moeda(l.valor) }
+      ],
+      linhas: g.top_pecas
+    });
+  }
+
+  Object.assign(window, {
+    imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
+    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirTopPecas
+  });
 
   async function atualizar() {
     try {
