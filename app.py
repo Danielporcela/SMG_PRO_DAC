@@ -51,21 +51,21 @@ def criar_app(config=Config):
     app.register_blueprint(bp_compras)
     app.register_blueprint(bp_relatorios_compras)
 
-    @app.after_request
-    def carregar_correcao_os(response):
-        # Injeta apenas o pequeno complemento de interface. Nenhum dado do
-        # banco é alterado nesta etapa.
-        if response.status_code == 200 and response.mimetype == "text/html":
-            try:
-                corpo = response.get_data(as_text=True)
-                marcador = '<script src="/correcao_os/patch.js"></script>'
-                if marcador not in corpo and "</body>" in corpo:
-                    corpo = corpo.replace("</body>", marcador + "</body>", 1)
-                    response.set_data(corpo)
-                    response.content_length = len(response.get_data())
-            except Exception:
-                pass
-        return response
+    # O script de "posição do pneu na OS" (routes/correcao_os.py) é
+    # carregado só pela própria tela de Ordens de serviço
+    # (templates/manutencao.html), via <script src="/correcao_os/patch.js">.
+    # Antes ele era injetado automaticamente em TODAS as páginas do sistema
+    # (inclusive Pneus, Veículos etc.) através de um after_request — isso
+    # fazia o script recriar um <select> de posição a cada 1,2s em qualquer
+    # tela que tivesse um campo "posicao" (como o formulário de Novo pneu)
+    # e abria um modal próprio por cima dos modais do Bootstrap, com
+    # z-index extremo, disputando foco com eles. Resultado: em Pneus, o
+    # campo de posição era reescrito enquanto o usuário preenchia o
+    # formulário, e em Ordens de serviço o modal customizado conflitava
+    # com o foco do modal oficial (modalPecas), gerando o aviso "Blocked
+    # aria-hidden ... descendant retained focus" no console e travando
+    # cliques/seleção nos campos. Carregando o patch só onde ele é
+    # necessário, esse conflito desaparece nas demais telas.
 
     @app.context_processor
     def datas_padrao():
