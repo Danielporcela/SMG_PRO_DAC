@@ -100,7 +100,15 @@
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label" for="itemPeca">Peça <span style="color:var(--alerta)">*</span></label>
-                <select class="form-select" id="itemPeca"><option value="">— selecione —</option></select>
+                <div class="input-group">
+                  <select class="form-select" id="itemPeca"><option value="">— selecione —</option></select>
+                  <button type="button" class="btn btn-contorno" id="botaoPesquisarPecaNF"
+                          title="Pesquisar peça por nome ou referência">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <span class="d-none d-sm-inline ms-1">Pesquisar</span>
+                  </button>
+                </div>
+                <small class="text-muted">Use Pesquisar para localizar a peça pelo nome ou referência.</small>
               </div>
               <div class="col-md-3">
                 <label class="form-label" for="itemQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
@@ -170,6 +178,37 @@
         <button class="btn btn-primario" id="notaFinalizar">
           <i class="fa-solid fa-check me-1"></i> Finalizar nota e dar entrada no estoque
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pesquisa rápida de peças durante o lançamento da nota fiscal -->
+<div class="modal fade" id="modalPesquisarPecaNF" tabindex="-1" aria-labelledby="tituloPesquisarPecaNF">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display" id="tituloPesquisarPecaNF">
+          <i class="fa-solid fa-magnifying-glass me-2"></i>Pesquisar peça
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group input-group-lg mb-2">
+          <input type="search" class="form-control" id="campoPesquisarPecaNF"
+                 autocomplete="off"
+                 placeholder="Digite o nome ou a referência da peça">
+          <button type="button" class="btn btn-primario" id="executarPesquisaPecaNF">
+            <i class="fa-solid fa-magnifying-glass me-1"></i> Pesquisar
+          </button>
+        </div>
+        <small class="text-muted">Ex.: "filtro de óleo", "pastilha" ou "REF-1023".</small>
+        <div id="resultadoPesquisaPecaNF" class="mt-3">
+          <div class="vazio">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            Digite o nome ou a referência e clique em Pesquisar.
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -289,57 +328,6 @@ async function cadastrarGrupoDoCampo() {
   }
 }
 
-/* ========================================= botão "Pesquisar" (peça nova)
-   Busca no estoque já cadastrado (via SGMF.opcoes, que usa o mesmo cache
-   de /api/pecas) por código, referência ou descrição parecidos com o que
-   a pessoa já digitou, para evitar cadastrar a mesma peça duas vezes. */
-async function pesquisarPecaCadastrada() {
-  const termo = (document.getElementById('campo_descricao').value || '').trim();
-  if (!termo) {
-    SGMF.aviso('Digite ao menos parte da descrição, código ou referência da peça e clique em Pesquisar de novo.');
-    document.getElementById('campo_descricao').focus();
-    return;
-  }
-
-  const botao = document.getElementById('botaoPesquisarPeca');
-  botao.disabled = true;
-  try {
-    const pecas = await SGMF.get('/api/pecas');
-    const alvo = termo.toLowerCase();
-    const encontradas = pecas.filter(p =>
-      (p.descricao || '').toLowerCase().includes(alvo) ||
-      (p.codigo || '').toLowerCase().includes(alvo) ||
-      (p.referencia || '').toLowerCase().includes(alvo)
-    );
-
-    if (!encontradas.length) {
-      SGMF.sucesso('Nenhuma peça parecida encontrada — pode cadastrar.');
-      return;
-    }
-
-    const linhas = encontradas.slice(0, 10).map(p =>
-      `<tr><td class="num">${SGMF.esc(p.codigo)}</td><td>${SGMF.esc(p.descricao)}</td>
-       <td class="num text-end">${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade)}</td></tr>`
-    ).join('');
-
-    await Swal.fire({
-      icon: 'info',
-      title: 'Peças parecidas já cadastradas',
-      html: `<table class="table table-sm" style="font-size:13px;text-align:left">
-               <thead><tr><th>Código</th><th>Descrição</th><th class="text-end">Saldo</th></tr></thead>
-               <tbody>${linhas}</tbody></table>
-             ${encontradas.length > 10 ? `<div class="text-muted" style="font-size:12px">Mostrando 10 de ${encontradas.length} encontradas.</div>` : ''}`,
-      confirmButtonText: 'Fechar',
-      confirmButtonColor: '#0F3D56',
-      width: 560
-    });
-  } catch (e) {
-    SGMF.falha(e.message);
-  } finally {
-    botao.disabled = false;
-  }
-}
-
 const telaEstoque = SGMF.tela({
   recurso: 'pecas',
   tela: 'estoque',
@@ -364,29 +352,9 @@ const telaEstoque = SGMF.tela({
      travado na tela; quem se digita é só a Referência do fabricante/
      fornecedor. Em peça nova o campo mostra o texto de exemplo até salvar;
      na edição mostra o código já atribuído, também travado. */
-  aoAbrirFormulario: (registro) => {
+  aoAbrirFormulario: () => {
     const campoCodigo = document.getElementById('campo_codigo');
     if (campoCodigo) campoCodigo.disabled = true;
-
-    /* Descrição: botão "Pesquisar" só em peça NOVA (registro null) — ajuda a
-       achar se a peça já existe no estoque antes de cadastrar de novo. */
-    const campoDescricao = document.getElementById('campo_descricao');
-    if (campoDescricao) {
-      if (!document.getElementById('botaoPesquisarPeca')) {
-        const moldura = document.createElement('div');
-        moldura.className = 'input-group';
-        campoDescricao.parentNode.insertBefore(moldura, campoDescricao);
-        moldura.appendChild(campoDescricao);
-        moldura.insertAdjacentHTML('beforeend',
-          `<button class="btn btn-contorno" type="button" id="botaoPesquisarPeca"
-                   title="Pesquisar peças parecidas já cadastradas">
-             <i class="fa-solid fa-magnifying-glass"></i>
-           </button>`);
-        document.getElementById('botaoPesquisarPeca')
-          .addEventListener('click', pesquisarPecaCadastrada);
-      }
-      document.getElementById('botaoPesquisarPeca').style.display = registro ? 'none' : '';
-    }
 
     /* Grupo: liga o campo ao <datalist> e busca a lista de novo, para um grupo
        cadastrado agora há pouco já aparecer sem precisar recarregar a página. */
@@ -481,6 +449,159 @@ async function preencherSelectFornecedor() {
     '<option value="">— selecione —</option>' +
     lista.map(o => `<option value="${SGMF.esc(o.valor)}">${SGMF.esc(o.texto)}</option>`).join('');
 }
+
+/* ================================================= pesquisa de peça na NF
+   Pesquisa somente para localizar a peça. A seleção final continua sendo
+   gravada pelo endpoint da nota fiscal já existente. */
+let pesquisaPecaNF = { lista: [], termo: '' };
+
+function abrirPesquisaPecaNF() {
+  const modal = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalPesquisarPecaNF')
+  );
+  const campo = document.getElementById('campoPesquisarPecaNF');
+  campo.value = '';
+  document.getElementById('resultadoPesquisaPecaNF').innerHTML = `
+    <div class="vazio">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      Digite o nome ou a referência e clique em Pesquisar.
+    </div>`;
+  modal.show();
+  setTimeout(() => campo.focus(), 250);
+}
+
+function mostrarResultadosPesquisaPecaNF(dados) {
+  const area = document.getElementById('resultadoPesquisaPecaNF');
+  const lista = dados.pecas || [];
+  pesquisaPecaNF.lista = lista;
+
+  if (!lista.length) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-box-open"></i>
+        <strong>Nenhuma peça encontrada.</strong>
+        Confira o nome ou a referência informada.
+      </div>`;
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <strong>${dados.total} ${dados.total === 1 ? 'peça encontrada' : 'peças encontradas'}</strong>
+      ${dados.total > lista.length
+        ? `<small class="text-muted">Mostrando ${lista.length}. Digite mais para refinar.</small>`
+        : ''}
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Referência</th>
+            <th>Peça</th>
+            <th class="text-end">Saldo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.map(p => `
+            <tr>
+              <td class="num"><strong>${SGMF.esc(p.codigo)}</strong></td>
+              <td class="num">${SGMF.esc(p.referencia) || '—'}</td>
+              <td>${SGMF.esc(p.descricao)}</td>
+              <td class="text-end num">
+                ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}
+              </td>
+              <td class="text-end">
+                <button type="button" class="btn btn-primario btn-sm"
+                        data-selecionar-peca-nf="${p.id}">
+                  <i class="fa-solid fa-check me-1"></i> Selecionar
+                </button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function pesquisarPecaNF() {
+  const campo = document.getElementById('campoPesquisarPecaNF');
+  const termo = campo.value.trim();
+  const area = document.getElementById('resultadoPesquisaPecaNF');
+
+  if (!termo) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-circle-info"></i>
+        Informe o nome ou a referência da peça.
+      </div>`;
+    campo.focus();
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="vazio">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+      Pesquisando peças…
+    </div>`;
+
+  try {
+    const params = new URLSearchParams({
+      q: termo,
+      modo: 'tudo'
+    });
+    const resposta = await fetch('/api/busca-pecas?' + params.toString(), {
+      credentials: 'same-origin'
+    });
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível pesquisar as peças.');
+    pesquisaPecaNF.termo = termo;
+    mostrarResultadosPesquisaPecaNF(dados);
+  } catch (e) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        ${SGMF.esc(e.message)}
+      </div>`;
+  }
+}
+
+function selecionarPecaNaNF(id) {
+  const peca = pesquisaPecaNF.lista.find(p => Number(p.id) === Number(id));
+  if (!peca) return;
+
+  const select = document.getElementById('itemPeca');
+
+  /* O select normalmente já contém todas as peças. Se a lista ainda não
+     terminou de carregar, adicionamos a encontrada para garantir a seleção. */
+  if (!Array.from(select.options).some(o => String(o.value) === String(peca.id))) {
+    const opcao = document.createElement('option');
+    opcao.value = peca.id;
+    opcao.textContent = `${peca.codigo} · ${peca.descricao}`;
+    select.appendChild(opcao);
+  }
+
+  select.value = String(peca.id);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+
+  bootstrap.Modal.getInstance(document.getElementById('modalPesquisarPecaNF'))?.hide();
+  document.getElementById('itemQuantidade').focus();
+}
+
+document.getElementById('botaoPesquisarPecaNF').addEventListener('click', abrirPesquisaPecaNF);
+document.getElementById('executarPesquisaPecaNF').addEventListener('click', pesquisarPecaNF);
+
+document.getElementById('campoPesquisarPecaNF').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    pesquisarPecaNF();
+  }
+});
+
+document.getElementById('resultadoPesquisaPecaNF').addEventListener('click', (e) => {
+  const botao = e.target.closest('[data-selecionar-peca-nf]');
+  if (botao) selecionarPecaNaNF(botao.dataset.selecionarPecaNf);
+});
 
 async function preencherSelectPeca() {
   const lista = await SGMF.opcoes('pecas');
