@@ -51,6 +51,13 @@ def criar_app(config=Config):
     app.register_blueprint(bp_compras)
     app.register_blueprint(bp_relatorios_compras)
 
+    # Compatibilidade com bancos criados antes do módulo de compras.
+    # Evita ProgrammingError quando a aplicação já possui a tela, mas o
+    # PostgreSQL ainda não recebeu as tabelas ou alguma coluna do módulo.
+    with app.app_context():
+        from services.compatibilidade_banco import garantir_ordens_compra
+        garantir_ordens_compra()
+
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
     # (templates/manutencao.html), via <script src="/correcao_os/patch.js">.
