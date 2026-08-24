@@ -19,6 +19,12 @@
     <h3><i class="fa-solid fa-file-invoice me-2" style="color:var(--petroleo)"></i>Notas fiscais de entrada</h3>
     <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
       <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroBuscaNota">Pesquisar</label>
+        <input type="search" class="form-control form-control-sm" id="filtroBuscaNota"
+               style="min-width:220px" autocomplete="off"
+               placeholder="Número ou fornecedor">
+      </div>
+      <div>
         <label class="form-label mb-0" style="font-size:11.5px" for="filtroInicio">Início</label>
         <input type="date" class="form-control form-control-sm" id="filtroInicio" value="{{ inicio_periodo }}">
       </div>
@@ -647,15 +653,40 @@ document.getElementById('notaSalvar').onclick = async () => {
   finally { botao.disabled = false; }
 };
 
+let notasCarregadas = [];   // guarda a última página vinda do servidor, para a pesquisa filtrar sem recarregar
+
+// Ignora acento e maiúscula/minúscula, igual à pesquisa de peças (routes/busca_pecas.py).
+function normalizarBusca(texto) {
+  if (!texto) return '';
+  return texto.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function notasFiltradas() {
+  const termo = normalizarBusca(document.getElementById('filtroBuscaNota').value);
+  if (!termo) return notasCarregadas;
+  return notasCarregadas.filter(n =>
+    normalizarBusca(n.numero).includes(termo) ||
+    normalizarBusca(n.fornecedor_nome).includes(termo));
+}
+
 async function carregarNotasFiscais() {
   const inicio = document.getElementById('filtroInicio').value;
   const fim = document.getElementById('filtroFim').value;
-  const notas = await SGMF.get(`/api/notas_fiscais?inicio=${inicio}&fim=${fim}`);
+  notasCarregadas = await SGMF.get(`/api/notas_fiscais?inicio=${inicio}&fim=${fim}`);
+  renderizarNotasFiscais();
+}
+
+function renderizarNotasFiscais() {
+  const notas = notasFiltradas();
   const area = document.getElementById('areaNotasFiscais');
+  const pesquisando = document.getElementById('filtroBuscaNota').value.trim() !== '';
 
   if (!notas.length) {
-    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-file-invoice"></i>
-      <strong>Nenhuma nota fiscal no período</strong>Lance a primeira com o botão "Nova nota".</div>`;
+    area.innerHTML = pesquisando
+      ? `<div class="vazio"><i class="fa-solid fa-magnifying-glass"></i>
+          <strong>Nenhuma nota encontrada</strong>Tente outro número ou fornecedor.</div>`
+      : `<div class="vazio"><i class="fa-solid fa-file-invoice"></i>
+          <strong>Nenhuma nota fiscal no período</strong>Lance a primeira com o botão "Nova nota".</div>`;
     return;
   }
 
@@ -832,6 +863,7 @@ document.getElementById('notaFinalizar').onclick = async () => {
 document.getElementById('botaoNovaNota')?.addEventListener('click', abrirModalNota);
 document.getElementById('filtroInicio').addEventListener('change', carregarNotasFiscais);
 document.getElementById('filtroFim').addEventListener('change', carregarNotasFiscais);
+document.getElementById('filtroBuscaNota').addEventListener('input', renderizarNotasFiscais);
 document.getElementById('botaoImprimirNotas').addEventListener('click', () =>
   SGMF.imprimir('tabelaNotas', 'Notas fiscais de entrada'));
 
