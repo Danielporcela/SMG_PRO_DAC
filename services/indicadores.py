@@ -6,7 +6,7 @@ from flask import current_app
 from sqlalchemy import func
 
 from extensions import db
-from models import (Abastecimento, ItemOS, MovimentoEstoque, OrdemServico,
+from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Orcamento, Peca, Pneu, Veiculo)
 from services.tempo import hoje as data_de_hoje
 
@@ -28,6 +28,16 @@ def _custo_os(inicio, fim, veiculo_id=None):
     if veiculo_id:
         q = q.filter(OrdemServico.veiculo_id == veiculo_id)
     return q.all()
+
+
+def _notas_finalizadas(inicio, fim):
+    """Notas fiscais de entrada (Módulo 11) finalizadas no período — o gasto
+    real de compra de peças, contado pela data em que a nota deu entrada no
+    estoque (data_entrada), não pela data de emissão. Nota 'Aberta' ainda não
+    virou entrada de fato, então não conta como gasto."""
+    return NotaFiscal.query.filter(
+        NotaFiscal.status == "Finalizada",
+        NotaFiscal.data_entrada.between(inicio, fim)).all()
 
 
 def _custo_km_historico(ate, veiculo_id=None):
@@ -74,6 +84,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
 
     gasto_manut = round(sum(o.custo_total for o in ordens), 2)
     gasto_comb = round(sum(a.valor_total or 0 for a in abastecimentos), 2)
+    notas_compra = _notas_finalizadas(inicio, fim)
+    gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
     litros = sum(a.litros or 0 for a in abastecimentos)
     km_rodados = sum(a.km_percorridos or 0 for a in abastecimentos)
 
@@ -111,6 +123,12 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_combustivel": gasto_comb,
         "gasto_manutencao": gasto_manut,
         "gasto_total": round(gasto_comb + gasto_manut, 2),
+        "gasto_compras": gasto_compras,
+        "notas_fiscais_qtd": len(notas_compra),
+        # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
+        # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
+        # aderência ao orçamento por veículo sempre significaram no painel.
+        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_compras, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "custo_por_km": round((gasto_comb + gasto_manut) / km_rodados, 2) if km_rodados else 0,
@@ -141,7 +159,7 @@ def series_graficos(inicio=None, fim=None):
     hoje = data_de_hoje()
 
     # 12 meses móveis de gasto
-    meses, comb_mes, manut_mes, meta_mes = [], [], [], []
+    meses, comb_mes, manut_mes, compras_mes, meta_mes = [], [], [], [], []
     for i in range(11, -1, -1):
         ref = (hoje.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
         ini = ref
@@ -151,6 +169,7 @@ def series_graficos(inicio=None, fim=None):
                               .filter(Abastecimento.data.between(ini, f)).scalar() or 0, 2))
         ordens = OrdemServico.query.filter(OrdemServico.data_abertura.between(ini, f)).all()
         manut_mes.append(round(sum(o.custo_total for o in ordens), 2))
+        compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
                               .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month)
                               .scalar() or 0, 2))
@@ -233,8 +252,11 @@ def series_graficos(inicio=None, fim=None):
 
     return {
         "meses": meses, "combustivel_mes": comb_mes, "manutencao_mes": manut_mes,
+        "compras_mes": compras_mes,
         "meta_mes": meta_mes,
         "realizado_mes": [round(c + m, 2) for c, m in zip(comb_mes, manut_mes)],
+        "realizado_geral_mes": [round(c + m + p, 2)
+                                for c, m, p in zip(comb_mes, manut_mes, compras_mes)],
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,

@@ -260,6 +260,35 @@ def descartar_serial(serial: PecaSerial, observacao=None, usuario=None):
     _sincronizar_saldo_peca(serial.peca_id)
 
 
+def regularizar_seriais_peca(peca_id, numeros_serie, usuario=None):
+    """Converte o saldo antigo (peça lançada antes do rastreio por série)
+    em unidades individuais rastreáveis — uma só vez por peça.
+
+    Exige que a quantidade de números informados bata exatamente com o
+    saldo já existente no estoque dessa peça (contagem de PecaSerial com
+    status 'Estoque' comparado com Peca.quantidade — para não duplicar
+    saldo de peças que já foram parcialmente regularizadas).
+    """
+    peca = db.session.get(Peca, peca_id)
+    if not peca:
+        raise ErroNegocio("Peça não encontrada.")
+    ja_regularizadas = PecaSerial.query.filter_by(peca_id=peca_id).count()
+    pendente = int(round((peca.quantidade or 0))) - ja_regularizadas
+    if pendente <= 0:
+        raise ErroNegocio("Esta peça já está com o saldo todo regularizado.")
+    if len(numeros_serie) != pendente:
+        raise ErroNegocio(
+            f"Informe exatamente {pendente} número(s) de série — é o saldo "
+            f"ainda sem unidade individual cadastrada para esta peça.")
+    criados = []
+    for numero in numeros_serie:
+        criados.append(dar_entrada_serial(
+            peca_id, numero, peca.custo_unitario, origem="Regularização de saldo",
+            documento="Regularização", observacao="Saldo existente antes do rastreio por série",
+            usuario=usuario))
+    return criados
+
+
 # ------------------------------------------------------------- manutenção
 def proximo_numero_os():
     """Gera o próximo número da OS sem correr o risco de dois iguais.

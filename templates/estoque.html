@@ -17,6 +17,7 @@
 <div class="cartao mt-3">
   <div class="cartao-topo flex-wrap gap-2">
     <h3><i class="fa-solid fa-file-invoice me-2" style="color:var(--petroleo)"></i>Notas fiscais de entrada</h3>
+    <span id="totalGastoNotas" class="ms-2" style="font-size:12.5px;color:var(--texto-suave)"></span>
     <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
       <div>
         <label class="form-label mb-0" style="font-size:11.5px" for="filtroBuscaNota">Pesquisar</label>
@@ -953,6 +954,14 @@ function renderizarNotasFiscais() {
   const notas = notasFiltradas();
   const area = document.getElementById('areaNotasFiscais');
   const pesquisando = document.getElementById('filtroBuscaNota').value.trim() !== '';
+
+  // Gasto real do período: só conta nota já Finalizada (deu entrada de fato
+  // no estoque) — igual ao que o painel soma em "Compras (NF)".
+  const finalizadas = notasCarregadas.filter(n => n.status === 'Finalizada');
+  const totalGasto = finalizadas.reduce((soma, n) => soma + (n.valor_total || 0), 0);
+  document.getElementById('totalGastoNotas').textContent = notasCarregadas.length
+    ? `Gasto no período: ${SGMF.moeda(totalGasto)} em ${finalizadas.length} nota(s) finalizada(s)`
+    : '';
 
   if (!notas.length) {
     area.innerHTML = pesquisando

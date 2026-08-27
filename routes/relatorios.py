@@ -13,8 +13,8 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from extensions import db
-from models import (Abastecimento, ItemOS, MovimentoEstoque, OrdemServico, Peca,
-                    Pneu, Veiculo)
+from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
+                    Peca, Pneu, Veiculo)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
 from services.restauracao import restaurar
@@ -32,6 +32,7 @@ TITULOS = {
     "movimentos": "Movimentação de estoque",
     "lubrificantes": "Óleos e fluidos",
     "custos": "Custos por veículo",
+    "gastos_nf": "Gastos com notas fiscais",
 }
 
 
@@ -235,6 +236,32 @@ def montar_dados(relatorio):
                "Total R$", "Custo/km R$", "Km/L", "Orçamento R$"]
         linhas = [[d["veiculo"], d["placa"], d["km"], d["combustivel"], d["manutencao"],
                    d["total"], d["custo_km"], d["consumo"], d["orcamento"]] for d in dados]
+
+    elif relatorio == "gastos_nf":
+        # Gasto real de compra de peças (Módulo 11): só entra a nota já
+        # finalizada (deu entrada de fato no estoque), contada pela data de
+        # entrada — igual ao que o painel usa em "gasto_compras". "Valor
+        # peças" é o mesmo valor que a tela de Estoque já mostra por nota;
+        # "Tributos" soma ICMS/PIS/COFINS/IBS/CBS lançados nos itens, só
+        # como referência fiscal.
+        def _tributos(nota):
+            return round(sum(nota._total_fiscal(campo) for campo in
+                             ("valor_icms", "valor_pis", "valor_cofins",
+                              "valor_ibs", "valor_cbs")), 2)
+
+        q = NotaFiscal.query.filter(NotaFiscal.status == "Finalizada",
+                                    NotaFiscal.data_entrada.between(inicio, fim))
+        if fornecedor_id:
+            q = q.filter(NotaFiscal.fornecedor_id == fornecedor_id)
+        notas = q.order_by(NotaFiscal.data_entrada, NotaFiscal.id).all()
+        cab = ["NF", "Emissão", "Entrada", "Fornecedor", "Itens",
+               "Valor peças R$", "Tributos R$", "Total R$"]
+        linhas = [[n.identificacao,
+                   n.data_emissao.strftime("%d/%m/%Y") if n.data_emissao else "—",
+                   n.data_entrada.strftime("%d/%m/%Y") if n.data_entrada else "—",
+                   n.fornecedor.nome if n.fornecedor else "—", len(n.itens),
+                   n.valor_total, _tributos(n), round(n.valor_total + _tributos(n), 2)]
+                  for n in notas]
     else:
         cab, linhas = ["Relatório"], [["Relatório não encontrado."]]
 
