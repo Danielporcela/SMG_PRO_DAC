@@ -687,6 +687,8 @@ class OrdemServico(db.Model):
     prioridade = db.Column(db.String(20), default="Média")  # Baixa | Média | Alta | Crítica
     status = db.Column(db.String(30), default="Aberta")     # Aberta | Em execução | Aguardando peça | Finalizada
     grupo = db.Column(db.String(40))                        # Motor, Freios, Pneus, ...
+    hora_inicio = db.Column(db.Time)
+    hora_fim = db.Column(db.Time)
     km_veiculo = db.Column(db.Float, default=0)
     descricao = db.Column(db.Text)
     custo_mao_obra = db.Column(db.Float, default=0)
@@ -712,6 +714,16 @@ class OrdemServico(db.Model):
         fim = self.data_fechamento or _hoje()
         return max((fim - self.data_abertura).days, 0) if self.data_abertura else 0
 
+    @property
+    def duracao_minutos(self):
+        """Minutos entre hora_inicio e hora_fim, quando os dois estão
+        preenchidos e o serviço não passou da meia-noite."""
+        if not (self.hora_inicio and self.hora_fim):
+            return None
+        inicio = self.hora_inicio.hour * 60 + self.hora_inicio.minute
+        fim = self.hora_fim.hour * 60 + self.hora_fim.minute
+        return fim - inicio if fim >= inicio else None
+
     def to_dict(self, com_itens=False):
         d = {
             "id": self.id, "numero": self.numero,
@@ -725,6 +737,9 @@ class OrdemServico(db.Model):
             "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
             "mecanico": self.mecanico, "tipo": self.tipo, "prioridade": self.prioridade,
             "status": self.status, "grupo": self.grupo, "km_veiculo": self.km_veiculo,
+            "hora_inicio": self.hora_inicio.strftime("%H:%M") if self.hora_inicio else None,
+            "hora_fim": self.hora_fim.strftime("%H:%M") if self.hora_fim else None,
+            "duracao_minutos": self.duracao_minutos,
             "descricao": self.descricao, "custo_mao_obra": self.custo_mao_obra,
             "custo_servicos": self.custo_servicos, "custo_pecas": self.custo_pecas,
             "custo_total": self.custo_total, "dias_parado": self.dias_parado,

@@ -4,7 +4,7 @@ Em vez de repetir listar/criar/editar/excluir em cada módulo, cada rota
 declara os campos que aceita e recebe a API pronta. Isso mantém o
 comportamento igual em todo o sistema (validação, log, mensagens de erro).
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 from functools import wraps
 
 from flask import jsonify, request, session
@@ -127,6 +127,13 @@ def _converter(valor, tipo):
         if isinstance(valor, (date, datetime)):
             return valor if isinstance(valor, date) else valor.date()
         return datetime.strptime(str(valor)[:10], "%Y-%m-%d").date()
+    if tipo == "time":
+        if isinstance(valor, time):
+            return valor
+        # aceita "HH:MM" (input type=time) ou "HH:MM:SS"
+        texto = str(valor).strip()[:8]
+        formato = "%H:%M:%S" if texto.count(":") == 2 else "%H:%M"
+        return datetime.strptime(texto, formato).time()
     return str(valor).strip()
 
 
