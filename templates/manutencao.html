@@ -96,34 +96,43 @@ const telaOS = SGMF.tela({
   filtroPeriodo: true,
   ordem: [[1, 'desc']],
   campos: [
-    { nome: 'data_abertura', rotulo: 'Data de abertura', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
-    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5, obrigatorio: true },
+    { nome: 'cco', rotulo: 'CCO', col: 2 },
+    { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
+    { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3 },
+    { nome: 'solicitante', rotulo: 'Solicitante', col: 4 },
+    { nome: 'setor', rotulo: 'Setor', col: 4 },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4 },
+    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2 },
+    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4,
+      opcoes: ['Manutenção corretiva', 'Sistema mecânico', 'Borracharia',
+               'Sistema hidráulico', 'Solda', 'Manutenção preventiva',
+               'Sistema elétrico', 'Acidente'] },
+    { nome: 'local_execucao', rotulo: 'Serviço interno / externo', tipo: 'select', col: 4,
+      opcoes: ['Interno', 'Externo'] },
+    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
+      opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
     { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva',
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
     { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'status', rotulo: 'Status', tipo: 'select', col: 4, padrao: 'Aberta',
-      opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'grupo', rotulo: 'Grupo do serviço', tipo: 'select', col: 4,
-      opcoes: ['Manutenção corretiva', 'Sistema mecânico', 'Borracharia',
-               'Sistema hidráulico', 'Solda', 'Manutenção preventiva',
-               'Sistema elétrico', 'Acidente'] },
-    { nome: 'hora_inicio', rotulo: 'Horário de início', tipo: 'time', col: 4 },
-    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 4 },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 6 },
-    { nome: 'data_fechamento', rotulo: 'Data de fechamento', tipo: 'date', col: 6,
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4 },
+    { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'descricao', rotulo: 'Serviço executado / defeito relatado', tipo: 'textarea', col: 12 }
+    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
+    { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12 }
   ],
   colunas: [
     { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
     { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
+    { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
-    { campo: 'grupo', rotulo: 'Grupo do serviço', render: v => v || '—' },
+    { campo: 'grupo', rotulo: 'Tipo de serviço', render: v => v || '—' },
+    { campo: 'local_execucao', rotulo: 'Interno/Externo', render: v => v || '—' },
     { campo: 'prioridade', rotulo: 'Prioridade', render: v => SGMF.status(v) },
-    { campo: 'status', rotulo: 'Status', render: v => SGMF.status(v) },
+    { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
     { campo: 'hora_inicio', rotulo: 'Início', classe: 'num', render: v => v || '—' },
     { campo: 'hora_fim', rotulo: 'Fim', classe: 'num', render: v => v || '—' },
     { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
@@ -514,6 +523,9 @@ async function imprimirOS(os) {
     .num, .text-end { text-align: right; }
     .descricao-servico { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
     .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
+    .assinatura { display: flex; gap: 40px; margin-top: 40px; }
+    .linha-assinatura { flex: 1; border-top: 1px solid #182530; padding-top: 4px;
+                        text-align: center; font-size: 11.5px; color: #444; }
     .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
     @media print { @page { margin: 14mm; } }
   `;
@@ -525,24 +537,38 @@ async function imprimirOS(os) {
     <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
 
     <table class="dados">
-      <tr><th>Veículo</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td>
-          <th>Status</th><td>${SGMF.esc(os.status) || '—'}</td></tr>
-      <tr><th>Data de abertura</th><td>${SGMF.data(os.data_abertura)}</td>
-          <th>Data de fechamento</th><td>${SGMF.data(os.data_fechamento)}</td></tr>
-      <tr><th>Tipo</th><td>${SGMF.esc(os.tipo) || '—'}</td>
-          <th>Prioridade</th><td>${SGMF.esc(os.prioridade) || '—'}</td></tr>
-      <tr><th>Mecânico responsável</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
+      <tr><th>CCO</th><td>${SGMF.esc(os.cco) || '—'}</td>
+          <th>Frota (veículo)</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td></tr>
+      <tr><th>Data</th><td>${SGMF.data(os.data_abertura)}</td>
+          <th>Solicitante</th><td>${SGMF.esc(os.solicitante) || '—'}</td></tr>
+      <tr><th>Horário inicial</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
+          <th>Setor</th><td>${SGMF.esc(os.setor) || '—'}</td></tr>
+      <tr><th>Km</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td>
+          <th>Tipo de serviço</th><td>${SGMF.esc(os.grupo) || '—'}</td></tr>
+      <tr><th>Serviço interno/externo</th><td>${SGMF.esc(os.local_execucao) || '—'}</td>
+          <th>Situação</th><td>${SGMF.esc(os.status) || '—'}</td></tr>
+      <tr><th>Mecânico</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
+      <tr><th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td>
+          <th>Horário final</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
     </table>
 
-    <h3>Serviço executado / defeito relatado</h3>
+    <h3>Problema relatado</h3>
+    <div class="descricao-servico">${SGMF.esc(os.problema) || '—'}</div>
+
+    <h3>Descrição do serviço executado</h3>
     <div class="descricao-servico">${SGMF.esc(os.descricao) || '—'}</div>
 
-    <h3>Peças e serviços aplicados</h3>
+    <h3>Material usado</h3>
     <table class="itens">
-      <thead><tr><th>Item</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
+      <thead><tr><th>Material</th><th class="text-end">Quantidade usada</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
       <tbody>${linhaItens}</tbody>
     </table>
     <div class="total-geral">Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
+
+    <div class="assinatura">
+      <div class="linha-assinatura">Assinatura do mecânico</div>
+      <div class="linha-assinatura">Assinatura do responsável</div>
+    </div>
 
     <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
   `;

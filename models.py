@@ -689,6 +689,11 @@ class OrdemServico(db.Model):
     grupo = db.Column(db.String(40))                        # Motor, Freios, Pneus, ...
     hora_inicio = db.Column(db.Time)
     hora_fim = db.Column(db.Time)
+    cco = db.Column(db.String(40))
+    solicitante = db.Column(db.String(120))
+    setor = db.Column(db.String(60))
+    problema = db.Column(db.Text)
+    local_execucao = db.Column(db.String(20))               # Interno | Externo
     km_veiculo = db.Column(db.Float, default=0)
     descricao = db.Column(db.Text)
     custo_mao_obra = db.Column(db.Float, default=0)
@@ -740,6 +745,8 @@ class OrdemServico(db.Model):
             "hora_inicio": self.hora_inicio.strftime("%H:%M") if self.hora_inicio else None,
             "hora_fim": self.hora_fim.strftime("%H:%M") if self.hora_fim else None,
             "duracao_minutos": self.duracao_minutos,
+            "cco": self.cco, "solicitante": self.solicitante, "setor": self.setor,
+            "problema": self.problema, "local_execucao": self.local_execucao,
             "descricao": self.descricao, "custo_mao_obra": self.custo_mao_obra,
             "custo_servicos": self.custo_servicos, "custo_pecas": self.custo_pecas,
             "custo_total": self.custo_total, "dias_parado": self.dias_parado,
