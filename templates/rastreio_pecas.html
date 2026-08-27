@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block titulo %}Rastreio de peças{% endblock %}
+{% block cabecalho %}Rastreio de peças{% endblock %}
+{% block descricao %}Digite o número de série ou identificação da peça e veja onde ela foi aplicada.{% endblock %}
+
+{% block conteudo %}
+
+<div class="cartao">
+  <div class="cartao-corpo">
+    <label class="form-label" for="campoRastreio">Número de série / identificação da peça</label>
+    <div class="input-group input-group-lg mb-2">
+      <span class="input-group-text"><i class="fa-solid fa-barcode"></i></span>
+      <input class="form-control" id="campoRastreio" autocomplete="off" autofocus
+             placeholder="Ex.: 5555">
+      <button class="btn btn-contorno" id="botaoLimparRastreio" title="Limpar a pesquisa">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div class="text-muted" style="font-size:12.5px">
+      Aceita parte do número — não precisa digitar exatamente igual.
+    </div>
+  </div>
+</div>
+
+<div id="areaRastreio" class="mt-3">
+  <div class="vazio"><i class="fa-solid fa-barcode"></i>
+    <strong>Digite um número para começar</strong>
+    O histórico completo daquela unidade aparece aqui: quando entrou, em quais
+    ordens de serviço e veículos já foi instalada, e o status atual.</div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .card-serial { border: 1px solid var(--borda); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; background: #fff; }
+  .card-serial-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .card-serial-topo .numero { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 16px; color: var(--petroleo); }
+  .linha-tempo { border-left: 2px solid var(--borda); margin-left: 8px; padding-left: 18px; }
+  .linha-tempo .item { position: relative; padding-bottom: 16px; }
+  .linha-tempo .item:last-child { padding-bottom: 0; }
+  .linha-tempo .item::before {
+    content: ''; position: absolute; left: -23px; top: 3px; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--petroleo); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--petroleo);
+  }
+  .linha-tempo .item .tipo { font-weight: 700; font-size: 13.5px; color: var(--aco); }
+  .linha-tempo .item .detalhe { font-size: 12.5px; color: var(--texto-suave); margin-top: 2px; }
+  .linha-tempo .item .data { font-size: 11.5px; color: var(--texto-suave); float: right; }
+</style>
+<script>
+const esc = (v) => (window.SGMF && SGMF.esc) ? SGMF.esc(v)
+  : String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const selo = (texto, cor) => (window.SGMF && SGMF.etiqueta) ? SGMF.etiqueta(texto, cor)
+  : `<span class="etiqueta ${cor}">${texto}</span>`;
+const dataFmt = (v) => (window.SGMF && SGMF.data) ? SGMF.data(v) : (v || '—');
+
+const CORES_TIPO = { 'Entrada': 'azul', 'Instalação': 'verde', 'Remoção': 'ambar', 'Descarte': 'vermelha' };
+const CORES_STATUS = { 'Estoque': 'azul', 'Em uso': 'verde', 'Descartado': 'cinza' };
+
+let cronometro = null;
+
+function detalheMovimento(m) {
+  if (m.tipo === 'Entrada') return m.observacao || 'Entrada no estoque';
+  if (m.tipo === 'Instalação') return `OS ${esc(m.ordem_servico_numero || '—')} · ${esc(m.veiculo_nome || 'veículo não identificado')}`;
+  if (m.tipo === 'Remoção') return `Removida da OS ${esc(m.ordem_servico_numero || '—')} · voltou para o estoque`;
+  if (m.tipo === 'Descarte') return m.observacao || 'Peça descartada';
+  return m.observacao || '';
+}
+
+function montarCard(serial) {
+  const historico = (serial.historico || []).slice().reverse(); // mais recente primeiro
+  const situacaoAtual = serial.status === 'Em uso'
+    ? `Instalada em <strong>${esc(serial.veiculo_atual_nome || '—')}</strong>` + (serial.ordem_servico_atual_numero ? ` (OS ${esc(serial.ordem_servico_atual_numero)})` : '')
+    : serial.status === 'Estoque' ? 'Disponível no estoque, aguardando aplicação'
+    : 'Fora de uso (descartada)';
+
+  return `<div class="card-serial">
+    <div class="card-serial-topo">
+      <span class="numero">${esc(serial.numero_serie)}</span>
+      ${selo(serial.status, CORES_STATUS[serial.status] || 'cinza')}
+      <span class="text-muted" style="font-size:13px">${esc(serial.peca_descricao || '')}${serial.peca_codigo ? ` (${esc(serial.peca_codigo)})` : ''}</span>
+    </div>
+    <div style="font-size:13.5px;margin-bottom:12px">${situacaoAtual}</div>
+    <div class="linha-tempo">
+      ${historico.length ? historico.map(m => `
+        <div class="item">
+          <span class="data">${dataFmt(m.data)}</span>
+          <div class="tipo">${selo(m.tipo, CORES_TIPO[m.tipo] || 'cinza')}</div>
+          <div class="detalhe">${detalheMovimento(m)}</div>
+        </div>`).join('') : '<div class="text-muted" style="font-size:12.5px">Sem movimentações registradas.</div>'}
+    </div>
+  </div>`;
+}
+
+async function rastrear() {
+  const termo = document.getElementById('campoRastreio').value.trim();
+  const area = document.getElementById('areaRastreio');
+  if (!termo) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-barcode"></i>
+      <strong>Digite um número para começar</strong>
+      O histórico completo daquela unidade aparece aqui.</div>`;
+    return;
+  }
+  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Procurando…</div>`;
+  try {
+    const resposta = await fetch('/api/rastreio-pecas?numero=' + encodeURIComponent(termo), { credentials: 'same-origin' });
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível pesquisar agora.');
+    if (!dados.resultados.length) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-magnifying-glass"></i>
+        <strong>Nenhuma peça encontrada com esse número</strong>
+        Confira se o número de série foi digitado (ou cadastrado) corretamente.</div>`;
+      return;
+    }
+    area.innerHTML = dados.resultados.map(montarCard).join('');
+  } catch (erro) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>${esc(erro.message)}</div>`;
+  }
+}
+
+function rastrearComPausa() {
+  clearTimeout(cronometro);
+  cronometro = setTimeout(rastrear, 300);
+}
+
+document.getElementById('campoRastreio').addEventListener('input', rastrearComPausa);
+document.getElementById('campoRastreio').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { clearTimeout(cronometro); rastrear(); }
+});
+document.getElementById('botaoLimparRastreio').onclick = () => {
+  document.getElementById('campoRastreio').value = '';
+  document.getElementById('campoRastreio').focus();
+  rastrear();
+};
+</script>
+{% endblock %}

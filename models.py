@@ -448,6 +448,108 @@ class MovimentoEstoque(db.Model):
                 "observacao": self.observacao}
 
 
+class PecaSerial(db.Model):
+    """Módulo 11 — unidade individual e rastreável de uma peça.
+
+    Toda peça, a partir desta versão, é controlada por número de série (ou
+    identificação equivalente) e não apenas por quantidade em saldo. Cada
+    linha aqui é UMA unidade física (ex.: o espelho retrovisor nº 5555).
+    O saldo mostrado em Peca.quantidade é só um espelho da contagem de
+    unidades com status 'Estoque' — quem manda é esta tabela.
+    """
+    __tablename__ = "pecas_serial"
+    id = db.Column(db.Integer, primary_key=True)
+    peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False)
+    numero_serie = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(20), default="Estoque")  # Estoque | Em uso | Descartado
+    veiculo_atual_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"))
+    ordem_servico_atual_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"))
+    data_entrada = db.Column(db.Date, default=_hoje)
+    custo_unitario = db.Column(db.Float, default=0)
+    # De onde a unidade entrou: "Cadastro manual" ou "Nota fiscal".
+    origem = db.Column(db.String(30))
+    documento_origem = db.Column(db.String(60))
+    peca = db.relationship("Peca")
+    veiculo_atual = db.relationship("Veiculo")
+    ordem_servico_atual = db.relationship("OrdemServico")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "peca_id": self.peca_id,
+            "peca_codigo": self.peca.codigo if self.peca else None,
+            "peca_descricao": self.peca.descricao if self.peca else None,
+            "numero_serie": self.numero_serie, "status": self.status,
+            "veiculo_atual_id": self.veiculo_atual_id,
+            "veiculo_atual_nome": (f"{self.veiculo_atual.prefixo} · {self.veiculo_atual.placa}"
+                                   if self.veiculo_atual else None),
+            "ordem_servico_atual_id": self.ordem_servico_atual_id,
+            "ordem_servico_atual_numero": (self.ordem_servico_atual.numero
+                                           if self.ordem_servico_atual else None),
+            "data_entrada": self.data_entrada.isoformat() if self.data_entrada else None,
+            "custo_unitario": self.custo_unitario, "origem": self.origem,
+            "documento_origem": self.documento_origem,
+            "identificacao": f"{self.numero_serie}" + (f" · {self.peca.descricao}" if self.peca else ""),
+        }
+
+
+class MovimentoPecaSerial(db.Model):
+    """Histórico completo de uma unidade de peça — é aqui que mora o
+    rastreio: quando entrou, em qual OS/veículo foi instalada, quando foi
+    removida, se voltou ao estoque e foi reinstalada em outro lugar, ou se
+    foi descartada.
+    """
+    __tablename__ = "movimentos_peca_serial"
+    id = db.Column(db.Integer, primary_key=True)
+    peca_serial_id = db.Column(db.Integer, db.ForeignKey("pecas_serial.id"), nullable=False)
+    data = db.Column(db.Date, default=_hoje)
+    tipo = db.Column(db.String(20))  # Entrada | Instalação | Remoção | Descarte
+    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"))
+    ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"))
+    km_veiculo = db.Column(db.Float)
+    usuario = db.Column(db.String(80))
+    observacao = db.Column(db.String(200))
+    peca_serial = db.relationship("PecaSerial", backref=db.backref(
+        "movimentos", cascade="all, delete-orphan", lazy="selectin",
+        order_by="MovimentoPecaSerial.id"))
+    veiculo = db.relationship("Veiculo")
+    ordem_servico = db.relationship("OrdemServico")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "peca_serial_id": self.peca_serial_id,
+            "data": self.data.isoformat() if self.data else None,
+            "tipo": self.tipo,
+            "veiculo_id": self.veiculo_id,
+            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+                             if self.veiculo else None),
+            "ordem_servico_id": self.ordem_servico_id,
+            "ordem_servico_numero": self.ordem_servico.numero if self.ordem_servico else None,
+            "km_veiculo": self.km_veiculo, "usuario": self.usuario,
+            "observacao": self.observacao,
+        }
+
+
+class ItemOSPecaSerial(db.Model):
+    """Vincula cada unidade de peça serializada aplicada em um item da OS.
+
+    Um ItemOS pode ter quantidade > 1 (ex.: 4 lâmpadas); cada unidade
+    aplicada vira uma linha aqui, apontando para o número de série exato
+    que foi instalado.
+    """
+    __tablename__ = "itens_os_pecas_serial"
+    id = db.Column(db.Integer, primary_key=True)
+    item_os_id = db.Column(db.Integer, db.ForeignKey("itens_os.id"), nullable=False)
+    peca_serial_id = db.Column(db.Integer, db.ForeignKey("pecas_serial.id"), nullable=False)
+    item_os = db.relationship("ItemOS", backref=db.backref(
+        "pecas_serial", cascade="all, delete-orphan", lazy="selectin"))
+    peca_serial = db.relationship("PecaSerial")
+
+    def to_dict(self):
+        return {"id": self.id, "item_os_id": self.item_os_id,
+                "peca_serial_id": self.peca_serial_id,
+                "numero_serie": self.peca_serial.numero_serie if self.peca_serial else None}
+
+
 class NotaFiscal(db.Model):
     """Módulo 11 — lançamento de notas fiscais de entrada de peças.
 
@@ -531,6 +633,10 @@ class ItemNotaFiscal(db.Model):
     aliquota_cbs = db.Column(db.Float)
     valor_cbs = db.Column(db.Float)
     baixado_estoque = db.Column(db.Boolean, default=False)
+    # Um número de série por unidade recebida, separados por linha/vírgula.
+    # Precisa bater com a quantidade do item antes de finalizar a nota —
+    # é isso que gera as unidades rastreáveis (PecaSerial) na entrada.
+    numeros_serie = db.Column(db.Text)
     peca = db.relationship("Peca")
 
     @property
@@ -561,7 +667,9 @@ class ItemNotaFiscal(db.Model):
                 "aliquota_ibs": self.aliquota_ibs or 0, "valor_ibs": self.valor_ibs or 0,
                 "aliquota_cbs": self.aliquota_cbs or 0, "valor_cbs": self.valor_cbs or 0,
                 "valor_tributos": self.valor_tributos,
-                "baixado_estoque": self.baixado_estoque}
+                "baixado_estoque": self.baixado_estoque,
+                "numeros_serie": self.numeros_serie,
+                "qtd_numeros_serie": len([n for n in (self.numeros_serie or "").replace(",", "\n").splitlines() if n.strip()])}
 
 
 class OrdemServico(db.Model):
@@ -647,13 +755,17 @@ class ItemOS(db.Model):
     peca = db.relationship("Peca")
 
     def to_dict(self):
+        vinculos = list(self.pecas_serial) if self.peca_id else []
         return {"id": self.id, "ordem_servico_id": self.ordem_servico_id,
                 "peca_id": self.peca_id, "descricao": self.descricao, "grupo": self.grupo,
                 "quantidade": self.quantidade, "valor_unitario": self.valor_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.valor_unitario or 0), 2),
                 "baixado_estoque": self.baixado_estoque,
                 "posicao_pneu": self.posicao_pneu,
-                "pneu_substituido_id": self.pneu_substituido_id}
+                "pneu_substituido_id": self.pneu_substituido_id,
+                "numeros_serie": [v.peca_serial.numero_serie for v in vinculos if v.peca_serial],
+                "qtd_vinculada": len(vinculos),
+                "pendente_serial": bool(self.peca_id) and len(vinculos) < (self.quantidade or 0)}
 
 
 class Abastecimento(db.Model):

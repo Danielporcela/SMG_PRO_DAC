@@ -6,7 +6,8 @@ from sqlalchemy import text
 from services.tempo import hoje
 
 from extensions import db
-from models import Abastecimento, ItemOS, MovimentoEstoque, OrdemServico, Peca, Veiculo
+from models import (Abastecimento, ItemOS, ItemOSPecaSerial, MovimentoEstoque,
+                    MovimentoPecaSerial, OrdemServico, Peca, PecaSerial, Veiculo)
 from services.crud import ErroNegocio
 
 
@@ -107,8 +108,13 @@ def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
 
 
 def baixar_item_os(item: ItemOS):
-    """Ao aplicar uma peça na OS o estoque é debitado uma única vez."""
-    if item.peca_id and not item.baixado_estoque:
+    """Compatibilidade com o fluxo antigo (peça sem rastreio por série).
+
+    Peças novas já entram pelo fluxo serializado (ver instalar_serial_no_item
+    abaixo); esta função só existe para não quebrar itens antigos que ainda
+    não tinham nenhuma unidade vinculada.
+    """
+    if item.peca_id and not item.baixado_estoque and not item.pecas_serial:
         movimentar_estoque(item.peca_id, "saida", item.quantidade,
                            item.valor_unitario, os_id=item.ordem_servico_id,
                            observacao="Aplicada na OS")
@@ -126,14 +132,132 @@ def desvincular_movimentos(os_id):
      .filter_by(ordem_servico_id=os_id)
      .update({"ordem_servico_id": None, "observacao": "OS excluída"},
              synchronize_session=False))
+    (MovimentoPecaSerial.query
+     .filter_by(ordem_servico_id=os_id)
+     .update({"ordem_servico_id": None, "observacao": "OS excluída"},
+             synchronize_session=False))
 
 
 def devolver_item_os(item: ItemOS):
+    """Devolve ao estoque tudo que foi aplicado neste item da OS.
+
+    Cobre os dois fluxos: peça serializada (cada unidade vinculada volta
+    para 'Estoque', podendo ser reinstalada depois em outro veículo) e o
+    fluxo antigo por quantidade (compatibilidade).
+    """
+    for vinculo in list(item.pecas_serial):
+        devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
+        db.session.delete(vinculo)
     if item.peca_id and item.baixado_estoque:
         movimentar_estoque(item.peca_id, "entrada", item.quantidade,
                            item.valor_unitario, os_id=item.ordem_servico_id,
                            observacao="Devolvida da OS")
         item.baixado_estoque = False
+
+
+# ------------------------------------------------- peças rastreadas por série
+def _sincronizar_saldo_peca(peca_id):
+    """Peca.quantidade é só um espelho da contagem de unidades 'Estoque' —
+    mantido para os relatórios, alertas e telas antigas continuarem
+    funcionando sem precisar recalcular tudo na hora.
+    """
+    peca = db.session.get(Peca, peca_id)
+    if not peca:
+        return
+    peca.quantidade = (PecaSerial.query
+                       .filter_by(peca_id=peca_id, status="Estoque").count())
+
+
+def _registrar_movimento_serial(serial, tipo, veiculo_id=None, ordem_servico_id=None,
+                                km_veiculo=None, observacao=None, usuario=None):
+    db.session.add(MovimentoPecaSerial(
+        peca_serial_id=serial.id, tipo=tipo, veiculo_id=veiculo_id,
+        ordem_servico_id=ordem_servico_id, km_veiculo=km_veiculo,
+        observacao=observacao, usuario=usuario))
+
+
+def dar_entrada_serial(peca_id, numero_serie, custo_unitario=0, origem="Cadastro manual",
+                       documento=None, observacao=None, usuario=None):
+    """Cria uma nova unidade rastreável (nº de série) já no estoque.
+
+    Usada tanto no cadastro manual da peça quanto na finalização da nota
+    fiscal — os dois pontos em que uma unidade pode "nascer" no sistema.
+    """
+    numero_serie = str(numero_serie or "").strip()
+    if not numero_serie:
+        raise ErroNegocio("Informe o número de série/identificação da peça.")
+    if PecaSerial.query.filter_by(numero_serie=numero_serie).first():
+        raise ErroNegocio(f"Já existe uma peça cadastrada com o número '{numero_serie}'.")
+    serial = PecaSerial(peca_id=peca_id, numero_serie=numero_serie, status="Estoque",
+                        custo_unitario=float(custo_unitario or 0), origem=origem,
+                        documento_origem=documento, data_entrada=hoje())
+    db.session.add(serial)
+    db.session.flush()
+    _registrar_movimento_serial(serial, "Entrada", observacao=observacao or documento,
+                                usuario=usuario)
+    _sincronizar_saldo_peca(peca_id)
+    return serial
+
+
+def instalar_serial_no_item(numero_serie, item: ItemOS, ordem: OrdemServico, usuario=None):
+    """Vincula UMA unidade específica (já em estoque) a um item da OS.
+
+    Marca a unidade como 'Em uso' no veículo da ordem e registra o
+    movimento — é isso que depois permite rastrear "onde foi colocada"
+    a peça de determinado número.
+    """
+    numero_serie = str(numero_serie or "").strip()
+    if not numero_serie:
+        raise ErroNegocio("Informe o número de série da peça a instalar.")
+    serial = PecaSerial.query.filter_by(numero_serie=numero_serie).first()
+    if not serial:
+        raise ErroNegocio(f"Não existe nenhuma peça com o número '{numero_serie}' no sistema.")
+    if item.peca_id and serial.peca_id != item.peca_id:
+        raise ErroNegocio(f"O número '{numero_serie}' pertence a outra peça "
+                          f"({serial.peca.codigo if serial.peca else '?'}), não a "
+                          f"{item.peca.codigo if item.peca else ''}.")
+    if serial.status != "Estoque":
+        raise ErroNegocio(f"A peça '{numero_serie}' não está disponível no estoque "
+                          f"(status atual: {serial.status}).")
+    serial.status = "Em uso"
+    serial.veiculo_atual_id = ordem.veiculo_id
+    serial.ordem_servico_atual_id = ordem.id
+    db.session.add(ItemOSPecaSerial(item_os_id=item.id, peca_serial_id=serial.id))
+    _registrar_movimento_serial(serial, "Instalação", veiculo_id=ordem.veiculo_id,
+                                ordem_servico_id=ordem.id, km_veiculo=ordem.km_veiculo,
+                                observacao=f"Aplicada na OS {ordem.numero}", usuario=usuario)
+    _sincronizar_saldo_peca(serial.peca_id)
+    item.baixado_estoque = True
+    return serial
+
+
+def devolver_serial_ao_estoque(serial: PecaSerial, motivo="Removida da OS", usuario=None):
+    """A unidade volta para 'Estoque' e fica disponível para ser
+    reinstalada depois, em qualquer outro veículo — o histórico anterior
+    não é apagado, só ganha mais uma linha.
+    """
+    ordem_id = serial.ordem_servico_atual_id
+    serial.status = "Estoque"
+    serial.veiculo_atual_id = None
+    serial.ordem_servico_atual_id = None
+    _registrar_movimento_serial(serial, "Remoção", ordem_servico_id=ordem_id,
+                                observacao=motivo, usuario=usuario)
+    _sincronizar_saldo_peca(serial.peca_id)
+
+
+def descartar_serial(serial: PecaSerial, observacao=None, usuario=None):
+    """Baixa definitiva de uma unidade (quebrou, foi descartada etc.)."""
+    if serial.status == "Descartado":
+        raise ErroNegocio(f"A peça '{serial.numero_serie}' já está descartada.")
+    veiculo_id = serial.veiculo_atual_id
+    ordem_id = serial.ordem_servico_atual_id
+    serial.status = "Descartado"
+    serial.veiculo_atual_id = None
+    serial.ordem_servico_atual_id = None
+    _registrar_movimento_serial(serial, "Descarte", veiculo_id=veiculo_id,
+                                ordem_servico_id=ordem_id, observacao=observacao,
+                                usuario=usuario)
+    _sincronizar_saldo_peca(serial.peca_id)
 
 
 # ------------------------------------------------------------- manutenção

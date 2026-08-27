@@ -350,6 +350,8 @@ const telaEstoque = SGMF.tela({
     { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
     { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
       ajuda: 'Lançado como entrada. Depois use "Movimentar".' },
+    { nome: 'numeros_serie', rotulo: 'Números de série (um por linha)', tipo: 'textarea', col: 8, somenteNovo: true,
+      ajuda: 'Obrigatório: informe um número de série/identificação por unidade do saldo inicial (a quantidade de linhas precisa bater com o saldo inicial).' },
     { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'number', col: 4 },
     { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
       ajuda: 'Abaixo disso o sistema avisa para repor.' }
@@ -730,6 +732,8 @@ function limparFormularioItem() {
    'itemAliquotaIbs', 'itemValorIbs', 'itemAliquotaCbs', 'itemValorCbs'
   ].forEach(id => document.getElementById(id).value = '');
   document.getElementById('itemPeca').value = '';
+  const numSerie = document.getElementById('itemNumerosSerie');
+  if (numSerie) numSerie.value = '';
 }
 
 async function abrirItensNota(notaResumo) {
@@ -757,13 +761,23 @@ function renderizarItensNota() {
   }
   area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
     <thead><tr><th>Peça</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th>
-    <th class="text-end">Tributos</th><th class="text-end">Total</th>${aberta ? '<th></th>' : ''}</tr></thead>
+    <th class="text-end">Tributos</th><th class="text-end">Total</th><th>Números de série</th>${aberta ? '<th></th>' : ''}</tr></thead>
     <tbody>${notaAtual.itens.map(i => `<tr>
       <td>${SGMF.esc(i.peca_descricao || i.descricao)}</td>
       <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
       <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
       <td class="text-end num">${SGMF.moeda((i.valor_icms||0)+(i.valor_pis||0)+(i.valor_cofins||0)+(i.valor_ibs||0)+(i.valor_cbs||0))}</td>
       <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+      <td>${aberta
+        ? `<div class="input-group input-group-sm" style="min-width:170px">
+             <input type="text" class="form-control" placeholder="ex.: 5555, 5556" value="${SGMF.esc((i.numeros_serie||'').replace(/\n/g, ', '))}" data-serie-item="${i.id}">
+             <button class="btn btn-contorno" data-salvar-serie="${i.id}" title="Salvar números de série"><i class="fa-solid fa-check"></i></button>
+           </div>`
+        : `${SGMF.esc((i.numeros_serie||'').replace(/\n/g, ', ')) || '—'}`}
+        <div style="font-size:11px;color:${i.qtd_numeros_serie === i.quantidade ? 'var(--sucesso,#166534)' : 'var(--alerta,#b91c1c)'}">
+          ${i.qtd_numeros_serie || 0}/${SGMF.numero(i.quantidade,0)} informado(s)
+        </div>
+      </td>
       ${aberta ? `<td><button class="btn btn-contorno btn-icone" data-remover-item="${i.id}" title="Remover">
         <i class="fa-solid fa-trash"></i></button></td>` : ''}
     </tr>`).join('')}</tbody></table>`;
@@ -772,6 +786,17 @@ function renderizarItensNota() {
     try {
       notaAtual = await SGMF.del(`/api/notas_fiscais/${notaAtual.id}/itens/${b.dataset.removerItem}`);
       SGMF.sucesso('Item removido');
+      renderizarItensNota();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+
+  document.querySelectorAll('[data-salvar-serie]').forEach(b => b.onclick = async () => {
+    const itemId = b.dataset.salvarSerie;
+    const campo = document.querySelector(`[data-serie-item="${itemId}"]`);
+    try {
+      notaAtual = await SGMF.put(`/api/notas_fiscais/${notaAtual.id}/itens/${itemId}/numeros_serie`,
+        { numeros_serie: campo.value });
+      SGMF.sucesso('Números de série salvos');
       renderizarItensNota();
     } catch (e) { SGMF.falha(e.message); }
   });

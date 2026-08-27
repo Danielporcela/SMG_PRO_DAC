@@ -58,3 +58,31 @@ def garantir_ordens_compra():
             for nome, tipo in colunas.items():
                 if nome not in existentes:
                     conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+
+def garantir_pecas_serial():
+    """Garante a estrutura mínima do rastreio de peças por número de série.
+
+    Cria as tabelas novas (pecas_serial, movimentos_peca_serial,
+    itens_os_pecas_serial) e a coluna numeros_serie em itens_nota_fiscal,
+    resolvendo instalações antigas do mesmo jeito que garantir_ordens_compra
+    já faz para o módulo de compras.
+    """
+    from models import ItemOSPecaSerial, MovimentoPecaSerial, PecaSerial
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "pecas_serial" not in tabelas:
+        PecaSerial.__table__.create(engine, checkfirst=True)
+    if "movimentos_peca_serial" not in tabelas:
+        MovimentoPecaSerial.__table__.create(engine, checkfirst=True)
+    if "itens_os_pecas_serial" not in tabelas:
+        ItemOSPecaSerial.__table__.create(engine, checkfirst=True)
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in insp.get_columns("itens_nota_fiscal")}
+        if "numeros_serie" not in existentes:
+            conn.execute(text('ALTER TABLE "itens_nota_fiscal" ADD COLUMN "numeros_serie" TEXT'))

@@ -326,7 +326,12 @@ async function recarregarItens(osId) {
       <thead><tr><th>Item</th><th>Grupo</th><th class="text-end">Qtde</th>
       <th class="text-end">Valor unit.</th><th class="text-end">Total</th><th>Estoque</th><th></th></tr></thead>
       <tbody>${os.itens.map(i => `<tr>
-        <td>${SGMF.esc(i.descricao)}</td>
+        <td>${SGMF.esc(i.descricao)}
+          ${i.peca_id ? `<div style="font-size:11px;color:${i.pendente_serial ? 'var(--alerta,#b91c1c)' : 'var(--texto-suave)'}">
+            ${(i.numeros_serie||[]).map(n=>SGMF.esc(n)).join(', ') || 'nenhum número vinculado'}
+            ${i.pendente_serial ? ` · <button type="button" class="btn btn-link p-0" style="font-size:11px" data-vincular-item="${i.id}" data-vincular-peca="${i.peca_id}" data-vincular-qtd="${i.quantidade}" data-vincular-vinc="${i.qtd_vinculada}">vincular número de série</button>` : ''}
+          </div>` : ''}
+        </td>
         <td>${SGMF.esc(i.grupo) || '—'}</td>
         <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
         <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
@@ -334,6 +339,10 @@ async function recarregarItens(osId) {
         <td>${i.baixado_estoque ? SGMF.etiqueta('baixado', 'azul') : SGMF.etiqueta('avulso', 'cinza')}</td>
         <td class="text-end"><button class="btn btn-contorno btn-icone" data-item="${i.id}">
           <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+
+  document.querySelectorAll('[data-vincular-item]').forEach(b => b.onclick = () =>
+    abrirVinculoSerial(osId, b.dataset.vincularItem, b.dataset.vincularPeca,
+                       Number(b.dataset.vincularQtd), Number(b.dataset.vincularVinc)));
   }
 
   document.getElementById('totaisOS').innerHTML =
@@ -359,6 +368,41 @@ function ehItemPneu(descricao, peca) {
   const semAcento = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   return [descricao, peca && peca.grupo, peca && peca.descricao]
     .some(t => semAcento(t).includes('pneu'));
+}
+
+/* Pede, um a um, o número de série de cada unidade que falta vincular a um
+   item da OS — via SweetAlert2 (já carregado no sistema). Cada número
+   digitado precisa já existir no estoque daquela peça (entrada acontece só
+   pelo Cadastro da peça ou pela Nota fiscal). */
+async function abrirVinculoSerial(osId, itemId, pecaId, quantidade, jaVinculado) {
+  let disponiveis = [];
+  try { disponiveis = await SGMF.get(`/api/pecas/${pecaId}/seriais-estoque`); } catch (e) { /* segue sem sugestão */ }
+
+  for (let i = jaVinculado; i < quantidade; i++) {
+    const opcoesLista = disponiveis.length
+      ? `<datalist id="sgmfSeriaisDisponiveis">${disponiveis.map(s => `<option value="${SGMF.esc(s.numero_serie)}">`).join('')}</datalist>`
+      : '';
+    const { value: numero } = await Swal.fire({
+      title: `Número de série (${i + 1}/${quantidade})`,
+      html: `<input id="sgmfNumeroSerie" list="sgmfSeriaisDisponiveis" class="swal2-input"
+              placeholder="ex.: 5555" autocomplete="off">${opcoesLista}`,
+      focusConfirm: false,
+      confirmButtonText: 'Vincular', confirmButtonColor: '#0F3D56',
+      showCancelButton: true, cancelButtonText: 'Parar',
+      preConfirm: () => {
+        const v = document.getElementById('sgmfNumeroSerie').value.trim();
+        if (!v) { Swal.showValidationMessage('Informe o número de série.'); return false; }
+        return v;
+      }
+    });
+    if (!numero) break;   // cancelou/parou no meio
+    try {
+      await SGMF.post(`/api/ordens/${osId}/itens/${itemId}/vincular-serial`, { numero_serie: numero });
+    } catch (e) { SGMF.falha(e.message); break; }
+  }
+  SGMF.limparCache('pecas');
+  await recarregarItens(osId);
+  telaOS.carregar();
 }
 
 document.getElementById('itemAdicionar').onclick = async () => {
@@ -402,6 +446,15 @@ document.getElementById('itemAdicionar').onclick = async () => {
     pecasDisponiveis = await SGMF.get('/api/pecas');
     await recarregarItens(osId);
     telaOS.carregar();
+
+    // Peça (não pneu, que já tem seu próprio fluxo de posição/nº de fogo):
+    // pede na hora o(s) número(s) de série da(s) unidade(s) que acabaram
+    // de ser lançadas, uma por uma.
+    if (pecaId && !ehPneu) {
+      const os = await SGMF.get(`/api/ordens/${osId}/itens`);
+      const novoItem = os.itens.slice().reverse().find(i => i.peca_id === pecaId && i.pendente_serial);
+      if (novoItem) await abrirVinculoSerial(osId, novoItem.id, pecaId, novoItem.quantidade, novoItem.qtd_vinculada);
+    }
   } catch (e) { SGMF.falha(e.message); }
 };
 
