@@ -108,8 +108,6 @@ const telaOS = SGMF.tela({
       opcoes: ['Manutenção corretiva', 'Sistema mecânico', 'Borracharia',
                'Sistema hidráulico', 'Solda', 'Manutenção preventiva',
                'Sistema elétrico', 'Acidente'] },
-    { nome: 'local_execucao', rotulo: 'Serviço interno / externo', tipo: 'select', col: 4,
-      opcoes: ['Interno', 'Externo'] },
     { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
     { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva',
@@ -130,8 +128,7 @@ const telaOS = SGMF.tela({
     { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
     { campo: 'grupo', rotulo: 'Tipo de serviço', render: v => v || '—' },
-    { campo: 'local_execucao', rotulo: 'Interno/Externo', render: v => v || '—' },
-    { campo: 'prioridade', rotulo: 'Prioridade', render: v => SGMF.status(v) },
+
     { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
     { campo: 'hora_inicio', rotulo: 'Início', classe: 'num', render: v => v || '—' },
     { campo: 'hora_fim', rotulo: 'Fim', classe: 'num', render: v => v || '—' },
@@ -545,8 +542,7 @@ async function imprimirOS(os) {
           <th>Setor</th><td>${SGMF.esc(os.setor) || '—'}</td></tr>
       <tr><th>Km</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td>
           <th>Tipo de serviço</th><td>${SGMF.esc(os.grupo) || '—'}</td></tr>
-      <tr><th>Serviço interno/externo</th><td>${SGMF.esc(os.local_execucao) || '—'}</td>
-          <th>Situação</th><td>${SGMF.esc(os.status) || '—'}</td></tr>
+      <tr><th>Situação</th><td colspan="3">${SGMF.esc(os.status) || '—'}</td></tr>
       <tr><th>Mecânico</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
       <tr><th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td>
           <th>Horário final</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
