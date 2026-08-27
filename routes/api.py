@@ -12,7 +12,8 @@ from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_m
                                devolver_item_os, devolver_serial_ao_estoque,
                                instalar_serial_no_item, movimentar_estoque,
                                proximo_numero_os, recalcular_abastecimento,
-                               sincronizar_status_veiculo, validar_km)
+                               regularizar_seriais_peca, sincronizar_status_veiculo,
+                               validar_km)
 from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_crud,
                            registrar_log, visualizar_tela)
@@ -189,6 +190,56 @@ def listar_seriais_em_estoque(peca_id):
               .filter_by(peca_id=peca_id, status="Estoque")
               .order_by(PecaSerial.numero_serie).all())
     return jsonify([s.to_dict() for s in seriais])
+
+
+@bp_api.get("/pecas/<int:peca_id>/rastreio")
+@visualizar_tela("estoque")
+def listar_rastreio_peca(peca_id):
+    """Todas as unidades (qualquer status) dessa peça, com o histórico
+    completo de cada uma — alimenta o botão "Rastrear" da tela de Estoque.
+    """
+    peca = db.get_or_404(Peca, peca_id)
+    seriais = (PecaSerial.query
+              .filter_by(peca_id=peca_id)
+              .order_by(PecaSerial.numero_serie).all())
+    resultados = []
+    for serial in seriais:
+        dado = serial.to_dict()
+        dado["historico"] = [m.to_dict() for m in serial.movimentos]
+        resultados.append(dado)
+    return jsonify({"peca_id": peca.id, "peca_codigo": peca.codigo,
+                    "peca_descricao": peca.descricao,
+                    "total": len(resultados), "resultados": resultados})
+
+
+@bp_api.get("/pecas/<int:peca_id>/regularizacao")
+@visualizar_tela("estoque")
+def situacao_regularizacao(peca_id):
+    """Diz quantas unidades dessa peça ainda não têm número de série —
+    saldo lançado antes deste recurso existir."""
+    peca = db.get_or_404(Peca, peca_id)
+    ja_regularizadas = PecaSerial.query.filter_by(peca_id=peca_id).count()
+    pendente = max(0, int(round((peca.quantidade or 0))) - ja_regularizadas)
+    return jsonify({"peca_id": peca.id, "quantidade": peca.quantidade,
+                    "regularizadas": ja_regularizadas, "pendente": pendente})
+
+
+@bp_api.post("/pecas/<int:peca_id>/regularizacao")
+@editar_tela("estoque")
+def regularizar_peca(peca_id):
+    """Converte o saldo antigo (peça lançada antes do rastreio por série)
+    em unidades individuais, com um número de série por unidade."""
+    dados = request.get_json(silent=True) or {}
+    brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
+    numeros = [n.strip() for n in brutos if n.strip()]
+    try:
+        criados = regularizar_seriais_peca(peca_id, numeros)
+        registrar_log("regularizar", "pecas_serial", peca_id, f"{len(criados)} unidade(s)")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True, "criados": [c.to_dict() for c in criados]}), 201
 
 
 @bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>")
