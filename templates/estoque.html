@@ -313,6 +313,15 @@
       </div>
       <div class="modal-body">
         <div id="rastrearPecaResumo" class="text-muted mb-3" style="font-size:13px"></div>
+
+        <h6 class="mb-2" style="font-size:13.5px;color:var(--petroleo)">
+          <i class="fa-solid fa-right-left"></i> Movimentações de estoque desta peça
+        </h6>
+        <div id="rastrearPecaMovimentos" class="mb-4"></div>
+
+        <h6 class="mb-2" style="font-size:13.5px;color:var(--petroleo)">
+          <i class="fa-solid fa-barcode"></i> Unidades por número de série
+        </h6>
         <div id="rastrearPecaLista"></div>
       </div>
       <div class="modal-footer">
@@ -590,6 +599,35 @@ function detalheMovimentoUnidade(m) {
   return m.observacao || '';
 }
 
+const CORES_TIPO_MOVIMENTO_ESTOQUE = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+
+async function carregarMovimentosDaPeca(peca) {
+  const area = document.getElementById('rastrearPecaMovimentos');
+  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando…</div>`;
+  let movimentos;
+  try {
+    movimentos = await SGMF.get(`/api/movimentos?peca_id=${peca.id}`);
+  } catch (e) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>${SGMF.esc(e.message)}</div>`;
+    return;
+  }
+  if (!movimentos.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      Nenhuma movimentação de estoque registrada para esta peça ainda.</div>`;
+    return;
+  }
+  area.innerHTML = `<table class="table table-sm table-hover align-middle mb-0" style="font-size:13px">
+    <thead><tr><th>Data</th><th>Tipo</th><th class="text-end">Qtde</th>
+    <th class="text-end">Valor</th><th>Documento / observação</th></tr></thead>
+    <tbody>${movimentos.map(m => `<tr>
+      <td class="num">${SGMF.data(m.data)}</td>
+      <td>${SGMF.etiqueta(m.tipo, CORES_TIPO_MOVIMENTO_ESTOQUE[m.tipo] || 'cinza')}</td>
+      <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+      <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td></tr>`).join('')}</tbody>
+  </table>`;
+}
+
 async function abrirRastreioPeca(peca) {
   const resumo = document.getElementById('rastrearPecaResumo');
   const lista = document.getElementById('rastrearPecaLista');
@@ -598,6 +636,8 @@ async function abrirRastreioPeca(peca) {
   resumo.textContent = '';
   lista.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando unidades…</div>`;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalRastrearPeca')).show();
+
+  carregarMovimentosDaPeca(peca);
 
   let dados;
   try {
