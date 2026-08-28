@@ -7,7 +7,7 @@ from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, ItemNotaFiscal, NotaFiscal,
                     OrdemServico, Peca)
 from services import importacao, notificacoes
-from services.calculos import dar_entrada_serial, movimentar_estoque
+from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_log,
                            visualizar_tela)
@@ -278,13 +278,10 @@ def adicionar_item_nota(nota_id):
         if quantidade <= 0:
             raise ErroNegocio("Informe uma quantidade maior que zero.")
 
-        brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
-        numeros_serie = "\n".join(n.strip() for n in brutos if n.strip()) or None
-
         item = ItemNotaFiscal(
             nota_fiscal_id=nota.id, peca_id=peca.id,
             descricao=(dados.get("descricao") or peca.descricao),
-            quantidade=quantidade, numeros_serie=numeros_serie,
+            quantidade=quantidade,
             valor_unitario=float(dados.get("valor_unitario") or peca.custo_unitario or 0),
             ncm=(dados.get("ncm") or peca.ncm),
             cfop=(dados.get("cfop") or peca.cfop_entrada),
@@ -311,27 +308,6 @@ def adicionar_item_nota(nota_id):
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     return jsonify(nota.to_dict(com_itens=True)), 201
-
-
-@bp_extras.put("/api/notas_fiscais/<int:nota_id>/itens/<int:item_id>/numeros_serie")
-@editar_tela("estoque")
-def definir_numeros_serie_item_nota(nota_id, item_id):
-    """Informa (ou corrige) os números de série das unidades deste item,
-    sem precisar excluir e relançar o item inteiro na nota."""
-    nota = db.get_or_404(NotaFiscal, nota_id)
-    item = db.get_or_404(ItemNotaFiscal, item_id)
-    dados = request.get_json(silent=True) or {}
-    try:
-        _nota_precisa_estar_aberta(nota)
-        if item.nota_fiscal_id != nota.id:
-            raise ErroNegocio("Item não encontrado nesta nota.")
-        brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
-        item.numeros_serie = "\n".join(n.strip() for n in brutos if n.strip()) or None
-        db.session.commit()
-    except ErroNegocio as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
-    return jsonify(nota.to_dict(com_itens=True))
 
 
 @bp_extras.delete("/api/notas_fiscais/<int:nota_id>/itens/<int:item_id>")
@@ -362,17 +338,9 @@ def finalizar_nota_fiscal(nota_id):
         for item in nota.itens:
             if item.baixado_estoque:
                 continue
-            brutos = str(item.numeros_serie or "").replace(",", "\n").splitlines()
-            numeros = [n.strip() for n in brutos if n.strip()]
-            if len(numeros) != int(item.quantidade):
-                raise ErroNegocio(
-                    f"O item '{item.peca.descricao if item.peca else item.descricao}' "
-                    f"precisa de {int(item.quantidade)} número(s) de série informado(s) "
-                    f"antes de finalizar (informe em 'Números de série' no item).")
-            for numero in numeros:
-                dar_entrada_serial(item.peca_id, numero, item.valor_unitario,
-                                   origem="Nota fiscal", documento=documento,
-                                   observacao=f"Nota fiscal #{nota.id}")
+            movimentar_estoque(item.peca_id, "entrada", item.quantidade,
+                               item.valor_unitario, documento=documento,
+                               observacao=f"Entrada pela nota fiscal #{nota.id}")
             item.baixado_estoque = True
         nota.status = "Finalizada"
         nota.data_entrada = hoje()

@@ -276,81 +276,6 @@
   </div>
 </div>
 
-<div class="modal fade" id="modalRegularizar" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header" style="background:var(--petroleo);color:#fff">
-        <h5 class="modal-title display">Números de série do saldo</h5>
-        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p class="mb-2" id="regularizarPecaInfo"></p>
-        <input type="hidden" id="regularizarPecaId">
-        <p class="mb-3" id="regularizarStatus" style="font-size:13px"></p>
-        <label class="form-label" for="regularizarNumeros">Números de série (um por linha)</label>
-        <textarea class="form-control" id="regularizarNumeros" rows="6"
-                  placeholder="ex.: 5555&#10;5556&#10;5557"></textarea>
-        <p class="text-muted mt-2 mb-0" style="font-size:12px">
-          Esta peça já foi lançada antes de o sistema controlar por número de série.
-          Informe aqui um número/identificação para cada unidade que ainda está em
-          estoque, sem essa identificação individual — depois disso, o saldo dela
-          passa a ser rastreável igual às peças cadastradas novas.
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
-        <button class="btn btn-primario" id="regularizarSalvar">Salvar números de série</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="modalRastrearPeca" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header" style="background:var(--petroleo);color:#fff">
-        <h5 class="modal-title display mb-0" id="rastrearPecaTitulo">Rastrear peça</h5>
-        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="rastrearPecaResumo" class="text-muted mb-3" style="font-size:13px"></div>
-
-        <h6 class="mb-2" style="font-size:13.5px;color:var(--petroleo)">
-          <i class="fa-solid fa-right-left"></i> Movimentações de estoque desta peça
-        </h6>
-        <div id="rastrearPecaMovimentos" class="mb-4"></div>
-
-        <h6 class="mb-2" style="font-size:13.5px;color:var(--petroleo)">
-          <i class="fa-solid fa-barcode"></i> Unidades por número de série
-        </h6>
-        <div id="rastrearPecaLista"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="modalHistoricoUnidade" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header" style="background:var(--petroleo);color:#fff">
-        <h5 class="modal-title display mb-0" id="historicoUnidadeTitulo">Histórico da unidade</h5>
-        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="historicoUnidadeConteudo"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-contorno" id="historicoUnidadeVoltar">
-          <i class="fa-solid fa-arrow-left"></i> Voltar às unidades
-        </button>
-        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
-      </div>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -427,8 +352,6 @@ const telaEstoque = SGMF.tela({
     { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
     { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
       ajuda: 'Lançado como entrada. Depois use "Movimentar".' },
-    { nome: 'numeros_serie', rotulo: 'Números de série (um por linha)', tipo: 'textarea', col: 8, somenteNovo: true,
-      ajuda: 'Obrigatório: informe um número de série/identificação por unidade do saldo inicial (a quantidade de linhas precisa bater com o saldo inicial).' },
     { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'number', col: 4 },
     { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
       ajuda: 'Abaixo disso o sistema avisa para repor.' }
@@ -482,11 +405,7 @@ const telaEstoque = SGMF.tela({
       render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') }
   ],
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
-                           <i class="fa-solid fa-right-left"></i></button>
-                          <button class="btn btn-contorno btn-icone" data-regularizar="${item.id}" title="Números de série do saldo">
-                           <i class="fa-solid fa-barcode"></i></button>
-                          <button class="btn btn-contorno btn-icone" data-rastrear="${item.id}" title="Rastrear unidades">
-                           <i class="fa-solid fa-location-dot"></i></button>`,
+                           <i class="fa-solid fa-right-left"></i></button>`,
   aoRenderizar: (linhas) => {
     const valor = linhas.reduce((s, p) => s + (p.valor_total || 0), 0);
     const repor = linhas.filter(p => p.abaixo_minimo).length;
@@ -513,201 +432,10 @@ const telaEstoque = SGMF.tela({
         document.getElementById('movObs').value = '';
         bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimento')).show();
       });
-      areaTabela.addEventListener('click', async (e) => {
-        const b = e.target.closest('[data-regularizar]');
-        if (!b) return;
-        const peca = telaEstoque.dados().find(p => p.id == b.dataset.regularizar);
-        if (!peca) return;
-        await abrirRegularizacao(peca);
-      });
-      areaTabela.addEventListener('click', async (e) => {
-        const b = e.target.closest('[data-rastrear]');
-        if (!b) return;
-        const peca = telaEstoque.dados().find(p => p.id == b.dataset.rastrear);
-        if (!peca) return;
-        await abrirRastreioPeca(peca);
-      });
     }
     carregarMovimentos();
   }
 });
-
-async function abrirRegularizacao(peca) {
-  let situacao;
-  try {
-    situacao = await SGMF.get(`/api/pecas/${peca.id}/regularizacao`);
-  } catch (e) { return SGMF.falha(e.message); }
-
-  document.getElementById('regularizarPecaId').value = peca.id;
-  document.getElementById('regularizarPecaInfo').innerHTML =
-    `<strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)}`;
-  document.getElementById('regularizarNumeros').value = '';
-
-  if (situacao.pendente <= 0) {
-    document.getElementById('regularizarStatus').innerHTML =
-      `<span style="color:var(--sucesso,#166534)"><i class="fa-solid fa-check"></i>
-       Esta peça já está com todo o saldo (${SGMF.numero(situacao.regularizadas,0)} unidade(s)) com número de série.</span>`;
-    document.getElementById('regularizarNumeros').style.display = 'none';
-    document.getElementById('regularizarSalvar').style.display = 'none';
-  } else {
-    document.getElementById('regularizarStatus').innerHTML =
-      `<span style="color:var(--alerta,#b91c1c)">${SGMF.numero(situacao.pendente,0)} de
-       ${SGMF.numero(situacao.quantidade,0)} unidade(s) ainda sem número de série.
-       Informe ${SGMF.numero(situacao.pendente,0)} número(s), um por linha.</span>`;
-    document.getElementById('regularizarNumeros').style.display = '';
-    document.getElementById('regularizarSalvar').style.display = '';
-  }
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalRegularizar')).show();
-}
-
-document.getElementById('regularizarSalvar').onclick = async () => {
-  const pecaId = document.getElementById('regularizarPecaId').value;
-  const botao = document.getElementById('regularizarSalvar');
-  botao.disabled = true;
-  try {
-    await SGMF.post(`/api/pecas/${pecaId}/regularizacao`,
-      { numeros_serie: document.getElementById('regularizarNumeros').value });
-    bootstrap.Modal.getInstance(document.getElementById('modalRegularizar')).hide();
-    SGMF.sucesso('Números de série cadastrados');
-    SGMF.limparCache('pecas');
-    telaEstoque.carregar();
-  } catch (e) { SGMF.falha(e.message); }
-  finally { botao.disabled = false; }
-};
-
-/* ================================================== rastrear unidades da peça
-   Botão "Rastrear" na linha da peça: mostra todas as unidades (qualquer
-   status) com status + localização atual; clicar numa unidade abre o
-   histórico completo dela (mesmo formato da tela "Rastreio de peças"). */
-const CORES_STATUS_UNIDADE = { 'Estoque': 'azul', 'Em uso': 'verde', 'Descartado': 'cinza' };
-const CORES_TIPO_MOVIMENTO = { 'Entrada': 'azul', 'Instalação': 'verde', 'Remoção': 'ambar', 'Descarte': 'vermelha' };
-let unidadesRastreioAtual = [];
-
-function localizacaoAtualUnidade(u) {
-  if (u.status === 'Em uso') {
-    return `${SGMF.esc(u.veiculo_atual_nome || 'veículo não identificado')}` +
-           (u.ordem_servico_atual_numero ? ` · OS ${SGMF.esc(u.ordem_servico_atual_numero)}` : '');
-  }
-  if (u.status === 'Estoque') return 'Em estoque';
-  return 'Descartada';
-}
-
-function detalheMovimentoUnidade(m) {
-  if (m.tipo === 'Entrada') return m.observacao || 'Entrada no estoque';
-  if (m.tipo === 'Instalação') return `OS ${SGMF.esc(m.ordem_servico_numero || '—')} · ${SGMF.esc(m.veiculo_nome || 'veículo não identificado')}`;
-  if (m.tipo === 'Remoção') return `Removida da OS ${SGMF.esc(m.ordem_servico_numero || '—')} · voltou para o estoque`;
-  if (m.tipo === 'Descarte') return m.observacao || 'Peça descartada';
-  return m.observacao || '';
-}
-
-const CORES_TIPO_MOVIMENTO_ESTOQUE = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
-
-async function carregarMovimentosDaPeca(peca) {
-  const area = document.getElementById('rastrearPecaMovimentos');
-  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando…</div>`;
-  let movimentos;
-  try {
-    movimentos = await SGMF.get(`/api/movimentos?peca_id=${peca.id}`);
-  } catch (e) {
-    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>${SGMF.esc(e.message)}</div>`;
-    return;
-  }
-  if (!movimentos.length) {
-    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
-      Nenhuma movimentação de estoque registrada para esta peça ainda.</div>`;
-    return;
-  }
-  area.innerHTML = `<table class="table table-sm table-hover align-middle mb-0" style="font-size:13px">
-    <thead><tr><th>Data</th><th>Tipo</th><th class="text-end">Qtde</th>
-    <th class="text-end">Valor</th><th>Documento / observação</th></tr></thead>
-    <tbody>${movimentos.map(m => `<tr>
-      <td class="num">${SGMF.data(m.data)}</td>
-      <td>${SGMF.etiqueta(m.tipo, CORES_TIPO_MOVIMENTO_ESTOQUE[m.tipo] || 'cinza')}</td>
-      <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
-      <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
-      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td></tr>`).join('')}</tbody>
-  </table>`;
-}
-
-async function abrirRastreioPeca(peca) {
-  const resumo = document.getElementById('rastrearPecaResumo');
-  const lista = document.getElementById('rastrearPecaLista');
-  document.getElementById('rastrearPecaTitulo').textContent =
-    `Rastrear · ${peca.codigo} · ${peca.descricao}`;
-  resumo.textContent = '';
-  lista.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando unidades…</div>`;
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalRastrearPeca')).show();
-
-  carregarMovimentosDaPeca(peca);
-
-  let dados;
-  try {
-    dados = await SGMF.get(`/api/pecas/${peca.id}/rastreio`);
-  } catch (e) {
-    lista.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>${SGMF.esc(e.message)}</div>`;
-    return;
-  }
-
-  unidadesRastreioAtual = dados.resultados || [];
-  resumo.textContent = `${unidadesRastreioAtual.length} unidade(s) com número de série cadastradas para esta peça.`;
-
-  if (!unidadesRastreioAtual.length) {
-    lista.innerHTML = `<div class="vazio"><i class="fa-solid fa-barcode"></i>
-      <strong>Nenhuma unidade rastreável ainda</strong>
-      Use o botão de número de série do saldo para cadastrar as unidades desta peça.</div>`;
-    return;
-  }
-
-  lista.innerHTML = `<table class="table table-hover align-middle" style="width:100%">
-    <thead><tr><th>Número de série</th><th>Status</th><th>Localização atual</th><th></th></tr></thead>
-    <tbody>
-      ${unidadesRastreioAtual.map(u => `
-        <tr data-unidade="${u.id}" style="cursor:pointer">
-          <td style="font-family:'JetBrains Mono',monospace">${SGMF.esc(u.numero_serie)}</td>
-          <td>${SGMF.etiqueta(u.status, CORES_STATUS_UNIDADE[u.status] || 'cinza')}</td>
-          <td>${localizacaoAtualUnidade(u)}</td>
-          <td class="text-end"><i class="fa-solid fa-chevron-right text-muted"></i></td>
-        </tr>`).join('')}
-    </tbody>
-  </table>`;
-
-  lista.querySelectorAll('[data-unidade]').forEach(linha => {
-    linha.addEventListener('click', () => {
-      const unidade = unidadesRastreioAtual.find(u => u.id == linha.dataset.unidade);
-      if (unidade) abrirHistoricoUnidade(unidade);
-    });
-  });
-}
-
-function abrirHistoricoUnidade(unidade) {
-  document.getElementById('historicoUnidadeTitulo').textContent =
-    `Histórico · ${unidade.numero_serie}`;
-
-  const historico = (unidade.historico || []).slice().reverse(); // mais recente primeiro
-  const conteudo = document.getElementById('historicoUnidadeConteudo');
-  conteudo.innerHTML = `
-    <div class="card-serial-topo" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px">
-      <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;color:var(--petroleo)">${SGMF.esc(unidade.numero_serie)}</span>
-      ${SGMF.etiqueta(unidade.status, CORES_STATUS_UNIDADE[unidade.status] || 'cinza')}
-      <span class="text-muted" style="font-size:13px">${SGMF.esc(unidade.peca_descricao || '')}${unidade.peca_codigo ? ` (${SGMF.esc(unidade.peca_codigo)})` : ''}</span>
-    </div>
-    <div style="font-size:13.5px;margin-bottom:12px">Localização atual: <strong>${localizacaoAtualUnidade(unidade)}</strong></div>
-    <div class="linha-tempo" style="border-left:2px solid var(--borda);margin-left:8px;padding-left:18px">
-      ${historico.length ? historico.map(m => `
-        <div class="item" style="position:relative;padding-bottom:16px">
-          <span class="data" style="font-size:11.5px;color:var(--texto-suave);float:right">${SGMF.data(m.data)}</span>
-          <div class="tipo" style="font-weight:700;font-size:13.5px;color:var(--aco)">${SGMF.etiqueta(m.tipo, CORES_TIPO_MOVIMENTO[m.tipo] || 'cinza')}</div>
-          <div class="detalhe" style="font-size:12.5px;color:var(--texto-suave);margin-top:2px">${detalheMovimentoUnidade(m)}</div>
-        </div>`).join('') : '<div class="text-muted" style="font-size:12.5px">Sem movimentações registradas.</div>'}
-    </div>`;
-
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHistoricoUnidade')).show();
-}
-
-document.getElementById('historicoUnidadeVoltar').onclick = () => {
-  bootstrap.Modal.getInstance(document.getElementById('modalHistoricoUnidade')).hide();
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalRastrearPeca')).show();
-};
 
 document.getElementById('movSalvar').onclick = async () => {
   try {
@@ -1041,23 +769,13 @@ function renderizarItensNota() {
   }
   area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
     <thead><tr><th>Peça</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th>
-    <th class="text-end">Tributos</th><th class="text-end">Total</th><th>Números de série</th>${aberta ? '<th></th>' : ''}</tr></thead>
+    <th class="text-end">Tributos</th><th class="text-end">Total</th>${aberta ? '<th></th>' : ''}</tr></thead>
     <tbody>${notaAtual.itens.map(i => `<tr>
       <td>${SGMF.esc(i.peca_descricao || i.descricao)}</td>
       <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
       <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
       <td class="text-end num">${SGMF.moeda((i.valor_icms||0)+(i.valor_pis||0)+(i.valor_cofins||0)+(i.valor_ibs||0)+(i.valor_cbs||0))}</td>
       <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
-      <td>${aberta
-        ? `<div class="input-group input-group-sm" style="min-width:170px">
-             <input type="text" class="form-control" placeholder="ex.: 5555, 5556" value="${SGMF.esc((i.numeros_serie||'').replace(/\n/g, ', '))}" data-serie-item="${i.id}">
-             <button class="btn btn-contorno" data-salvar-serie="${i.id}" title="Salvar números de série"><i class="fa-solid fa-check"></i></button>
-           </div>`
-        : `${SGMF.esc((i.numeros_serie||'').replace(/\n/g, ', ')) || '—'}`}
-        <div style="font-size:11px;color:${i.qtd_numeros_serie === i.quantidade ? 'var(--sucesso,#166534)' : 'var(--alerta,#b91c1c)'}">
-          ${i.qtd_numeros_serie || 0}/${SGMF.numero(i.quantidade,0)} informado(s)
-        </div>
-      </td>
       ${aberta ? `<td><button class="btn btn-contorno btn-icone" data-remover-item="${i.id}" title="Remover">
         <i class="fa-solid fa-trash"></i></button></td>` : ''}
     </tr>`).join('')}</tbody></table>`;
@@ -1066,17 +784,6 @@ function renderizarItensNota() {
     try {
       notaAtual = await SGMF.del(`/api/notas_fiscais/${notaAtual.id}/itens/${b.dataset.removerItem}`);
       SGMF.sucesso('Item removido');
-      renderizarItensNota();
-    } catch (e) { SGMF.falha(e.message); }
-  });
-
-  document.querySelectorAll('[data-salvar-serie]').forEach(b => b.onclick = async () => {
-    const itemId = b.dataset.salvarSerie;
-    const campo = document.querySelector(`[data-serie-item="${itemId}"]`);
-    try {
-      notaAtual = await SGMF.put(`/api/notas_fiscais/${notaAtual.id}/itens/${itemId}/numeros_serie`,
-        { numeros_serie: campo.value });
-      SGMF.sucesso('Números de série salvos');
       renderizarItensNota();
     } catch (e) { SGMF.falha(e.message); }
   });

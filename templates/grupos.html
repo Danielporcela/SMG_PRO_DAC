@@ -226,10 +226,10 @@ Cadastro manual dos grupos usados nas peças — Elétrica, Arrefecimento, Motor
     if (!grupo) return;
     if (!confirm('Excluir o grupo "' + grupo.nome + '"?')) return;
     try {
-      await chamar('/api/grupos/' + id, { method: 'DELETE' });
+      await SGMF.del('/api/grupos/' + id);
       await carregar();
     } catch (e) {
-      alert(e.message);
+      if (e.message !== 'Operação cancelada.') alert(e.message);
     }
   }
 

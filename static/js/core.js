@@ -4,9 +4,9 @@ const SGMF = (() => {
   /* ------------------------------------------------------------ requisições */
   async function api(caminho, opcoes = {}) {
     const resposta = await fetch(caminho, {
-      headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       ...opcoes,
+      headers: { 'Content-Type': 'application/json', ...(opcoes.headers || {}) },
       body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : opcoes.body
     });
     /* Sessão expirada: manda para o login — mas só se ainda não estivermos
@@ -28,7 +28,38 @@ const SGMF = (() => {
   const get = (c) => api(c);
   const post = (c, corpo) => api(c, { method: 'POST', corpo });
   const put = (c, corpo) => api(c, { method: 'PUT', corpo });
-  const del = (c) => api(c, { method: 'DELETE' });
+
+  async function pedirSenhaAdminExclusao() {
+    const r = await Swal.fire({
+      title: 'Autorização do administrador',
+      text: 'Para excluir, informe a senha de um administrador do sistema.',
+      input: 'password',
+      inputPlaceholder: 'Senha do administrador',
+      inputAttributes: { autocomplete: 'current-password' },
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Autorizar exclusão',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#C4451D',
+      cancelButtonColor: '#5F7080',
+      reverseButtons: true,
+      preConfirm: (senha) => {
+        if (!senha) { Swal.showValidationMessage('Digite a senha do administrador.'); return false; }
+        return senha;
+      }
+    });
+    if (!r.isConfirmed) {
+      const e = new Error('Operação cancelada.');
+      e.cancelado = true;
+      throw e;
+    }
+    return r.value;
+  }
+
+  const del = async (c) => {
+    const senha = await pedirSenhaAdminExclusao();
+    return api(c, { method: 'DELETE', headers: { 'X-SGMF-Admin-Password': senha } });
+  };
 
   /* --------------------------------------------------------------- avisos */
   const toast = Swal.mixin({
@@ -36,8 +67,11 @@ const SGMF = (() => {
     timer: 2600, timerProgressBar: true
   });
   const sucesso = (texto) => toast.fire({ icon: 'success', title: texto });
-  const falha = (texto) => Swal.fire({ icon: 'error', title: 'Não foi possível salvar',
-                                      text: texto, confirmButtonColor: '#0F3D56' });
+  const falha = (texto) => {
+    if (!texto || texto === 'Operação cancelada.') return;
+    return Swal.fire({ icon: 'error', title: 'Não foi possível concluir',
+                       text: texto, confirmButtonColor: '#0F3D56' });
+  };
   /* Para o que o próprio usuário precisa corrigir antes de enviar. */
   const aviso = (texto) => Swal.fire({ icon: 'warning', title: 'Confira antes de continuar',
                                        text: texto, confirmButtonColor: '#0F3D56' });

@@ -86,3 +86,25 @@ def garantir_pecas_serial():
         existentes = {c["name"] for c in insp.get_columns("itens_nota_fiscal")}
         if "numeros_serie" not in existentes:
             conn.execute(text('ALTER TABLE "itens_nota_fiscal" ADD COLUMN "numeros_serie" TEXT'))
+
+
+def garantir_itens_os_servicos_terceiros():
+    """Adiciona, sem apagar dados, os campos usados por serviços de terceiros.
+
+    Instalações antigas recebem as colunas automaticamente no primeiro start
+    da aplicação, tanto em SQLite quanto em PostgreSQL.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "itens_os" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "tipo_item": "VARCHAR(24)",
+        "prestador_servico": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("itens_os")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "itens_os" ADD COLUMN "{nome}" {tipo}'))

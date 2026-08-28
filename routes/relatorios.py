@@ -86,7 +86,7 @@ def montar_dados(relatorio):
                    o.tipo, o.grupo or "—", o.status,
                    o.fornecedor.nome if o.fornecedor else "—", o.dias_parado,
                    o.custo_pecas, round(o.custo_mao_obra or 0, 2),
-                   round(o.custo_servicos or 0, 2), o.custo_total]
+                   o.custo_servicos_total, o.custo_total]
                   for o in q.order_by(OrdemServico.data_abertura).all()]
 
     elif relatorio == "veiculos":

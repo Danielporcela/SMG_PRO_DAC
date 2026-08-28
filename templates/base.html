@@ -28,7 +28,6 @@
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
     {% if pode('estoque') or pode('manutencao') %}<a href="/pesquisa-pecas" class="{{ 'ativo' if pagina == 'busca_pecas' }}"><i class="fa-solid fa-magnifying-glass"></i> Pesquisa de peças</a>{% endif %}
-    {% if pode('estoque') or pode('manutencao') %}<a href="/rastreio-pecas" class="{{ 'ativo' if pagina == 'rastreio_pecas' }}"><i class="fa-solid fa-barcode"></i> Rastreio de peças</a>{% endif %}
 
     {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('importacao') %}
     <div class="menu-titulo">Cadastros</div>

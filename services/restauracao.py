@@ -57,7 +57,7 @@ CAMPOS_DATA = {"data", "data_abertura", "data_fechamento", "validade_cnh",
                "data_ultima_preventiva", "data_instalacao", "data_medicao"}
 
 CAMPOS_ITEM = ["id", "ordem_servico_id", "peca_id", "descricao", "grupo", "quantidade",
-               "valor_unitario", "baixado_estoque"]
+               "valor_unitario", "tipo_item", "prestador_servico", "baixado_estoque"]
 
 
 def _valor(campo, bruto):

@@ -4,15 +4,13 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, ItemOS, ItemOSPecaSerial, LogAuditoria,
-                    Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca, PecaSerial,
-                    Pneu, Veiculo, proximo_codigo_peca)
+from models import (Abastecimento, Fornecedor, ItemOS, LogAuditoria, Motorista,
+                    MovimentoEstoque, Orcamento, OrdemServico, Peca, Pneu, Veiculo,
+                    proximo_codigo_peca)
 from services import indicadores
-from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
-                               devolver_item_os, devolver_serial_ao_estoque,
-                               instalar_serial_no_item, movimentar_estoque,
-                               proximo_numero_os, recalcular_abastecimento,
-                               regularizar_seriais_peca, sincronizar_status_veiculo,
+from services.calculos import (baixar_item_os, desvincular_movimentos, devolver_item_os,
+                               movimentar_estoque, proximo_numero_os,
+                               recalcular_abastecimento, sincronizar_status_veiculo,
                                validar_km)
 from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_crud,
@@ -87,8 +85,6 @@ registrar_crud(
             "veiculo_id": "int", "motorista_id": "int", "fornecedor_id": "int",
             "mecanico": "str", "tipo": "str", "prioridade": "str", "status": "str",
             "grupo": "str", "hora_inicio": "time", "hora_fim": "time",
-            "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
-            "local_execucao": "str",
             "km_veiculo": "float", "descricao": "str",
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
@@ -111,8 +107,11 @@ def adicionar_item(os_id):
     item = ItemOS(ordem_servico_id=ordem.id)
     try:
         aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
-                                     "quantidade": "float", "valor_unitario": "float"})
+                                     "quantidade": "float", "valor_unitario": "float",
+                                     "tipo_item": "str", "prestador_servico": "str"})
         if item.peca_id:
+            item.tipo_item = "peca"
+            item.prestador_servico = None
             peca = db.session.get(Peca, item.peca_id)
             if not peca:
                 raise ErroNegocio("Peça não encontrada.")
@@ -120,129 +119,23 @@ def adicionar_item(os_id):
             item.grupo = item.grupo or peca.grupo
             if not item.valor_unitario:
                 item.valor_unitario = peca.custo_unitario
+        else:
+            item.tipo_item = item.tipo_item if item.tipo_item in ("servico_avulso", "servico_terceiro") else "servico_avulso"
+            if item.tipo_item == "servico_terceiro" and not item.prestador_servico:
+                raise ErroNegocio("Informe o prestador/empresa responsável pelo serviço de terceiro.")
         if not item.descricao:
             raise ErroNegocio("Descreva a peça ou o serviço aplicado.")
         db.session.add(item)
         db.session.flush()
-        # Quando o item tem peça vinculada, a baixa do estoque só acontece
-        # ao informar o(s) número(s) de série de cada unidade instalada —
-        # ver /ordens/<id>/itens/<id>/vincular-serial logo abaixo. Itens
-        # antigos sem nenhuma unidade cadastrada continuam pelo fluxo por
-        # quantidade (compatibilidade).
-        if not item.peca_id:
-            baixar_item_os(item)
+        # Peças são baixadas imediatamente pela quantidade lançada. Serviços
+        # não movimentam estoque porque não possuem peca_id.
+        baixar_item_os(item)
         registrar_log("criar", "itens_os", item.id, f"OS {ordem.numero}")
         db.session.commit()
     except (ErroNegocio, ValueError) as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     return jsonify(ordem.to_dict(com_itens=True)), 201
-
-
-@bp_api.post("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial")
-@editar_tela("manutencao")
-def vincular_serial_item(os_id, item_id):
-    """Aplica UMA unidade específica (número de série) a um item da OS.
-
-    Chamada uma vez por unidade — um item com quantidade 3 precisa de 3
-    chamadas, uma por número de série instalado.
-    """
-    ordem = db.get_or_404(OrdemServico, os_id)
-    item = db.get_or_404(ItemOS, item_id)
-    dados = request.get_json(silent=True) or {}
-    try:
-        if item.ordem_servico_id != ordem.id:
-            raise ErroNegocio("Este item não pertence a esta ordem de serviço.")
-        if len(item.pecas_serial) >= (item.quantidade or 0):
-            raise ErroNegocio("Este item já tem todas as unidades vinculadas.")
-        serial = instalar_serial_no_item(dados.get("numero_serie"), item, ordem)
-        registrar_log("vincular", "itens_os_pecas_serial", item.id,
-                      f"OS {ordem.numero}: {serial.numero_serie}")
-        db.session.commit()
-    except (ErroNegocio, ValueError) as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
-    return jsonify(ordem.to_dict(com_itens=True)), 201
-
-
-@bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial/<int:vinculo_id>")
-@editar_tela("manutencao")
-def desvincular_serial_item(os_id, item_id, vinculo_id):
-    """Remove uma unidade específica do item (sem excluir o item inteiro) —
-    a peça volta para o estoque e pode ser reinstalada depois."""
-    ordem = db.get_or_404(OrdemServico, os_id)
-    vinculo = db.get_or_404(ItemOSPecaSerial, vinculo_id)
-    try:
-        if vinculo.item_os_id != item_id:
-            raise ErroNegocio("Vínculo não encontrado neste item.")
-        devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
-        db.session.delete(vinculo)
-        db.session.commit()
-    except ErroNegocio as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
-    return jsonify(ordem.to_dict(com_itens=True))
-
-
-@bp_api.get("/pecas/<int:peca_id>/seriais-estoque")
-@visualizar_tela("manutencao")
-def listar_seriais_em_estoque(peca_id):
-    """Unidades dessa peça disponíveis para instalar (status 'Estoque') —
-    alimenta o seletor da tela de Ordens de serviço."""
-    seriais = (PecaSerial.query
-              .filter_by(peca_id=peca_id, status="Estoque")
-              .order_by(PecaSerial.numero_serie).all())
-    return jsonify([s.to_dict() for s in seriais])
-
-
-@bp_api.get("/pecas/<int:peca_id>/rastreio")
-@visualizar_tela("estoque")
-def listar_rastreio_peca(peca_id):
-    """Todas as unidades (qualquer status) dessa peça, com o histórico
-    completo de cada uma — alimenta o botão "Rastrear" da tela de Estoque.
-    """
-    peca = db.get_or_404(Peca, peca_id)
-    seriais = (PecaSerial.query
-              .filter_by(peca_id=peca_id)
-              .order_by(PecaSerial.numero_serie).all())
-    resultados = []
-    for serial in seriais:
-        dado = serial.to_dict()
-        dado["historico"] = [m.to_dict() for m in serial.movimentos]
-        resultados.append(dado)
-    return jsonify({"peca_id": peca.id, "peca_codigo": peca.codigo,
-                    "peca_descricao": peca.descricao,
-                    "total": len(resultados), "resultados": resultados})
-
-
-@bp_api.get("/pecas/<int:peca_id>/regularizacao")
-@visualizar_tela("estoque")
-def situacao_regularizacao(peca_id):
-    """Diz quantas unidades dessa peça ainda não têm número de série —
-    saldo lançado antes deste recurso existir."""
-    peca = db.get_or_404(Peca, peca_id)
-    ja_regularizadas = PecaSerial.query.filter_by(peca_id=peca_id).count()
-    pendente = max(0, int(round((peca.quantidade or 0))) - ja_regularizadas)
-    return jsonify({"peca_id": peca.id, "quantidade": peca.quantidade,
-                    "regularizadas": ja_regularizadas, "pendente": pendente})
-
-
-@bp_api.post("/pecas/<int:peca_id>/regularizacao")
-@editar_tela("estoque")
-def regularizar_peca(peca_id):
-    """Converte o saldo antigo (peça lançada antes do rastreio por série)
-    em unidades individuais, com um número de série por unidade."""
-    dados = request.get_json(silent=True) or {}
-    brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
-    numeros = [n.strip() for n in brutos if n.strip()]
-    try:
-        criados = regularizar_seriais_peca(peca_id, numeros)
-        registrar_log("regularizar", "pecas_serial", peca_id, f"{len(criados)} unidade(s)")
-        db.session.commit()
-    except (ErroNegocio, ValueError) as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
-    return jsonify({"ok": True, "criados": [c.to_dict() for c in criados]}), 201
 
 
 @bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>")
@@ -303,23 +196,13 @@ def _antes_peca(obj, dados, anterior):
 
 
 def _depois_peca(obj, dados, anterior):
-    """Saldo inicial vira uma unidade rastreável por número de série — o
-    estoque nunca muda sem histórico, e agora nenhuma peça entra sem um
-    número de série/identificação vinculado.
-    """
+    """Registra o saldo inicial da peça por quantidade, sem número de série."""
     if anterior is not None or not dados.get("quantidade_inicial"):
         return
     quantidade = float(dados["quantidade_inicial"])
-    brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
-    numeros = [n.strip() for n in brutos if n.strip()]
-    if len(numeros) != int(quantidade):
-        raise ErroNegocio(
-            f"Informe {int(quantidade)} número(s) de série (um por linha) — "
-            f"a quantidade de números precisa bater com o saldo inicial informado.")
-    for numero in numeros:
-        dar_entrada_serial(obj.id, numero, dados.get("custo_unitario") or obj.custo_unitario,
-                           origem="Cadastro manual", documento="Saldo inicial",
-                           observacao="Cadastro da peça")
+    movimentar_estoque(obj.id, "entrada", quantidade,
+                       dados.get("custo_unitario") or obj.custo_unitario,
+                       documento="Saldo inicial", observacao="Cadastro da peça")
 
 
 registrar_crud(

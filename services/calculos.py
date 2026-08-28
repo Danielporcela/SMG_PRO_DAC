@@ -108,13 +108,12 @@ def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
 
 
 def baixar_item_os(item: ItemOS):
-    """Compatibilidade com o fluxo antigo (peça sem rastreio por série).
+    """Baixa do estoque pela quantidade lançada no item da OS.
 
-    Peças novas já entram pelo fluxo serializado (ver instalar_serial_no_item
-    abaixo); esta função só existe para não quebrar itens antigos que ainda
-    não tinham nenhuma unidade vinculada.
+    O sistema não exige mais número de série para produtos/peças: ao lançar
+    uma peça na ordem de serviço, o saldo é reduzido imediatamente.
     """
-    if item.peca_id and not item.baixado_estoque and not item.pecas_serial:
+    if item.peca_id and not item.baixado_estoque:
         movimentar_estoque(item.peca_id, "saida", item.quantidade,
                            item.valor_unitario, os_id=item.ordem_servico_id,
                            observacao="Aplicada na OS")
@@ -139,15 +138,20 @@ def desvincular_movimentos(os_id):
 
 
 def devolver_item_os(item: ItemOS):
-    """Devolve ao estoque tudo que foi aplicado neste item da OS.
+    """Devolve ao estoque a peça removida de uma OS.
 
-    Cobre os dois fluxos: peça serializada (cada unidade vinculada volta
-    para 'Estoque', podendo ser reinstalada depois em outro veículo) e o
-    fluxo antigo por quantidade (compatibilidade).
+    Itens novos trabalham somente por quantidade. Para registros antigos que
+    ainda possuam vínculos por número de série, preservamos a devolução legado
+    sem somar o saldo duas vezes.
     """
-    for vinculo in list(item.pecas_serial):
-        devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
-        db.session.delete(vinculo)
+    vinculos_legados = list(item.pecas_serial)
+    if vinculos_legados:
+        for vinculo in vinculos_legados:
+            devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
+            db.session.delete(vinculo)
+        item.baixado_estoque = False
+        return
+
     if item.peca_id and item.baixado_estoque:
         movimentar_estoque(item.peca_id, "entrada", item.quantidade,
                            item.valor_unitario, os_id=item.ordem_servico_id,

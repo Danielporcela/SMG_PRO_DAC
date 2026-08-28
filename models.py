@@ -449,13 +449,11 @@ class MovimentoEstoque(db.Model):
 
 
 class PecaSerial(db.Model):
-    """Módulo 11 — unidade individual e rastreável de uma peça.
+    """Estrutura legada de rastreio individual.
 
-    Toda peça, a partir desta versão, é controlada por número de série (ou
-    identificação equivalente) e não apenas por quantidade em saldo. Cada
-    linha aqui é UMA unidade física (ex.: o espelho retrovisor nº 5555).
-    O saldo mostrado em Peca.quantidade é só um espelho da contagem de
-    unidades com status 'Estoque' — quem manda é esta tabela.
+    Mantida somente para preservar dados de instalações anteriores. Novos
+    produtos, entradas e ordens de serviço são controlados por quantidade e
+    não exigem número de série.
     """
     __tablename__ = "pecas_serial"
     id = db.Column(db.Integer, primary_key=True)
@@ -530,11 +528,10 @@ class MovimentoPecaSerial(db.Model):
 
 
 class ItemOSPecaSerial(db.Model):
-    """Vincula cada unidade de peça serializada aplicada em um item da OS.
+    """Vínculo legado entre item da OS e unidade rastreada individualmente.
 
-    Um ItemOS pode ter quantidade > 1 (ex.: 4 lâmpadas); cada unidade
-    aplicada vira uma linha aqui, apontando para o número de série exato
-    que foi instalado.
+    Mantido para que ordens antigas continuem podendo ser removidas sem
+    corromper o estoque. Novos itens não criam este vínculo.
     """
     __tablename__ = "itens_os_pecas_serial"
     id = db.Column(db.Integer, primary_key=True)
@@ -633,9 +630,8 @@ class ItemNotaFiscal(db.Model):
     aliquota_cbs = db.Column(db.Float)
     valor_cbs = db.Column(db.Float)
     baixado_estoque = db.Column(db.Boolean, default=False)
-    # Um número de série por unidade recebida, separados por linha/vírgula.
-    # Precisa bater com a quantidade do item antes de finalizar a nota —
-    # é isso que gera as unidades rastreáveis (PecaSerial) na entrada.
+    # Campo legado mantido apenas para compatibilidade com bancos antigos.
+    # Novos lançamentos são controlados exclusivamente por quantidade.
     numeros_serie = db.Column(db.Text)
     peca = db.relationship("Peca")
 
@@ -667,9 +663,7 @@ class ItemNotaFiscal(db.Model):
                 "aliquota_ibs": self.aliquota_ibs or 0, "valor_ibs": self.valor_ibs or 0,
                 "aliquota_cbs": self.aliquota_cbs or 0, "valor_cbs": self.valor_cbs or 0,
                 "valor_tributos": self.valor_tributos,
-                "baixado_estoque": self.baixado_estoque,
-                "numeros_serie": self.numeros_serie,
-                "qtd_numeros_serie": len([n for n in (self.numeros_serie or "").replace(",", "\n").splitlines() if n.strip()])}
+                "baixado_estoque": self.baixado_estoque}
 
 
 class OrdemServico(db.Model):
@@ -708,11 +702,23 @@ class OrdemServico(db.Model):
 
     @property
     def custo_pecas(self):
-        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0) for i in self.itens), 2)
+        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0)
+                         for i in self.itens if i.eh_peca), 2)
+
+    @property
+    def custo_servicos_lancados(self):
+        """Serviços lançados como itens da OS, inclusive serviços de terceiros."""
+        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0)
+                         for i in self.itens if not i.eh_peca), 2)
+
+    @property
+    def custo_servicos_total(self):
+        # custo_servicos é o campo legado/manual já existente nas OS antigas.
+        return round((self.custo_servicos or 0) + self.custo_servicos_lancados, 2)
 
     @property
     def custo_total(self):
-        return round(self.custo_pecas + (self.custo_mao_obra or 0) + (self.custo_servicos or 0), 2)
+        return round(self.custo_pecas + (self.custo_mao_obra or 0) + self.custo_servicos_total, 2)
 
     @property
     def dias_parado(self):
@@ -748,7 +754,10 @@ class OrdemServico(db.Model):
             "cco": self.cco, "solicitante": self.solicitante, "setor": self.setor,
             "problema": self.problema, "local_execucao": self.local_execucao,
             "descricao": self.descricao, "custo_mao_obra": self.custo_mao_obra,
-            "custo_servicos": self.custo_servicos, "custo_pecas": self.custo_pecas,
+            "custo_servicos": self.custo_servicos,
+            "custo_servicos_lancados": self.custo_servicos_lancados,
+            "custo_servicos_total": self.custo_servicos_total,
+            "custo_pecas": self.custo_pecas,
             "custo_total": self.custo_total, "dias_parado": self.dias_parado,
             "avaliacao": self.avaliacao, "qtd_anexos": len(self.anexos),
         }
@@ -766,6 +775,10 @@ class ItemOS(db.Model):
     grupo = db.Column(db.String(40))
     quantidade = db.Column(db.Float, default=1)
     valor_unitario = db.Column(db.Float, default=0)
+    # peça | servico_avulso | servico_terceiro. Registros antigos podem ficar
+    # nulos e são classificados automaticamente pela propriedade abaixo.
+    tipo_item = db.Column(db.String(24))
+    prestador_servico = db.Column(db.String(120))
     baixado_estoque = db.Column(db.Boolean, default=False)
     # Posição no caminhão em que o pneu foi instalado nesta OS
     # (Dianteiro Direito, Traseiro Esquerdo Interno...) — ver SGMF.POSICOES.
@@ -776,18 +789,26 @@ class ItemOS(db.Model):
     pneu_substituido_id = db.Column(db.Integer, db.ForeignKey("pneus.id"))
     peca = db.relationship("Peca")
 
+    @property
+    def tipo_item_resolvido(self):
+        if self.peca_id:
+            return "peca"
+        return self.tipo_item or "servico_avulso"
+
+    @property
+    def eh_peca(self):
+        return bool(self.peca_id) or self.tipo_item_resolvido == "peca"
+
     def to_dict(self):
-        vinculos = list(self.pecas_serial) if self.peca_id else []
         return {"id": self.id, "ordem_servico_id": self.ordem_servico_id,
                 "peca_id": self.peca_id, "descricao": self.descricao, "grupo": self.grupo,
+                "tipo_item": self.tipo_item_resolvido,
+                "prestador_servico": self.prestador_servico,
                 "quantidade": self.quantidade, "valor_unitario": self.valor_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.valor_unitario or 0), 2),
                 "baixado_estoque": self.baixado_estoque,
                 "posicao_pneu": self.posicao_pneu,
-                "pneu_substituido_id": self.pneu_substituido_id,
-                "numeros_serie": [v.peca_serial.numero_serie for v in vinculos if v.peca_serial],
-                "qtd_vinculada": len(vinculos),
-                "pendente_serial": bool(self.peca_id) and len(vinculos) < (self.quantidade or 0)}
+                "pneu_substituido_id": self.pneu_substituido_id}
 
 
 class Abastecimento(db.Model):

@@ -6,7 +6,7 @@ Execução no Render:  gunicorn app:app
 import os
 from datetime import timedelta
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
 
 from config import Config
 from extensions import db, migrate
@@ -57,9 +57,12 @@ def criar_app(config=Config):
     # Evita ProgrammingError quando a aplicação já possui a tela, mas o
     # PostgreSQL ainda não recebeu as tabelas ou alguma coluna do módulo.
     with app.app_context():
-        from services.compatibilidade_banco import garantir_ordens_compra, garantir_pecas_serial
+        from services.compatibilidade_banco import (garantir_itens_os_servicos_terceiros,
+                                                     garantir_ordens_compra,
+                                                     garantir_pecas_serial)
         garantir_ordens_compra()
         garantir_pecas_serial()
+        garantir_itens_os_servicos_terceiros()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -76,6 +79,33 @@ def criar_app(config=Config):
     # aria-hidden ... descendant retained focus" no console e travando
     # cliques/seleção nos campos. Carregando o patch só onde ele é
     # necessário, esse conflito desaparece nas demais telas.
+
+    @app.before_request
+    def exigir_senha_admin_para_exclusao():
+        """Toda exclusão exige a senha de um administrador ativo.
+
+        A validação é feita no servidor para não depender apenas do JavaScript
+        da tela. Assim, mesmo uma chamada direta à API não consegue apagar
+        dados sem a autorização administrativa.
+        """
+        if request.method != "DELETE" or not request.path.startswith("/api/"):
+            return None
+        if not session.get("usuario_id"):
+            return jsonify({"erro": "Sessão expirada. Entre novamente."}), 401
+
+        senha = request.headers.get("X-SGMF-Admin-Password", "")
+        if not senha:
+            return jsonify({"erro": "Informe a senha de um administrador para autorizar a exclusão."}), 403
+
+        from models import Usuario
+        administradores = Usuario.query.filter_by(perfil="admin", ativo=True).all()
+        autorizador = next((u for u in administradores if u.conferir_senha(senha)), None)
+        if not autorizador:
+            return jsonify({"erro": "Senha de administrador inválida. A exclusão não foi autorizada."}), 403
+
+        # Fica disponível para rotas/logs que queiram registrar quem autorizou.
+        g.admin_autorizador_exclusao = autorizador.nome
+        return None
 
     @app.context_processor
     def datas_padrao():
