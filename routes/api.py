@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 from extensions import db
 from models import (Abastecimento, Fornecedor, ItemOS, ItemOSPecaSerial, LogAuditoria,
                     Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca, PecaSerial,
-                    Pneu, Veiculo, proximo_codigo_peca)
+                    Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
 from services import indicadores
 from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
@@ -59,6 +59,43 @@ registrar_crud(
     campos={"nome": "str", "tipo": "str", "cnpj": "str", "telefone": "str",
             "cidade": "str", "contato": "str", "ativo": "bool"},
     ordem=Fornecedor.nome, obrigatorios=("nome",), tela="fornecedores")
+
+
+# ---------------------------------------- Lançamento financeiro: serviço terceiro
+def _validar_servico_terceiro(obj, dados, anterior):
+    if not obj.veiculo_id or not db.session.get(Veiculo, obj.veiculo_id):
+        raise ErroNegocio("Selecione um veículo válido.")
+    if not (obj.prestador or "").strip():
+        raise ErroNegocio("Informe o prestador/empresa do serviço.")
+    if not (obj.descricao or "").strip():
+        raise ErroNegocio("Descreva o serviço executado.")
+    if (obj.valor or 0) <= 0:
+        raise ErroNegocio("Informe um valor maior que zero para o serviço.")
+    if obj.ordem_servico_id:
+        ordem = db.session.get(OrdemServico, obj.ordem_servico_id)
+        if not ordem:
+            raise ErroNegocio("A OS informada não existe.")
+        if ordem.veiculo_id != obj.veiculo_id:
+            raise ErroNegocio("A OS selecionada pertence a outro veículo.")
+
+
+def _filtrar_servicos_terceiros(q, args):
+    q = _filtro_periodo(ServicoTerceiro.data)(q, args)
+    veiculo_id = args.get("veiculo_id", type=int)
+    if veiculo_id:
+        q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
+    return q
+
+
+registrar_crud(
+    bp_api, "servicos-terceiros", ServicoTerceiro,
+    campos={"data": "date", "veiculo_id": "int", "ordem_servico_id": "int",
+            "prestador": "str", "tipo_servico": "str", "descricao": "str",
+            "valor": "float", "documento": "str", "observacao": "str"},
+    ordem=ServicoTerceiro.data.desc(),
+    obrigatorios=("data", "veiculo_id", "prestador", "descricao", "valor"),
+    tela="manutencao", antes_salvar=_validar_servico_terceiro,
+    filtrar=_filtrar_servicos_terceiros)
 
 
 # ------------------------------------------------------ Módulo 3: manutenção

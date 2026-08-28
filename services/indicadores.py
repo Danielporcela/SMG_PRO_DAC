@@ -7,7 +7,7 @@ from sqlalchemy import func
 
 from extensions import db
 from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Orcamento, Peca, Pneu, Veiculo)
+                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo)
 from services.tempo import hoje as data_de_hoje
 
 GRUPOS = ["Motor", "Suspensão", "Freios", "Elétrica", "Hidráulica", "Pneus",
@@ -30,6 +30,14 @@ def _custo_os(inicio, fim, veiculo_id=None):
     return q.all()
 
 
+def _servicos_terceiros(inicio, fim, veiculo_id=None):
+    """Despesas externas contadas pela data real do lançamento."""
+    q = ServicoTerceiro.query.filter(ServicoTerceiro.data.between(inicio, fim))
+    if veiculo_id:
+        q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
+    return q.all()
+
+
 def _notas_finalizadas(inicio, fim):
     """Notas fiscais de entrada (Módulo 11) finalizadas no período — o gasto
     real de compra de peças, contado pela data em que a nota deu entrada no
@@ -44,16 +52,19 @@ def _custo_km_historico(ate, veiculo_id=None):
     """Custo por km da frota antes do período — a régua da comparação."""
     q_ab = Abastecimento.query.filter(Abastecimento.data < ate)
     q_os = OrdemServico.query.filter(OrdemServico.data_abertura < ate)
+    q_terc = ServicoTerceiro.query.filter(ServicoTerceiro.data < ate)
     if veiculo_id:
         q_ab = q_ab.filter(Abastecimento.veiculo_id == veiculo_id)
         q_os = q_os.filter(OrdemServico.veiculo_id == veiculo_id)
+        q_terc = q_terc.filter(ServicoTerceiro.veiculo_id == veiculo_id)
 
     abastecimentos = q_ab.all()
     km = sum(a.km_percorridos or 0 for a in abastecimentos)
     if km < 500:            # histórico curto demais para servir de referência
         return None
     gasto = (sum(a.valor_total or 0 for a in abastecimentos)
-             + sum(o.custo_total for o in q_os.all()))
+             + sum(o.custo_total for o in q_os.all())
+             + sum(s.valor or 0 for s in q_terc.all()))
     return round(gasto / km, 4)
 
 
@@ -70,6 +81,7 @@ def prazo_medio_atendimento(ordens):
 def resumo(inicio=None, fim=None, veiculo_id=None):
     inicio, fim = periodo_padrao(inicio, fim)
     ordens = _custo_os(inicio, fim, veiculo_id)
+    servicos_terceiros = _servicos_terceiros(inicio, fim, veiculo_id)
 
     q_ab = Abastecimento.query.filter(Abastecimento.data.between(inicio, fim))
     if veiculo_id:
@@ -82,7 +94,9 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     veiculos = veiculos.all()
     total_veic = len(veiculos) or 1
 
-    gasto_manut = round(sum(o.custo_total for o in ordens), 2)
+    gasto_manut_os = round(sum(o.custo_total for o in ordens), 2)
+    gasto_terceiros = round(sum(s.valor or 0 for s in servicos_terceiros), 2)
+    gasto_manut = round(gasto_manut_os + gasto_terceiros, 2)
     gasto_comb = round(sum(a.valor_total or 0 for a in abastecimentos), 2)
     notas_compra = _notas_finalizadas(inicio, fim)
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
@@ -121,6 +135,9 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "abastecimentos": len(abastecimentos),
         "litros": round(litros, 1),
         "gasto_combustivel": gasto_comb,
+        "gasto_manutencao_os": gasto_manut_os,
+        "gasto_servicos_terceiros": gasto_terceiros,
+        "servicos_terceiros_qtd": len(servicos_terceiros),
         "gasto_manutencao": gasto_manut,
         "gasto_total": round(gasto_comb + gasto_manut, 2),
         "gasto_compras": gasto_compras,
@@ -168,7 +185,9 @@ def series_graficos(inicio=None, fim=None):
         comb_mes.append(round(db.session.query(func.sum(Abastecimento.valor_total))
                               .filter(Abastecimento.data.between(ini, f)).scalar() or 0, 2))
         ordens = OrdemServico.query.filter(OrdemServico.data_abertura.between(ini, f)).all()
-        manut_mes.append(round(sum(o.custo_total for o in ordens), 2))
+        terceiros = _servicos_terceiros(ini, f)
+        manut_mes.append(round(sum(o.custo_total for o in ordens)
+                               + sum(s.valor or 0 for s in terceiros), 2))
         compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
                               .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month)
@@ -179,6 +198,7 @@ def series_graficos(inicio=None, fim=None):
     for v in Veiculo.query.filter_by(ativo=True).all():
         ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
                                            OrdemServico.data_abertura.between(inicio, fim)).all()
+        terceiros = _servicos_terceiros(inicio, fim, v.id)
         comb = db.session.query(func.sum(Abastecimento.valor_total)).filter(
             Abastecimento.veiculo_id == v.id,
             Abastecimento.data.between(inicio, fim)).scalar() or 0
@@ -188,9 +208,12 @@ def series_graficos(inicio=None, fim=None):
         litros = db.session.query(func.sum(Abastecimento.litros)).filter(
             Abastecimento.veiculo_id == v.id,
             Abastecimento.data.between(inicio, fim)).scalar() or 0
-        total = round(sum(o.custo_total for o in ordens) + comb, 2)
+        gasto_terceiros = round(sum(s.valor or 0 for s in terceiros), 2)
+        manutencao = round(sum(o.custo_total for o in ordens) + gasto_terceiros, 2)
+        total = round(manutencao + comb, 2)
         por_veiculo.append({
-            "veiculo": v.prefixo, "placa": v.placa, "manutencao": round(sum(o.custo_total for o in ordens), 2),
+            "veiculo": v.prefixo, "placa": v.placa, "manutencao": manutencao,
+            "servicos_terceiros": gasto_terceiros,
             "combustivel": round(comb, 2), "total": total, "km": round(km),
             "consumo": round(km / litros, 2) if litros else 0,
             "custo_km": round(total / km, 2) if km else 0,
@@ -348,7 +371,9 @@ def alertas():
             comb = db.session.query(func.sum(Abastecimento.valor_total)).filter(
                 Abastecimento.veiculo_id == v.id,
                 Abastecimento.data.between(ini, hoje)).scalar() or 0
-            gasto = sum(o.custo_total for o in ordens) + comb
+            terceiros = _servicos_terceiros(ini, hoje, v.id)
+            gasto = (sum(o.custo_total for o in ordens) + comb
+                     + sum(s.valor or 0 for s in terceiros))
             if gasto > v.orcamento_mensal:
                 add("critico", "Orçamento", f"{v.prefixo} · acima do orçamento",
                     f"R$ {gasto:,.2f} gastos contra R$ {v.orcamento_mensal:,.2f} previstos."

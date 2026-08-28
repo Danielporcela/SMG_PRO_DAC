@@ -36,7 +36,10 @@
         icone: 'fa-fill-drip', estilo: 'font-size:19px', nota: `${d.abastecimentos} abastecimentos` }),
       medidor('Manutenção', SGMF.moeda(d.gasto_manutencao), {
         icone: 'fa-wrench', estilo: 'font-size:19px',
-        nota: `${d.os_preventivas} preventivas · ${d.os_corretivas} corretivas` }),
+        nota: `${d.os_preventivas} preventivas · ${d.os_corretivas} corretivas · inclui terceiros` }),
+      medidor('Serviços terceiros', SGMF.moeda(d.gasto_servicos_terceiros), {
+        icone: 'fa-hand-holding-dollar', estilo: 'font-size:19px',
+        nota: `${d.servicos_terceiros_qtd} lançamento(s) no período` }),
       medidor('Compras (NF)', SGMF.moeda(d.gasto_compras), {
         icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
         nota: `${d.notas_fiscais_qtd} nota(s) finalizada(s)` }),
@@ -81,7 +84,7 @@
         datasets: [
           { type: 'bar', label: 'Combustível', data: g.combustivel_mes,
             backgroundColor: '#0F3D56', stack: 'gasto', borderRadius: 2 },
-          { type: 'bar', label: 'Manutenção', data: g.manutencao_mes,
+          { type: 'bar', label: 'Manutenção (incl. terceiros)', data: g.manutencao_mes,
             backgroundColor: '#7FA9C2', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Compras (NF)', data: g.compras_mes,
             backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },

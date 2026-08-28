@@ -75,6 +75,14 @@ _tela("/veiculos", "veiculos.html", "veiculos")
 _tela("/motoristas", "motoristas.html", "motoristas")
 _tela("/fornecedores", "fornecedores.html", "fornecedores")
 _tela("/manutencao", "manutencao.html", "manutencao")
+
+
+@bp_paginas.get("/servicos-terceiros")
+@exige_tela("manutencao")
+def servicos_terceiros():
+    # Usa a mesma permissão de manutenção, mas mantém um identificador de página
+    # próprio para destacar apenas o botão lateral correspondente.
+    return render_template("servicos_terceiros.html", pagina="servicos_terceiros")
 _tela("/compras", "compras.html", "compras")
 _tela("/combustivel", "combustivel.html", "combustivel")
 _tela("/pneus", "pneus.html", "pneus")

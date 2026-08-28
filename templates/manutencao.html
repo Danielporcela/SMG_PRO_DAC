@@ -4,6 +4,10 @@
 {% block descricao %}Módulo 3 — abertura, execução, peças, serviços de terceiros e custo total calculado automaticamente.{% endblock %}
 {% block rotulo_novo %}Nova OS{% endblock %}
 {% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+{% block acoes %}
+  {% include "_filtro_periodo.html" %}
+  <button class="btn btn-primario" id="botaoNovo"><i class="fa-solid fa-plus me-1"></i> Nova OS</button>
+{% endblock %}
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoOS"></div>
@@ -29,7 +33,6 @@
             <select class="form-select form-select-sm" id="itemTipo">
               <option value="peca">Peça / material do estoque</option>
               <option value="servico_avulso">Serviço interno / avulso</option>
-              <option value="servico_terceiro">Serviço de terceiro</option>
             </select>
           </div>
           <div class="col-md-8 d-none" id="areaPrestadorServico">

@@ -760,6 +760,7 @@ class OrdemServico(db.Model):
             "custo_pecas": self.custo_pecas,
             "custo_total": self.custo_total, "dias_parado": self.dias_parado,
             "avaliacao": self.avaliacao, "qtd_anexos": len(self.anexos),
+            "identificacao": f"{self.numero or 'OS'} · {self.veiculo.prefixo if self.veiculo else 'sem veículo'}",
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
@@ -809,6 +810,49 @@ class ItemOS(db.Model):
                 "baixado_estoque": self.baixado_estoque,
                 "posicao_pneu": self.posicao_pneu,
                 "pneu_substituido_id": self.pneu_substituido_id}
+
+
+class ServicoTerceiro(db.Model):
+    """Despesa de serviço executado por prestador externo.
+
+    É um lançamento financeiro independente da OS: a ordem pode ser vinculada
+    apenas para referência, enquanto o gasto entra no painel pela data deste
+    registro. Isso evita deslocar despesas para o mês de abertura da OS.
+    """
+    __tablename__ = "servicos_terceiros"
+
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
+    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False, index=True)
+    ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"), index=True)
+    prestador = db.Column(db.String(120), nullable=False)
+    tipo_servico = db.Column(db.String(80))
+    descricao = db.Column(db.String(200), nullable=False)
+    valor = db.Column(db.Float, default=0, nullable=False)
+    documento = db.Column(db.String(80))
+    observacao = db.Column(db.Text)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    veiculo = db.relationship("Veiculo")
+    ordem = db.relationship("OrdemServico")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "data": self.data.isoformat() if self.data else None,
+            "veiculo_id": self.veiculo_id,
+            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+                              if self.veiculo else None),
+            "ordem_servico_id": self.ordem_servico_id,
+            "ordem_numero": self.ordem.numero if self.ordem else None,
+            "prestador": self.prestador,
+            "tipo_servico": self.tipo_servico,
+            "descricao": self.descricao,
+            "valor": round(self.valor or 0, 2),
+            "documento": self.documento,
+            "observacao": self.observacao,
+            "identificacao": f"{self.descricao} · {self.prestador}",
+        }
 
 
 class Abastecimento(db.Model):

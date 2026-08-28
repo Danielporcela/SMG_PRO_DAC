@@ -59,10 +59,12 @@ def criar_app(config=Config):
     with app.app_context():
         from services.compatibilidade_banco import (garantir_itens_os_servicos_terceiros,
                                                      garantir_ordens_compra,
-                                                     garantir_pecas_serial)
+                                                     garantir_pecas_serial,
+                                                     garantir_servicos_terceiros_financeiros)
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()
+        garantir_servicos_terceiros_financeiros()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço

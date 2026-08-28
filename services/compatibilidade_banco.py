@@ -108,3 +108,24 @@ def garantir_itens_os_servicos_terceiros():
         for nome, tipo in esperadas.items():
             if nome not in existentes:
                 conn.execute(text(f'ALTER TABLE "itens_os" ADD COLUMN "{nome}" {tipo}'))
+
+def garantir_servicos_terceiros_financeiros():
+    """Cria a tabela dos lançamentos financeiros de serviços de terceiros.
+
+    A OS é apenas uma referência opcional; a despesa é registrada pela própria
+    data do lançamento. Em instalações novas, ``db.create_all`` cria a tabela.
+    Em bancos já existentes, esta função adiciona a tabela sem alterar dados.
+    """
+    from models import ServicoTerceiro
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    # Em uma instalação totalmente nova, as tabelas-pai ainda serão criadas
+    # por db.create_all logo depois. Evita criar FK antes das tabelas-pai.
+    if "veiculos" not in tabelas or "ordens_servico" not in tabelas:
+        return
+    if "servicos_terceiros" not in tabelas:
+        ServicoTerceiro.__table__.create(engine, checkfirst=True)
+

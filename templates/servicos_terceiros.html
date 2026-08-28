@@ -1,0 +1,72 @@
+{% extends "lista.html" %}
+{% block titulo %}Serviços de terceiros{% endblock %}
+{% block cabecalho %}Serviços de terceiros{% endblock %}
+{% block descricao %}Despesas externas entram nos gastos imediatamente pela data deste lançamento, mesmo que a OS tenha sido aberta em outro mês.{% endblock %}
+{% block rotulo_novo %}Lançar serviço terceiro{% endblock %}
+{% block acoes %}{% include "_filtro_periodo.html" %}{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoTerceiros"></div>
+<div class="alert alert-light border mb-3" style="font-size:12.5px">
+  <i class="fa-solid fa-circle-info me-1" style="color:var(--petroleo)"></i>
+  <strong>Como funciona:</strong> ao salvar, o valor já entra em <strong>Manutenção</strong> e em
+  <strong>Gasto total</strong> do período pela data informada. A OS é opcional e serve apenas para
+  identificar onde o serviço foi aplicado.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const telaTerceiros = SGMF.tela({
+  recurso: 'servicos-terceiros',
+  tela: 'manutencao',
+  titulo: 'serviço terceiro',
+  filtroPeriodo: true,
+  ordem: [[0, 'desc']],
+  campos: [
+    { nome: 'data', rotulo: 'Data da despesa', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje,
+      ajuda: 'É esta data que define em qual mês o gasto será contabilizado.' },
+    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5, obrigatorio: true },
+    { nome: 'ordem_servico_id', rotulo: 'OS relacionada (opcional)', tipo: 'ref', recurso: 'ordens',
+      rotuloOpcao: 'numero', col: 4, vazio: '— sem OS —',
+      ajuda: 'Se escolher uma OS, ela precisa pertencer ao mesmo veículo.' },
+    { nome: 'prestador', rotulo: 'Prestador / empresa', col: 6, obrigatorio: true,
+      exemplo: 'Ex.: João Torneiro / Câmbio ABC' },
+    { nome: 'grupo', rotulo: 'Tipo / grupo', tipo: 'select', col: 6, padrao: 'Serviços de terceiros',
+      opcoes: ['Serviços de terceiros', 'Motor', 'Transmissão', 'Freios', 'Suspensão', 'Elétrica',
+               'Hidráulica', 'Arrefecimento', 'Pneus', 'Funilaria', 'Tornearia', 'Outros'] },
+    { nome: 'descricao', rotulo: 'Serviço executado', tipo: 'textarea', linhas: 2, col: 8, obrigatorio: true,
+      exemplo: 'Ex.: conserto da caixa de câmbio' },
+    { nome: 'valor', rotulo: 'Valor da despesa (R$)', tipo: 'number', col: 4, obrigatorio: true },
+    { nome: 'documento', rotulo: 'NF / recibo / documento', col: 4 },
+    { nome: 'observacao', rotulo: 'Observação', col: 8 }
+  ],
+  colunas: [
+    { campo: 'data', rotulo: 'Data', render: v => SGMF.data(v) },
+    { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'ordem_numero', rotulo: 'OS', classe: 'num', render: v => v ? `<strong>${v}</strong>` : '—' },
+    { campo: 'prestador', rotulo: 'Prestador' },
+    { campo: 'descricao', rotulo: 'Serviço' },
+    { campo: 'grupo', rotulo: 'Tipo', render: v => SGMF.etiqueta(v || 'Outros', 'ambar') },
+    { campo: 'documento', rotulo: 'Documento', render: v => v || '—' },
+    { campo: 'valor', rotulo: 'Despesa', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  aoRenderizar: (linhas) => {
+    const total = linhas.reduce((s, x) => s + (x.valor || 0), 0);
+    const veiculos = new Set(linhas.map(x => x.veiculo_id).filter(Boolean)).size;
+    document.getElementById('resumoTerceiros').innerHTML = `
+      <div class="medidor"><div class="rotulo">Lançamentos</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Veículos atendidos</div><div class="valor num">${veiculos}</div></div>
+      <div class="medidor atencao"><div class="rotulo">Despesas no período</div>
+        <div class="valor num" style="font-size:20px">${SGMF.moeda(total)}</div></div>`;
+  }
+});
+
+// Ao entrar pelo botão lateral (?novo=1), abre diretamente o formulário de lançamento.
+if (new URLSearchParams(window.location.search).get('novo') === '1') {
+  window.addEventListener('load', () => {
+    setTimeout(() => telaTerceiros.abrir(), 0);
+  });
+}
+</script>
+{% endblock %}
