@@ -5,7 +5,11 @@ from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify, request, send_file
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import (Alignment, Border, Font, PatternFill, Side)
+from openpyxl.styles import Alignment as openpyxl_align
+from openpyxl.styles import Border as openpyxl_border
+from openpyxl.styles import Font as openpyxl_font
+from openpyxl.styles import Side as openpyxl_side
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -13,8 +17,8 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from extensions import db
-from models import (Abastecimento, ItemOS, MovimentoEstoque, OrdemServico, Peca,
-                    Pneu, Veiculo)
+from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
+                    Peca, Pneu, Veiculo)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
 from services.restauracao import restaurar
@@ -32,6 +36,7 @@ TITULOS = {
     "movimentos": "Movimentação de estoque",
     "lubrificantes": "Óleos e fluidos",
     "custos": "Custos por veículo",
+    "gastos_nf": "Gastos com notas fiscais",
 }
 
 
@@ -85,7 +90,7 @@ def montar_dados(relatorio):
                    o.tipo, o.grupo or "—", o.status,
                    o.fornecedor.nome if o.fornecedor else "—", o.dias_parado,
                    o.custo_pecas, round(o.custo_mao_obra or 0, 2),
-                   round(o.custo_servicos or 0, 2), o.custo_total]
+                   o.custo_servicos_total, o.custo_total]
                   for o in q.order_by(OrdemServico.data_abertura).all()]
 
     elif relatorio == "veiculos":
@@ -235,6 +240,32 @@ def montar_dados(relatorio):
                "Total R$", "Custo/km R$", "Km/L", "Orçamento R$"]
         linhas = [[d["veiculo"], d["placa"], d["km"], d["combustivel"], d["manutencao"],
                    d["total"], d["custo_km"], d["consumo"], d["orcamento"]] for d in dados]
+
+    elif relatorio == "gastos_nf":
+        # Gasto real de compra de peças (Módulo 11): só entra a nota já
+        # finalizada (deu entrada de fato no estoque), contada pela data de
+        # entrada — igual ao que o painel usa em "gasto_compras". "Valor
+        # peças" é o mesmo valor que a tela de Estoque já mostra por nota;
+        # "Tributos" soma ICMS/PIS/COFINS/IBS/CBS lançados nos itens, só
+        # como referência fiscal.
+        def _tributos(nota):
+            return round(sum(nota._total_fiscal(campo) for campo in
+                             ("valor_icms", "valor_pis", "valor_cofins",
+                              "valor_ibs", "valor_cbs")), 2)
+
+        q = NotaFiscal.query.filter(NotaFiscal.status == "Finalizada",
+                                    NotaFiscal.data_entrada.between(inicio, fim))
+        if fornecedor_id:
+            q = q.filter(NotaFiscal.fornecedor_id == fornecedor_id)
+        notas = q.order_by(NotaFiscal.data_entrada, NotaFiscal.id).all()
+        cab = ["NF", "Emissão", "Entrada", "Fornecedor", "Itens",
+               "Valor peças R$", "Tributos R$", "Total R$"]
+        linhas = [[n.identificacao,
+                   n.data_emissao.strftime("%d/%m/%Y") if n.data_emissao else "—",
+                   n.data_entrada.strftime("%d/%m/%Y") if n.data_entrada else "—",
+                   n.fornecedor.nome if n.fornecedor else "—", len(n.itens),
+                   n.valor_total, _tributos(n), round(n.valor_total + _tributos(n), 2)]
+                  for n in notas]
     else:
         cab, linhas = ["Relatório"], [["Relatório não encontrado."]]
 
@@ -358,166 +389,269 @@ def exportar_pdf(relatorio):
                      download_name=f"sgmf_{relatorio}_{hoje():%Y%m%d}.pdf")
 
 
-@bp_relatorios.get("/itens_sem_valor.csv")
+@bp_relatorios.get("/mecanico/<mecanico>.pdf")
 @visualizar_tela("relatorios")
-def itens_sem_valor_csv():
-    """Itens de OS com valor unitário R$ 0 — exportação CSV."""
-    cab, linhas = _montar_itens_sem_valor()
-    buffer = io.StringIO()
-    escritor = csv.writer(buffer, delimiter=";")
-    escritor.writerow(cab)
-    escritor.writerows(linhas)
-    dados = io.BytesIO(buffer.getvalue().encode("utf-8-sig"))
-    return send_file(dados, mimetype="text/csv", as_attachment=True,
-                     download_name=f"sgmf_itens_sem_valor_{hoje():%Y%m%d}.csv")
+def relatorio_mecanico_pdf(mecanico):
+    """Relatório de produtividade de um mecânico em PDF."""
+    dados = _montar_dados_mecanico(mecanico)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=12*mm, rightMargin=12*mm,
+                            topMargin=12*mm, bottomMargin=12*mm)
+    estilos = getSampleStyleSheet()
+    elementos = [
+        Paragraph(f"Relatório de Serviços — {mecanico.title()}", estilos["Heading1"]),
+        Paragraph(
+            f"Período: {dados['inicio']:%d/%m/%Y} a {dados['fim']:%d/%m/%Y}  •  "
+            f"{dados['total_os']} OS  •  {dados['horas_totais']}h trabalhadas  •  "
+            f"Emitido em {agora():%d/%m/%Y %H:%M}",
+            estilos["Normal"]
+        ),
+        Spacer(1, 5*mm),
+    ]
+
+    # Resumo por tipo
+    resumo = [["Tipo", "Qtd OS", "Horas", "Custo total"]]
+    for linha in dados["por_tipo"]:
+        resumo.append([linha["tipo"], str(linha["qtd"]),
+                       linha["horas"], f"R$ {linha['custo']:,.2f}".replace(",","X").replace(".",",").replace("X",".")])
+    t = Table(resumo, colWidths=[60*mm, 30*mm, 30*mm, 50*mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#0F3D56")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F4F7FA")]),
+        ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
+        ("ALIGN", (1,0), (-1,-1), "CENTER"),
+    ]))
+    elementos += [Paragraph("Resumo por tipo de serviço", estilos["Heading2"]), t, Spacer(1, 4*mm)]
+
+    # Tabela de OS
+    cab = ["OS", "Data", "Veículo", "Tipo de serviço", "Situação", "Início", "Fim", "Horas", "Custo"]
+    linhas_tabela = [cab] + [[
+        o["numero"], o["data"], o["veiculo"], o["grupo"] or o["tipo"],
+        o["status"], o["hora_inicio"], o["hora_fim"], o["horas"], o["custo"]
+    ] for o in dados["ordens"]]
+
+    col_w = [18*mm, 22*mm, 30*mm, 38*mm, 24*mm, 16*mm, 16*mm, 16*mm, 22*mm]
+    tabela = Table(linhas_tabela, colWidths=col_w, repeatRows=1)
+    tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1A6B8A")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 7.5),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F4F7FA")]),
+        ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
+        ("ALIGN", (5,0), (-1,-1), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+    ]))
+    elementos += [Paragraph("Ordens de serviço executadas", estilos["Heading2"]), tabela]
+
+    # Itens mais usados
+    if dados["itens_frequentes"]:
+        elementos.append(Spacer(1, 4*mm))
+        cab_i = ["Peça / serviço", "Vezes usada", "Qtd total"]
+        linhas_i = [cab_i] + [[i["descricao"], str(i["vezes"]), f"{i['qtd_total']:.0f}"] for i in dados["itens_frequentes"][:15]]
+        t2 = Table(linhas_i, colWidths=[110*mm, 35*mm, 35*mm])
+        t2.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1A6B8A")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F4F7FA")]),
+            ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
+            ("ALIGN", (1,0), (-1,-1), "CENTER"),
+        ]))
+        elementos += [Paragraph("Peças / serviços mais usados", estilos["Heading2"]), t2]
+
+    doc.build(elementos)
+    buf.seek(0)
+    nome = f"mecanico_{mecanico.replace(' ','_')}_{hoje():%Y%m%d}.pdf"
+    return send_file(buf, as_attachment=True, mimetype="application/pdf",
+                     download_name=nome)
 
 
-@bp_relatorios.get("/itens_sem_valor.xlsx")
+@bp_relatorios.get("/mecanico/<mecanico>.xlsx")
 @visualizar_tela("relatorios")
-def itens_sem_valor_xlsx():
-    """Itens de OS com valor unitário R$ 0 — exportação Excel."""
-    cab, linhas = _montar_itens_sem_valor()
+def relatorio_mecanico_xlsx(mecanico):
+    """Relatório de produtividade de um mecânico em Excel."""
+    dados = _montar_dados_mecanico(mecanico)
     wb = Workbook()
     ws = wb.active
-    ws.title = "Itens sem valor"
+    ws.title = f"{mecanico[:20]}"
 
-    titulo_estilo = Font(bold=True, size=13, color="FFFFFF")
-    fundo_titulo = PatternFill("solid", fgColor="0F3D56")
-    cab_estilo = Font(bold=True, color="FFFFFF")
-    fundo_cab = PatternFill("solid", fgColor="1A6B8A")
-    fundo_alerta = PatternFill("solid", fgColor="FFF3CD")
+    cab_fill  = PatternFill("solid", fgColor="0F3D56")
+    sub_fill  = PatternFill("solid", fgColor="1A6B8A")
+    zebra     = PatternFill("solid", fgColor="F4F7FA")
+    lado = openpyxl_side(style="thin", color="CCCCCC")
+    borda = openpyxl_border(left=lado, right=lado, top=lado, bottom=lado)
 
-    ws.append([f"SGMF Pro · Itens de OS sem valor unitário"])
-    ws.append([f"Emitido em {agora():%d/%m/%Y %H:%M} · {len(linhas)} item(ns) encontrado(s)"])
-    ws.append([])
+    def _cel(ws, lin, col, val, bold=False, fundo=None, align="left", fmt=None):
+        c = ws.cell(row=lin, column=col, value=val)
+        c.font = openpyxl_font(bold=bold, size=10,
+                               color="FFFFFF" if fundo in (cab_fill, sub_fill) else "000000")
+        if fundo:
+            c.fill = fundo
+        c.alignment = openpyxl_align(horizontal=align, vertical="center")
+        c.border = borda
+        if fmt:
+            c.number_format = fmt
+        return c
 
-    for c in ws[1]:
-        c.font = titulo_estilo
-        c.fill = fundo_titulo
-    for c in ws[2]:
-        c.font = Font(italic=True, color="555555")
+    # Cabeçalho
+    ws.merge_cells("A1:I1")
+    c = ws.cell(row=1, column=1, value=f"Relatório de Serviços — {mecanico.title()}")
+    c.font = openpyxl_font(bold=True, size=13, color="FFFFFF")
+    c.fill = cab_fill
+    ws.row_dimensions[1].height = 28
 
-    ws.append(cab)
-    for c in ws[4]:
-        c.font = cab_estilo
-        c.fill = fundo_cab
-        c.alignment = Alignment(horizontal="center")
+    ws.merge_cells("A2:I2")
+    c2 = ws.cell(row=2, column=1,
+                 value=f"Período: {dados['inicio']:%d/%m/%Y} a {dados['fim']:%d/%m/%Y}  •  "
+                       f"{dados['total_os']} OS  •  {dados['horas_totais']}h trabalhadas")
+    c2.font = openpyxl_font(size=10, color="FFFFFF")
+    c2.fill = sub_fill
+    ws.row_dimensions[2].height = 18
 
-    for linha in linhas:
-        ws.append(linha)
-        # destaca em amarelo linhas de OS em aberto
-        status_idx = cab.index("Status OS") if "Status OS" in cab else -1
-        if status_idx >= 0:
-            celula_status = ws.cell(row=ws.max_row, column=status_idx + 1)
-            if celula_status.value == "Aberta":
-                for c in ws[ws.max_row]:
-                    c.fill = fundo_alerta
+    # Cabeçalho da tabela
+    cabs = ["OS","Data","Veículo","Tipo de serviço","Situação","Início","Fim","Horas","Custo R$"]
+    for i, cab in enumerate(cabs, 1):
+        _cel(ws, 3, i, cab, bold=True, fundo=sub_fill, align="center")
 
-    # larguras
-    larguras = [8, 14, 35, 15, 10, 10, 18, 20, 20]
-    for i, larg in enumerate(larguras, 1):
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = larg
+    for idx, o in enumerate(dados["ordens"]):
+        lin = idx + 4
+        fundo = zebra if idx % 2 == 0 else None
+        _cel(ws, lin, 1, o["numero"],           fundo=fundo, align="center")
+        _cel(ws, lin, 2, o["data"],              fundo=fundo, align="center")
+        _cel(ws, lin, 3, o["veiculo"],           fundo=fundo)
+        _cel(ws, lin, 4, o["grupo"] or o["tipo"],fundo=fundo)
+        _cel(ws, lin, 5, o["status"],            fundo=fundo, align="center")
+        _cel(ws, lin, 6, o["hora_inicio"],       fundo=fundo, align="center")
+        _cel(ws, lin, 7, o["hora_fim"],          fundo=fundo, align="center")
+        _cel(ws, lin, 8, o["horas"],             fundo=fundo, align="center")
+        _cel(ws, lin, 9, o["custo_num"],         fundo=fundo, align="right", fmt='R$ #,##0.00')
+
+    for col, larg in zip("ABCDEFGHI", [12, 14, 26, 32, 18, 10, 10, 10, 14]):
+        ws.column_dimensions[col].width = larg
+
+    # Aba de peças mais usadas
+    if dados["itens_frequentes"]:
+        ws2 = wb.create_sheet("Peças mais usadas")
+        for i, cab in enumerate(["Peça / serviço","Vezes usada","Qtd total"], 1):
+            _cel(ws2, 1, i, cab, bold=True, fundo=sub_fill, align="center")
+        for idx, it in enumerate(dados["itens_frequentes"], 2):
+            fundo = zebra if idx % 2 == 0 else None
+            _cel(ws2, idx, 1, it["descricao"], fundo=fundo)
+            _cel(ws2, idx, 2, it["vezes"],     fundo=fundo, align="center")
+            _cel(ws2, idx, 3, it["qtd_total"], fundo=fundo, align="center")
+        ws2.column_dimensions["A"].width = 50
+        ws2.column_dimensions["B"].width = 16
+        ws2.column_dimensions["C"].width = 16
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     as_attachment=True,
-                     download_name=f"sgmf_itens_sem_valor_{hoje():%Y%m%d}.xlsx")
+    nome = f"mecanico_{mecanico.replace(' ','_')}_{hoje():%Y%m%d}.xlsx"
+    return send_file(buf,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name=nome)
 
 
-@bp_relatorios.get("/itens_sem_valor.pdf")
+@bp_relatorios.get("/mecanicos.json")
 @visualizar_tela("relatorios")
-def itens_sem_valor_pdf():
-    """Itens de OS com valor unitário R$ 0 — exportação PDF."""
-    cab, linhas = _montar_itens_sem_valor()
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
-                            leftMargin=10 * mm, rightMargin=10 * mm,
-                            topMargin=10 * mm, bottomMargin=10 * mm)
-    estilos = getSampleStyleSheet()
-    elementos = [
-        Paragraph("SGMF Pro — Itens de OS sem valor unitário", estilos["Heading1"]),
-        Paragraph(
-            f"Emitido em {agora():%d/%m/%Y %H:%M} · {len(linhas)} item(ns) encontrado(s)",
-            estilos["Normal"]
-        ),
-        Spacer(1, 6 * mm),
-    ]
-
-    dados_tabela = [cab] + linhas
-    col_widths = [18*mm, 28*mm, 80*mm, 28*mm, 18*mm, 18*mm, 30*mm, 36*mm, 36*mm]
-    tabela = Table(dados_tabela, colWidths=col_widths, repeatRows=1)
-    tabela.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F3D56")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7.5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F4F7FA")]),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
-        ("ALIGN", (4, 0), (5, -1), "RIGHT"),
-        ("ALIGN", (0, 0), (0, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    elementos.append(tabela)
-    doc.build(elementos)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, mimetype="application/pdf",
-                     download_name=f"sgmf_itens_sem_valor_{hoje():%Y%m%d}.pdf")
-
-
-@bp_relatorios.get("/itens_sem_valor_count.json")
-@visualizar_tela("relatorios")
-def itens_sem_valor_count():
-    """Conta itens e OS distintas com valor_unitario = 0 — alimenta o cartão da tela."""
-    total = (
-        db.session.query(ItemOS)
-        .filter((ItemOS.valor_unitario == None) | (ItemOS.valor_unitario == 0))
-        .count()
-    )
-    os_distintas = (
-        db.session.query(ItemOS.ordem_servico_id)
-        .filter((ItemOS.valor_unitario == None) | (ItemOS.valor_unitario == 0))
+def listar_mecanicos_relatorio():
+    """Lista mecânicos únicos para popular o select da tela de Relatórios."""
+    from sqlalchemy import func
+    nomes = (
+        db.session.query(OrdemServico.mecanico)
+        .filter(OrdemServico.mecanico.isnot(None), OrdemServico.mecanico != "")
         .distinct()
-        .count()
-    )
-    return jsonify({"total": total, "os": os_distintas})
-
-
-def _montar_itens_sem_valor():
-    """Retorna (cabeçalhos, linhas) de todos os itens de OS com valor_unitario = 0."""
-    itens = (
-        db.session.query(ItemOS)
-        .join(OrdemServico, ItemOS.ordem_servico_id == OrdemServico.id)
-        .filter(
-            (ItemOS.valor_unitario == None) | (ItemOS.valor_unitario == 0)
-        )
-        .order_by(OrdemServico.data_abertura.desc(), OrdemServico.numero, ItemOS.id)
+        .order_by(func.lower(OrdemServico.mecanico))
         .all()
     )
+    vistos = {}
+    for (nome,) in nomes:
+        chave = nome.strip().upper()
+        if chave not in vistos:
+            vistos[chave] = nome.strip().title()
+    return jsonify(sorted(vistos.values()))
 
-    cab = ["OS", "Data abertura", "Descrição do item", "Grupo", "Qtd", "Vl. unit.", "Status OS", "Veículo", "Peça (código)"]
+
+def _montar_dados_mecanico(mecanico: str) -> dict:
+    """Monta todos os dados de um mecânico para os relatórios."""
+    from collections import Counter, defaultdict
+    inicio, fim = _periodo()
+
+    # OS do mecânico no período (busca por nome normalizado)
+    todas_os = OrdemServico.query.filter(
+        OrdemServico.data_abertura.between(inicio, fim)
+    ).all()
+    # Normaliza para achar "cleiton", "CLEITON", "Cleiton" como o mesmo
+    ordens = [o for o in todas_os
+              if (o.mecanico or "").strip().upper() == mecanico.strip().upper()]
+
+    # Montar linhas
     linhas = []
-    for it in itens:
-        os = it.ordem_servico_id and db.session.get(OrdemServico, it.ordem_servico_id)
-        if not os:
-            continue
-        veiculo = f"{os.veiculo.prefixo} / {os.veiculo.placa}" if os.veiculo else "—"
-        peca_cod = f"{it.peca.codigo} · {it.peca.descricao[:30]}" if it.peca else "—"
-        linhas.append([
-            os.numero or "—",
-            os.data_abertura.strftime("%d/%m/%Y") if os.data_abertura else "—",
-            it.descricao or "—",
-            it.grupo or "—",
-            round(it.quantidade or 0, 2),
-            "R$ 0,00",
-            os.status or "—",
-            veiculo,
-            peca_cod,
-        ])
-    return cab, linhas
+    horas_total_min = 0
+    for o in sorted(ordens, key=lambda x: x.data_abertura or hoje()):
+        dur = o.duracao_minutos
+        horas_str = f"{dur//60}h{dur%60:02d}m" if dur is not None else "—"
+        if dur:
+            horas_total_min += dur
+        linhas.append({
+            "numero":     o.numero or "—",
+            "data":       o.data_abertura.strftime("%d/%m/%Y") if o.data_abertura else "—",
+            "veiculo":    f"{o.veiculo.prefixo}/{o.veiculo.placa}" if o.veiculo else "—",
+            "tipo":       o.tipo or "—",
+            "grupo":      o.grupo or "",
+            "status":     o.status or "—",
+            "hora_inicio":o.hora_inicio.strftime("%H:%M") if o.hora_inicio else "—",
+            "hora_fim":   o.hora_fim.strftime("%H:%M") if o.hora_fim else "—",
+            "horas":      horas_str,
+            "custo":      f"R$ {o.custo_total:,.2f}".replace(",","X").replace(".",",").replace("X","."),
+            "custo_num":  o.custo_total,
+        })
+
+    # Resumo por tipo
+    por_tipo_d = defaultdict(lambda: {"qtd":0,"min":0,"custo":0})
+    for o in ordens:
+        t = o.tipo or "Outros"
+        por_tipo_d[t]["qtd"] += 1
+        por_tipo_d[t]["min"] += o.duracao_minutos or 0
+        por_tipo_d[t]["custo"] += o.custo_total
+    por_tipo = [{
+        "tipo": t, "qtd": v["qtd"],
+        "horas": f"{v['min']//60}h{v['min']%60:02d}m",
+        "custo": v["custo"]
+    } for t, v in sorted(por_tipo_d.items())]
+
+    # Itens mais usados
+    contador = Counter()
+    qtd_total = defaultdict(float)
+    for o in ordens:
+        for item in o.itens:
+            desc = (item.descricao or "").strip()
+            if desc:
+                contador[desc] += 1
+                qtd_total[desc] += item.quantidade or 0
+    itens_freq = [{"descricao": k, "vezes": v, "qtd_total": qtd_total[k]}
+                  for k, v in contador.most_common(20)]
+
+    horas_tot = f"{horas_total_min//60}h{horas_total_min%60:02d}m"
+
+    return {
+        "mecanico":       mecanico.title(),
+        "inicio":         inicio,
+        "fim":            fim,
+        "total_os":       len(ordens),
+        "horas_totais":   horas_tot,
+        "ordens":         linhas,
+        "por_tipo":       por_tipo,
+        "itens_frequentes": itens_freq,
+    }
 
 
 @bp_relatorios.get("/grupos-estoque.json")
@@ -563,13 +697,14 @@ def restaurar_backup():
 @visualizar_tela("relatorios")
 def backup():
     """Cópia integral dos dados em JSON — útil antes de qualquer manutenção."""
-    from models import Fornecedor, Motorista, Orcamento, Usuario
+    from models import Fornecedor, Motorista, Orcamento, ServicoTerceiro, Usuario
     pacote = {
         "gerado_em": agora().isoformat(),
         "veiculos": [v.to_dict() for v in Veiculo.query.all()],
         "motoristas": [m.to_dict() for m in Motorista.query.all()],
         "fornecedores": [f.to_dict() for f in Fornecedor.query.all()],
         "ordens": [o.to_dict(com_itens=True) for o in OrdemServico.query.all()],
+        "servicos_terceiros": [s.to_dict() for s in ServicoTerceiro.query.all()],
         "abastecimentos": [a.to_dict() for a in Abastecimento.query.all()],
         "pneus": [p.to_dict() for p in Pneu.query.all()],
         "pecas": [p.to_dict() for p in Peca.query.all()],

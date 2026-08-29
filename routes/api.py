@@ -400,6 +400,30 @@ registrar_crud(
     ordem=Orcamento.id.desc(), obrigatorios=("ano", "mes", "meta_valor"), tela="orcamento")
 
 
+# ------------------------------------------- Lista de mecânicos das OS
+@bp_api.get("/mecanicos-os")
+@login_obrigatorio
+def listar_mecanicos_os():
+    """Retorna os nomes únicos de mecânicos já cadastrados nas OS,
+    normalizados (sem duplicatas por capitalização), para popular o datalist."""
+    from sqlalchemy import func
+    nomes = (
+        db.session.query(OrdemServico.mecanico)
+        .filter(OrdemServico.mecanico.isnot(None),
+                OrdemServico.mecanico != "")
+        .distinct()
+        .order_by(func.lower(OrdemServico.mecanico))
+        .all()
+    )
+    # Deduplica por nome em maiúsculas (ex: "cleiton" e "CLEITON" viram um só)
+    vistos = {}
+    for (nome,) in nomes:
+        chave = nome.strip().upper()
+        if chave not in vistos:
+            vistos[chave] = nome.strip().title()
+    return jsonify(sorted(vistos.values()))
+
+
 # ------------------------------------------- Módulos 6, 9 e 10: painéis
 @bp_api.get("/painel/resumo")
 @visualizar_tela("dashboard")

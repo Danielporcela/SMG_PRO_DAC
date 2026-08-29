@@ -26,7 +26,6 @@
           <option value="repor">Para repor</option>
           <option value="ok">Estoque OK</option>
           <option value="grupo">Por grupo</option>
-          <option value="maior_saida">Maior saída</option>
         </select></div>
     </div>
   </div>
@@ -76,6 +75,8 @@ const RELATORIOS = [
     texto: 'OS do período com tipo, status, dias parado e custos abertos.' },
   { id: 'custos', nome: 'Custos por veículo', icone: 'fa-sack-dollar',
     texto: 'Consolidado de combustível, manutenção e custo por km.' },
+  { id: 'gastos_nf', nome: 'Gastos com notas fiscais', icone: 'fa-file-invoice-dollar',
+    texto: 'Notas fiscais de entrada finalizadas no período: peças, tributos e fornecedor.' },
   { id: 'veiculos', nome: 'Frota cadastrada', icone: 'fa-truck-front',
     texto: 'Situação, hodômetro e próxima troca de óleo de cada veículo.' },
   { id: 'pneus', nome: 'Controle de pneus', icone: 'fa-circle-dot',
@@ -85,7 +86,7 @@ const RELATORIOS = [
   { id: 'lubrificantes', nome: 'Óleos e fluidos', icone: 'fa-oil-can',
     texto: 'Entradas e saídas de óleos, fluidos e graxas, com veículo e OS.' },
   { id: 'estoque', nome: 'Posição de estoque', icone: 'fa-boxes-stacked',
-    texto: 'Inventário completo, itens para repor, estoque OK, por grupo ou peças com maior saída. Não inclui uniformes — o estoque deles fica na tela de Uniformes.' },
+    texto: 'Inventário completo, itens para repor, estoque OK ou impressão por grupo.' },
   { id: 'movimentos', nome: 'Movimentação de estoque', icone: 'fa-right-left',
     texto: 'Entradas, saídas e ajustes do período. Aceita o filtro de grupo.' }
 ];
@@ -155,53 +156,62 @@ document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
     </div>
   </div>`).join('');
 
-/* Cartão especial: itens de OS sem valor */
+/* ── Cartão: Relatório por Mecânico ─────────────────────────────────── */
 (function () {
   const grade = document.getElementById('cartoesRelatorios');
-  const cartaoExtra = document.createElement('div');
-  cartaoExtra.className = 'col-lg-4 col-md-6';
-  cartaoExtra.innerHTML = `
-    <div class="cartao h-100" style="border-left:3px solid var(--hi-vis)">
+  const cartao = document.createElement('div');
+  cartao.className = 'col-lg-4 col-md-6';
+  cartao.innerHTML = `
+    <div class="cartao h-100" style="border-left:3px solid var(--petroleo)">
       <div class="cartao-corpo">
         <h3 style="font-size:16px">
-          <i class="fa-solid fa-triangle-exclamation me-2" style="color:var(--hi-vis)"></i>
-          Itens de OS sem valor
+          <i class="fa-solid fa-helmet-safety me-2" style="color:var(--petroleo)"></i>
+          Relatório por mecânico
         </h3>
-        <p class="mt-2 mb-1" style="font-size:13px;color:var(--texto-suave)">
-          Peças lançadas em OS com valor unitário R$&nbsp;0,00. Use este relatório para
-          localizar e corrigir os preços, garantindo que o Painel reflita o custo real
-          da frota. Não usa filtro de período — mostra tudo que está pendente.
+        <p class="mt-2 mb-3" style="font-size:13px;color:var(--texto-suave)">
+          OS executadas, horas trabalhadas, tipo de serviço e peças mais usadas
+          por cada mecânico no período selecionado.
         </p>
-        <p class="mb-3" style="font-size:12px;font-weight:600" id="contadorSemValor">
-          <i class="fa-solid fa-spinner fa-spin me-1"></i> Verificando…
-        </p>
+        <div class="mb-2">
+          <select class="form-select form-select-sm" id="selectMecanico">
+            <option value="">Carregando mecânicos...</option>
+          </select>
+        </div>
         <div class="d-flex gap-2 flex-wrap">
-          <a class="btn btn-primario btn-sm" href="/relatorios/itens_sem_valor.pdf" target="_blank">
-            <i class="fa-solid fa-file-pdf me-1"></i> PDF</a>
-          <a class="btn btn-contorno btn-sm" href="/relatorios/itens_sem_valor.xlsx">
-            <i class="fa-solid fa-file-excel me-1"></i> Excel</a>
-          <a class="btn btn-contorno btn-sm" href="/relatorios/itens_sem_valor.csv">
-            <i class="fa-solid fa-file-csv me-1"></i> CSV</a>
+          <button class="btn btn-primario btn-sm" onclick="baixarMecanico('pdf')">
+            <i class="fa-solid fa-file-pdf me-1"></i> PDF</button>
+          <button class="btn btn-contorno btn-sm" onclick="baixarMecanico('xlsx')">
+            <i class="fa-solid fa-file-excel me-1"></i> Excel</button>
         </div>
       </div>
     </div>`;
-  grade.appendChild(cartaoExtra);
+  grade.appendChild(cartao);
 
-  fetch('/relatorios/itens_sem_valor_count.json', { credentials: 'same-origin' })
+  // Carregar lista de mecânicos
+  fetch('/relatorios/mecanicos.json', { credentials: 'same-origin' })
     .then(r => r.ok ? r.json() : Promise.reject())
-    .then(dados => {
-      const el = document.getElementById('contadorSemValor');
-      if (dados.total === 0) {
-        el.style.color = 'green';
-        el.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i> Nenhum item sem valor — tudo OK!';
-      } else {
-        el.style.color = 'var(--hi-vis)';
-        el.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i>
-          ${dados.total} item(ns) sem valor em ${dados.os} OS`;
+    .then(lista => {
+      const sel = document.getElementById('selectMecanico');
+      if (!lista.length) {
+        sel.innerHTML = '<option value="">Nenhum mecânico cadastrado ainda</option>';
+        return;
       }
+      sel.innerHTML = '<option value="">— selecione o mecânico —</option>' +
+        lista.map(m => `<option value="${SGMF.esc(m)}">${SGMF.esc(m)}</option>`).join('');
     })
-    .catch(() => { const el = document.getElementById('contadorSemValor'); if (el) el.textContent = ''; });
+    .catch(() => {
+      const sel = document.getElementById('selectMecanico');
+      if (sel) sel.innerHTML = '<option value="">Erro ao carregar</option>';
+    });
 })();
+
+function baixarMecanico(fmt) {
+  const sel = document.getElementById('selectMecanico');
+  const mecanico = sel ? sel.value : '';
+  if (!mecanico) return SGMF.aviso('Selecione um mecânico.');
+  const p = parametros();
+  window.location = `/relatorios/mecanico/${encodeURIComponent(mecanico)}.${fmt}?${p}`;
+}
 
 const botaoRestaurar = document.getElementById('botaoRestaurar');
 if (botaoRestaurar) {

@@ -134,7 +134,8 @@ const telaOS = SGMF.tela({
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
     { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4 },
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4,
+      tipo: 'datalist', opcoesDinamicas: 'mecanicos' },
     { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
       ajuda: 'Preenchida sozinha ao finalizar.' },
     { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
@@ -150,8 +151,11 @@ const telaOS = SGMF.tela({
     { campo: 'grupo', rotulo: 'Tipo de serviço', render: v => v || '—' },
 
     { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
+    { campo: 'mecanico', rotulo: 'Mecânico', render: v => v || '—' },
     { campo: 'hora_inicio', rotulo: 'Início', classe: 'num', render: v => v || '—' },
     { campo: 'hora_fim', rotulo: 'Fim', classe: 'num', render: v => v || '—' },
+    { campo: 'duracao_minutos', rotulo: 'Horas', classe: 'num',
+      render: v => v != null ? `${Math.floor(v/60)}h ${String(v%60).padStart(2,'0')}m` : '—' },
     { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
     { campo: 'custo_pecas', rotulo: 'Peças', classe: 'num text-end', render: v => SGMF.moeda(v) },
     { campo: 'custo_servicos_total', rotulo: 'Serviços', classe: 'num text-end', render: v => SGMF.moeda(v) },
@@ -183,6 +187,30 @@ const telaOS = SGMF.tela({
       () => telaOS.carregar());
   }
 });
+
+/* ─── Lista de mecânicos para o datalist ─────────────────────────────── */
+(async () => {
+  try {
+    const mecanicos = await SGMF.get('/api/mecanicos-os');
+    const dl = document.createElement('datalist');
+    dl.id = 'listaMecanicos';
+    mecanicos.forEach(nome => {
+      const opt = document.createElement('option');
+      opt.value = nome;
+      dl.appendChild(opt);
+    });
+    document.body.appendChild(dl);
+    // Ligar o datalist ao campo do formulário quando ele for renderizado
+    const observer = new MutationObserver(() => {
+      const campo = document.querySelector('input[name="mecanico"], input[placeholder*="ecânico"]');
+      if (campo && !campo.getAttribute('list')) {
+        campo.setAttribute('list', 'listaMecanicos');
+        campo.setAttribute('autocomplete', 'off');
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  } catch (e) { /* sem mecânicos ainda — campo funciona como texto livre */ }
+})();
 
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
