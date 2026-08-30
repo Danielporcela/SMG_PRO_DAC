@@ -24,8 +24,11 @@ def periodo_padrao(inicio=None, fim=None):
 
 
 def _custo_os(inicio, fim, veiculo_id=None):
-    """Custo total de manutenção (peças + mão de obra + serviços) no período."""
-    q = OrdemServico.query.filter(OrdemServico.data_abertura.between(inicio, fim))
+    """Custo da frota, excluindo setores antigos que eram veículos artificiais."""
+    q = (OrdemServico.query
+         .join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
+         .filter(OrdemServico.data_abertura.between(inicio, fim),
+                 Veiculo.grupo_consumo_legado.isnot(True)))
     if veiculo_id:
         q = q.filter(OrdemServico.veiculo_id == veiculo_id)
     return q.all()
@@ -52,7 +55,9 @@ def _notas_finalizadas(inicio, fim):
 def _custo_km_historico(ate, veiculo_id=None):
     """Custo por km da frota antes do período — a régua da comparação."""
     q_ab = Abastecimento.query.filter(Abastecimento.data < ate)
-    q_os = OrdemServico.query.filter(OrdemServico.data_abertura < ate)
+    q_os = (OrdemServico.query.join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
+            .filter(OrdemServico.data_abertura < ate,
+                    Veiculo.grupo_consumo_legado.isnot(True)))
     q_terc = ServicoTerceiro.query.filter(ServicoTerceiro.data < ate)
     if veiculo_id:
         q_ab = q_ab.filter(Abastecimento.veiculo_id == veiculo_id)
@@ -89,7 +94,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         q_ab = q_ab.filter(Abastecimento.veiculo_id == veiculo_id)
     abastecimentos = q_ab.all()
 
-    veiculos = Veiculo.query.filter_by(ativo=True)
+    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                    Veiculo.grupo_consumo_legado.isnot(True))
     if veiculo_id:
         veiculos = veiculos.filter(Veiculo.id == veiculo_id)
     veiculos = veiculos.all()
@@ -114,7 +120,9 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     mtbf = round((total_veic * dias_periodo) / len(corretivas), 1) if corretivas else 0
 
     orcado = db.session.query(func.sum(Orcamento.meta_valor)).filter(
-        Orcamento.ano == fim.year, Orcamento.mes == fim.month).scalar() or 0
+        Orcamento.ano == fim.year, Orcamento.mes == fim.month,
+        Orcamento.grupo_consumo_id.is_(None),
+        ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True))).scalar() or 0
 
     # Economia do período: quanto o custo por km atual está melhor (ou pior)
     # que a média histórica, aplicado aos km rodados agora.
@@ -186,18 +194,21 @@ def series_graficos(inicio=None, fim=None):
         meses.append(f"{MESES[ref.month - 1]}/{str(ref.year)[2:]}")
         comb_mes.append(round(db.session.query(func.sum(Abastecimento.valor_total))
                               .filter(Abastecimento.data.between(ini, f)).scalar() or 0, 2))
-        ordens = OrdemServico.query.filter(OrdemServico.data_abertura.between(ini, f)).all()
+        ordens = _custo_os(ini, f)
         terceiros = _servicos_terceiros(ini, f)
         manut_mes.append(round(sum(o.custo_total for o in ordens)
                                + sum(s.valor or 0 for s in terceiros), 2))
         compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
-                              .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month)
+                              .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month,
+                                      Orcamento.grupo_consumo_id.is_(None),
+                                      ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True)))
                               .scalar() or 0, 2))
 
     # custo por veículo no período
     por_veiculo = []
-    for v in Veiculo.query.filter_by(ativo=True).all():
+    for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                  Veiculo.grupo_consumo_legado.isnot(True)).all():
         ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
                                            OrdemServico.data_abertura.between(inicio, fim)).all()
         terceiros = _servicos_terceiros(inicio, fim, v.id)
@@ -233,8 +244,9 @@ def series_graficos(inicio=None, fim=None):
         registro["quantidade"] += qtd
         registro["valor"] += valor
 
-    for item in (db.session.query(ItemOS).join(OrdemServico)
-                 .filter(OrdemServico.data_abertura.between(inicio, fim)).all()):
+    for item in (db.session.query(ItemOS).join(OrdemServico).join(Veiculo)
+                 .filter(OrdemServico.data_abertura.between(inicio, fim),
+                         Veiculo.grupo_consumo_legado.isnot(True)).all()):
         chave = item.grupo or (item.peca.grupo if item.peca else None) or "Outros"
         grupos[chave] = round(grupos.get(chave, 0) + (item.quantidade or 0) * (item.valor_unitario or 0), 2)
 
@@ -253,6 +265,7 @@ def series_graficos(inicio=None, fim=None):
     for mov in (MovimentoEstoque.query
                 .filter(MovimentoEstoque.tipo == "saida",
                         MovimentoEstoque.ordem_servico_id.is_(None),
+                        MovimentoEstoque.grupo_consumo_id.is_(None),
                         MovimentoEstoque.data.between(inicio, fim)).all()):
         if not mov.peca:
             continue
@@ -269,8 +282,7 @@ def series_graficos(inicio=None, fim=None):
         if len(p["peca"]) > 58:      # etiqueta curta para caber no gráfico
             p["peca"] = p["peca"][:57] + "…"
 
-    ordens_periodo = OrdemServico.query.filter(
-        OrdemServico.data_abertura.between(inicio, fim)).all()
+    ordens_periodo = _custo_os(inicio, fim)
     tipos = {"Preventiva": 0, "Corretiva": 0, "Emergencial": 0}
     for o in ordens_periodo:
         tipos[o.tipo] = tipos.get(o.tipo, 0) + 1
@@ -317,7 +329,8 @@ def rankings(inicio=None, fim=None):
 
     dados = series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo"]
     parados = []
-    for v in Veiculo.query.filter_by(ativo=True).all():
+    for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                  Veiculo.grupo_consumo_legado.isnot(True)).all():
         ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
                                            OrdemServico.data_abertura.between(inicio, fim)).all()
         parados.append({"veiculo": v.prefixo, "placa": v.placa,
@@ -346,7 +359,8 @@ def alertas():
         saida.append({"nivel": nivel, "categoria": categoria, "titulo": titulo,
                       "detalhe": detalhe, "referencia": referencia})
 
-    for v in Veiculo.query.filter_by(ativo=True).all():
+    for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                  Veiculo.grupo_consumo_legado.isnot(True)).all():
         # troca de óleo
         if v.intervalo_troca_oleo:
             faltam = v.km_proxima_troca_oleo - (v.hodometro or 0)
@@ -421,8 +435,10 @@ def alertas():
     limite = hoje - timedelta(days=90)
     recorrentes = (db.session.query(OrdemServico.veiculo_id, OrdemServico.grupo,
                                     func.count(OrdemServico.id))
+                   .join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
                    .filter(OrdemServico.data_abertura >= limite,
-                           OrdemServico.tipo.in_(["Corretiva", "Emergencial"]))
+                           OrdemServico.tipo.in_(["Corretiva", "Emergencial"]),
+                           Veiculo.grupo_consumo_legado.isnot(True))
                    .group_by(OrdemServico.veiculo_id, OrdemServico.grupo)
                    .having(func.count(OrdemServico.id) >= 3).all())
     for veiculo_id, grupo, qtd in recorrentes:

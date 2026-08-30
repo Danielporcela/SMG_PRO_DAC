@@ -4,7 +4,7 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, ItemOS, ItemOSPecaSerial, LogAuditoria,
+from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, LogAuditoria,
                     Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca, PecaSerial,
                     Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
 from services import indicadores
@@ -35,6 +35,19 @@ def _filtro_periodo(campo):
 
 
 # ------------------------------------------------------- Módulo 1: veículos
+def _filtrar_veiculos_frota(q, args):
+    return q.filter(Veiculo.grupo_consumo_legado.isnot(True))
+
+
+def _antes_veiculo(obj, dados, anterior):
+    obj.placa = (obj.placa or "").upper().replace("-", "")
+    from services.grupos_consumo import nome_grupo_consumo_legado
+    grupo = nome_grupo_consumo_legado(obj)
+    if grupo:
+        raise ErroNegocio(
+            f"{grupo} é um grupo de consumo. Cadastre e dê baixa pelo menu Grupos de consumo.")
+
+
 registrar_crud(
     bp_api, "veiculos", Veiculo,
     campos={"prefixo": "str", "placa": "str", "marca": "str", "modelo": "str",
@@ -44,7 +57,7 @@ registrar_crud(
             "data_ultima_preventiva": "date", "intervalo_preventiva_dias": "int",
             "orcamento_mensal": "float", "observacao": "str", "ativo": "bool"},
     ordem=Veiculo.prefixo, obrigatorios=("prefixo", "placa"), tela="veiculos",
-    antes_salvar=lambda o, d, a: setattr(o, "placa", (o.placa or "").upper().replace("-", "")))
+    antes_salvar=_antes_veiculo, filtrar=_filtrar_veiculos_frota)
 
 
 # ------------------------------------------------- Módulo 2: motoristas
@@ -378,7 +391,17 @@ def listar_movimentos():
     q = _filtro_periodo(MovimentoEstoque.data)(q, request.args)
     q = q.order_by(MovimentoEstoque.id.desc())
     movimentos = q.all() if peca_id else q.limit(500).all()
-    return jsonify([m.to_dict() for m in movimentos])
+    dados = []
+    from services.grupos_consumo import grupo_para_ordem
+    for movimento in movimentos:
+        item = movimento.to_dict()
+        if not item.get("grupo_consumo_id") and movimento.ordem_servico_id:
+            grupo = grupo_para_ordem(movimento.ordem_servico_id)
+            if grupo:
+                item["grupo_consumo_id"] = grupo.id
+                item["grupo_consumo_nome"] = grupo.nome
+        dados.append(item)
+    return jsonify(dados)
 
 
 @bp_api.post("/movimentos")
@@ -398,11 +421,42 @@ def criar_movimento():
 
 
 # --------------------------------------------------------- Módulo 8: orçamento
+def _serializar_orcamento(obj):
+    dado = obj.to_dict()
+    if not obj.grupo_consumo_id and obj.veiculo and obj.veiculo.grupo_consumo_legado:
+        from services.grupos_consumo import grupo_para_veiculo_legado
+        grupo = grupo_para_veiculo_legado(obj.veiculo)
+        if grupo:
+            dado["grupo_consumo_id"] = grupo.id
+            dado["grupo_consumo_nome"] = grupo.nome
+            dado["veiculo_id"] = None
+            dado["veiculo_nome"] = None
+            dado["categoria"] = "Consumo interno"
+            dado["centro_custo"] = grupo.nome
+    return dado
+
+
+def _antes_orcamento(obj, dados, anterior):
+    if obj.grupo_consumo_id and obj.veiculo_id:
+        raise ErroNegocio("Escolha um veículo ou um grupo de consumo, não os dois.")
+    if obj.grupo_consumo_id:
+        grupo = db.session.get(GrupoConsumo, obj.grupo_consumo_id)
+        if not grupo:
+            raise ErroNegocio("Grupo de consumo não encontrado.")
+        obj.categoria = "Consumo interno"
+        obj.centro_custo = grupo.nome
+    elif obj.veiculo_id:
+        veiculo = db.session.get(Veiculo, obj.veiculo_id)
+        if not veiculo or veiculo.grupo_consumo_legado:
+            raise ErroNegocio("Selecione um veículo válido da frota.")
+
+
 registrar_crud(
     bp_api, "orcamentos", Orcamento,
     campos={"ano": "int", "mes": "int", "categoria": "str", "veiculo_id": "int",
-            "centro_custo": "str", "meta_valor": "float"},
-    ordem=Orcamento.id.desc(), obrigatorios=("ano", "mes", "meta_valor"), tela="orcamento")
+            "centro_custo": "str", "grupo_consumo_id": "int", "meta_valor": "float"},
+    ordem=Orcamento.id.desc(), obrigatorios=("ano", "mes", "meta_valor"), tela="orcamento",
+    antes_salvar=_antes_orcamento, serializar=_serializar_orcamento)
 
 
 # ------------------------------------------- Lista de mecânicos das OS

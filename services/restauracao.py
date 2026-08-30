@@ -12,13 +12,13 @@ Regras de segurança adotadas:
 from datetime import date
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, ItemOS, Motorista, MovimentoEstoque,
+from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, Motorista, MovimentoEstoque,
                     Orcamento, OrdemServico, Peca, Pneu, ServicoTerceiro, Veiculo)
 from services.crud import ErroNegocio
 
 # ordem de exclusão: filhos antes dos pais
 ORDEM_LIMPEZA = [ItemOS, MovimentoEstoque, ServicoTerceiro, Abastecimento, OrdemServico, Pneu,
-                 Orcamento, Peca, Veiculo, Motorista, Fornecedor]
+                 Orcamento, GrupoConsumo, Peca, Veiculo, Motorista, Fornecedor]
 
 # (chave no arquivo, modelo, campos aceitos)
 TABELAS = [
@@ -31,7 +31,10 @@ TABELAS = [
      ["id", "prefixo", "placa", "marca", "modelo", "ano", "tipo", "combustivel",
       "centro_custo", "setor", "hodometro", "horimetro", "situacao",
       "km_ultima_troca_oleo", "intervalo_troca_oleo", "data_ultima_preventiva",
-      "intervalo_preventiva_dias", "orcamento_mensal", "observacao", "ativo"]),
+      "intervalo_preventiva_dias", "orcamento_mensal", "observacao", "ativo",
+      "grupo_consumo_legado"]),
+    ("grupos_consumo", GrupoConsumo,
+     ["id", "nome", "descricao", "ativo"]),
     ("pecas", Peca,
      ["id", "codigo", "descricao", "grupo", "unidade", "quantidade", "estoque_minimo",
       "custo_unitario", "localizacao", "fornecedor_id"]),
@@ -50,10 +53,11 @@ TABELAS = [
      ["id", "numero_fogo", "veiculo_id", "posicao", "marca", "medida", "sulco_mm",
       "vida", "km_instalacao", "data_instalacao", "data_medicao", "status", "custo"]),
     ("orcamentos", Orcamento,
-     ["id", "ano", "mes", "categoria", "veiculo_id", "centro_custo", "meta_valor"]),
+     ["id", "ano", "mes", "categoria", "veiculo_id", "centro_custo",
+      "grupo_consumo_id", "meta_valor"]),
     ("movimentos", MovimentoEstoque,
      ["id", "data", "peca_id", "tipo", "quantidade", "custo_unitario", "documento",
-      "ordem_servico_id", "observacao"]),
+      "ordem_servico_id", "observacao", "usuario_id", "usuario_nome", "grupo_consumo_id"]),
 ]
 
 CAMPOS_DATA = {"data", "data_abertura", "data_fechamento", "validade_cnh",
@@ -107,6 +111,9 @@ def restaurar(pacote):
                 itens += 1
         resumo["itens_os"] = itens
 
+        from services.grupos_consumo import garantir_grupos_padrao, marcar_veiculos_grupo_consumo_legado
+        garantir_grupos_padrao()
+        marcar_veiculos_grupo_consumo_legado()
         db.session.commit()
     except ErroNegocio:
         db.session.rollback()

@@ -1,7 +1,7 @@
 {% extends "lista.html" %}
 {% block titulo %}Meta x realizado{% endblock %}
 {% block cabecalho %}Meta × realizado{% endblock %}
-{% block descricao %}Módulo 8 — defina a meta mensal de gasto e acompanhe o realizado da frota.{% endblock %}
+{% block descricao %}Módulo 8 — defina metas mensais para a frota e para os grupos de consumo.{% endblock %}
 {% block rotulo_novo %}Nova meta{% endblock %}
 
 {% block antes_tabela %}
@@ -27,17 +27,20 @@ SGMF.tela({
       padrao: new Date().getMonth() + 1,
       opcoes: MESES.map((m, i) => ({ valor: i + 1, texto: m })) },
     { nome: 'categoria', rotulo: 'Categoria', tipo: 'select', col: 3, padrao: 'Manutenção',
-      opcoes: ['Manutenção', 'Combustível', 'Pneus', 'Geral'] },
+      opcoes: ['Manutenção', 'Combustível', 'Pneus', 'Consumo interno', 'Geral'] },
     { nome: 'meta_valor', rotulo: 'Meta (R$)', tipo: 'number', col: 3, obrigatorio: true },
-    { nome: 'veiculo_id', rotulo: 'Veículo (opcional)', tipo: 'ref', recurso: 'veiculos', col: 6,
-      ajuda: 'Deixe vazio para uma meta geral da frota.' },
-    { nome: 'centro_custo', rotulo: 'Centro de custo', col: 6 }
+    { nome: 'veiculo_id', rotulo: 'Veículo (opcional)', tipo: 'ref', recurso: 'veiculos', col: 4,
+      ajuda: 'Use para metas específicas da frota.' },
+    { nome: 'grupo_consumo_id', rotulo: 'Grupo de consumo (opcional)', tipo: 'ref', recurso: 'grupos-consumo', col: 4,
+      ajuda: 'Use para metas de Limpeza, CCO, Oficina e demais setores.' },
+    { nome: 'centro_custo', rotulo: 'Centro de custo', col: 4 }
   ],
   colunas: [
     { campo: 'ano', rotulo: 'Ano', classe: 'num' },
     { campo: 'mes', rotulo: 'Mês', render: v => MESES[v - 1] },
     { campo: 'categoria', rotulo: 'Categoria', render: v => SGMF.etiqueta(v, 'azul') },
-    { campo: 'veiculo_nome', rotulo: 'Veículo', render: v => v || 'Frota inteira' },
+    { campo: 'veiculo_nome', rotulo: 'Veículo', render: v => v || '—' },
+    { campo: 'grupo_consumo_nome', rotulo: 'Grupo de custo', render: v => v || '—' },
     { campo: 'centro_custo', rotulo: 'Centro de custo' },
     { campo: 'meta_valor', rotulo: 'Meta', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],

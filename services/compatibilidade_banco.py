@@ -146,3 +146,36 @@ def garantir_usuario_movimentos_estoque():
             if nome not in existentes:
                 conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "{nome}" {tipo}'))
 
+
+
+def garantir_grupos_consumo():
+    """Cria grupos de consumo e vínculos opcionais sem excluir dados existentes."""
+    from models import GrupoConsumo
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "veiculos" not in tabelas:
+        return
+    if "grupos_consumo" not in tabelas:
+        GrupoConsumo.__table__.create(engine, checkfirst=True)
+
+    estruturas = {
+        "veiculos": {"grupo_consumo_legado": "BOOLEAN DEFAULT FALSE"},
+        "movimentos_estoque": {"grupo_consumo_id": "INTEGER"},
+        "orcamentos": {"grupo_consumo_id": "INTEGER"},
+    }
+    with engine.begin() as conn:
+        for tabela, colunas in estruturas.items():
+            if tabela not in set(inspect(engine).get_table_names()):
+                continue
+            existentes = {c["name"] for c in inspect(engine).get_columns(tabela)}
+            for nome, tipo in colunas.items():
+                if nome not in existentes:
+                    conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+    from services.grupos_consumo import garantir_grupos_padrao, marcar_veiculos_grupo_consumo_legado
+    garantir_grupos_padrao()
+    marcar_veiculos_grupo_consumo_legado()
+    db.session.commit()

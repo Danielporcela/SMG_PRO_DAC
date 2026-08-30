@@ -17,7 +17,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from extensions import db
-from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
+from models import (Abastecimento, GrupoConsumo, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Peca, Pneu, Veiculo)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
@@ -36,6 +36,7 @@ TITULOS = {
     "movimentos": "Movimentação de estoque",
     "lubrificantes": "Óleos e fluidos",
     "custos": "Custos por veículo",
+    "custos_grupos": "Custos por grupo de consumo",
     "gastos_nf": "Gastos com notas fiscais",
 }
 
@@ -54,6 +55,7 @@ def montar_dados(relatorio):
     fornecedor_id = request.args.get("fornecedor_id", type=int)
     centro_custo = request.args.get("centro_custo")
     grupo = request.args.get("grupo")
+    grupo_consumo_id = request.args.get("grupo_consumo_id", type=int)
     status_peca = (request.args.get("status_peca") or "inventario").strip().lower()
 
     if relatorio == "abastecimentos":
@@ -77,7 +79,9 @@ def montar_dados(relatorio):
                   for a in q.order_by(Abastecimento.data).all()]
 
     elif relatorio == "manutencoes":
-        q = OrdemServico.query.filter(OrdemServico.data_abertura.between(inicio, fim))
+        q = (OrdemServico.query.join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
+             .filter(OrdemServico.data_abertura.between(inicio, fim),
+                     Veiculo.grupo_consumo_legado.isnot(True)))
         if veiculo_id:
             q = q.filter(OrdemServico.veiculo_id == veiculo_id)
         if fornecedor_id:
@@ -94,7 +98,7 @@ def montar_dados(relatorio):
                   for o in q.order_by(OrdemServico.data_abertura).all()]
 
     elif relatorio == "veiculos":
-        q = Veiculo.query
+        q = Veiculo.query.filter(Veiculo.grupo_consumo_legado.isnot(True))
         if centro_custo:
             q = q.filter(Veiculo.centro_custo == centro_custo)
         if veiculo_id:
@@ -241,6 +245,16 @@ def montar_dados(relatorio):
         linhas = [[d["veiculo"], d["placa"], d["km"], d["combustivel"], d["manutencao"],
                    d["total"], d["custo_km"], d["consumo"], d["orcamento"]] for d in dados]
 
+    elif relatorio == "custos_grupos":
+        from services.grupos_consumo import custos_por_grupo
+        dados = custos_por_grupo(inicio, fim)
+        if grupo_consumo_id:
+            dados = [d for d in dados if d["id"] == grupo_consumo_id]
+        cab = ["Grupo de consumo", "Retiradas", "Quantidade", "Realizado R$",
+               "Meta R$", "Saldo da meta R$", "Situação"]
+        linhas = [[d["nome"], d["movimentos"], d["quantidade"], d["realizado"],
+                   d["meta"], d["saldo_meta"], d["situacao"]] for d in dados]
+
     elif relatorio == "gastos_nf":
         # Gasto real de compra de peças (Módulo 11): só entra a nota já
         # finalizada (deu entrada de fato no estoque), contada pela data de
@@ -285,6 +299,7 @@ def _rotulo_status_peca():
 def _descricao_filtros(relatorio):
     partes = []
     grupo = request.args.get("grupo")
+    grupo_consumo_id = request.args.get("grupo_consumo_id", type=int)
     if relatorio == "estoque":
         partes.append(_rotulo_status_peca())
     if grupo:
@@ -701,6 +716,7 @@ def backup():
     pacote = {
         "gerado_em": agora().isoformat(),
         "veiculos": [v.to_dict() for v in Veiculo.query.all()],
+        "grupos_consumo": [g.to_dict() for g in GrupoConsumo.query.all()],
         "motoristas": [m.to_dict() for m in Motorista.query.all()],
         "fornecedores": [f.to_dict() for f in Fornecedor.query.all()],
         "ordens": [o.to_dict(com_itens=True) for o in OrdemServico.query.all()],

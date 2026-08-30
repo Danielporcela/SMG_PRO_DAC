@@ -61,7 +61,8 @@ def validar_km(abast):
 
 # ---------------------------------------------------------------- estoque
 def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
-                       documento=None, observacao=None, usuario_id=None, usuario_nome=None):
+                       documento=None, observacao=None, usuario_id=None, usuario_nome=None,
+                       grupo_consumo_id=None):
     """Entrada, saída ou ajuste com registro do movimento e do responsável."""
     if has_request_context():
         if usuario_id is None:
@@ -112,7 +113,8 @@ def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
         peca_id=peca.id, tipo=tipo, quantidade=quantidade,
         custo_unitario=float(custo_unitario or peca.custo_unitario or 0),
         ordem_servico_id=os_id, documento=documento, observacao=observacao,
-        usuario_id=usuario_id, usuario_nome=usuario_nome))
+        usuario_id=usuario_id, usuario_nome=usuario_nome,
+        grupo_consumo_id=grupo_consumo_id))
     return peca
 
 
@@ -123,9 +125,13 @@ def baixar_item_os(item: ItemOS):
     baixado_estoque impede que o mesmo item seja processado duas vezes.
     """
     if item.peca_id and not item.baixado_estoque:
+        from services.grupos_consumo import grupo_para_ordem
+        grupo = grupo_para_ordem(item.ordem_servico_id)
+        grupo_consumo_id = grupo.id if grupo else None
         movimentar_estoque(item.peca_id, "saida", item.quantidade,
                            item.valor_unitario, os_id=item.ordem_servico_id,
-                           observacao="Aplicada na OS")
+                           observacao="Aplicada na OS",
+                           grupo_consumo_id=grupo_consumo_id)
         item.baixado_estoque = True
 
 

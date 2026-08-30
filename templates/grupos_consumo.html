@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block titulo %}Grupos de consumo{% endblock %}
+{% block cabecalho %}Grupos de consumo{% endblock %}
+{% block descricao %}Baixa de materiais por setor, separada da frota e vinculada ao grupo de custo.{% endblock %}
+
+{% block conteudo %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Consumo no período</div>
+      <div class="display mt-1" id="totalRealizado">R$ 0,00</div>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Meta dos grupos</div>
+      <div class="display mt-1" id="totalMeta">R$ 0,00</div>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Retiradas registradas</div>
+      <div class="display mt-1" id="totalMovimentos">0</div>
+    </div></div>
+  </div>
+</div>
+
+{% if pode('grupos_consumo', 'editar') %}
+<div class="cartao mb-3">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-box-open me-2" style="color:var(--hi-vis)"></i>Retirada por grupo</h3></div>
+  <div class="cartao-corpo">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="grupoConsumo">Grupo de consumo</label>
+        <select class="form-select" id="grupoConsumo"><option value="">Selecione</option></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="pecaConsumo">Peça ou material</label>
+        <select class="form-select" id="pecaConsumo"><option value="">Selecione</option></select>
+        <small class="text-muted" id="saldoPecaConsumo"></small>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="quantidadeConsumo">Quantidade</label>
+        <input type="number" min="0" step="any" class="form-control" id="quantidadeConsumo">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="documentoConsumo">Documento</label>
+        <input class="form-control" id="documentoConsumo" placeholder="Requisição, vale ou referência">
+      </div>
+      <div class="col-md-9">
+        <label class="form-label" for="observacaoConsumo">Observação</label>
+        <input class="form-control" id="observacaoConsumo" placeholder="Finalidade ou responsável pela solicitação">
+      </div>
+      <div class="col-md-3 d-grid">
+        <button class="btn btn-primario" id="registrarRetirada">
+          <i class="fa-solid fa-arrow-down me-1"></i> Dar baixa
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="cartao mb-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-chart-column me-2" style="color:var(--petroleo)"></i>Custos por grupo</h3>
+    <div class="d-flex gap-2 ms-auto align-items-end flex-wrap">
+      <div><label class="form-label mb-0" for="grupoInicio">Início</label><input type="date" class="form-control form-control-sm" id="grupoInicio" value="{{ primeiro_dia }}"></div>
+      <div><label class="form-label mb-0" for="grupoFim">Fim</label><input type="date" class="form-control form-control-sm" id="grupoFim" value="{{ hoje }}"></div>
+      <button class="btn btn-contorno btn-sm" id="atualizarGrupos"><i class="fa-solid fa-rotate me-1"></i> Atualizar</button>
+      {% if pode('grupos_consumo', 'editar') %}<button class="btn btn-contorno btn-sm" id="novoGrupo"><i class="fa-solid fa-plus me-1"></i> Novo grupo</button>{% endif %}
+    </div>
+  </div>
+  <div class="cartao-corpo p-0"><div id="tabelaResumoGrupos"></div></div>
+</div>
+
+<div class="cartao">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-clock-rotate-left me-2" style="color:var(--petroleo)"></i>Histórico de retiradas por grupo</h3></div>
+  <div class="cartao-corpo p-0"><div id="historicoGrupos"></div></div>
+</div>
+
+{% if pode('grupos_consumo', 'editar') %}
+<div class="modal fade" id="modalGrupoConsumo" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header" style="background:var(--petroleo);color:#fff"><h5 class="modal-title display">Grupo de consumo</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="grupoEdicaoId">
+      <div class="mb-3"><label class="form-label" for="grupoEdicaoNome">Nome</label><input class="form-control" id="grupoEdicaoNome"></div>
+      <div class="mb-3"><label class="form-label" for="grupoEdicaoDescricao">Descrição</label><input class="form-control" id="grupoEdicaoDescricao"></div>
+      <div class="form-check"><input class="form-check-input" type="checkbox" id="grupoEdicaoAtivo" checked><label class="form-check-label" for="grupoEdicaoAtivo">Ativo para novas retiradas</label></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primario" id="salvarGrupoConsumo">Salvar</button></div>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+let gruposConsumo = [];
+let pecasConsumo = [];
+const podeEditarGrupos = {{ 'true' if pode('grupos_consumo', 'editar') else 'false' }};
+
+function periodoGrupos() {
+  const p = new URLSearchParams();
+  p.set('inicio', document.getElementById('grupoInicio').value);
+  p.set('fim', document.getElementById('grupoFim').value);
+  return p.toString();
+}
+
+async function carregarCadastrosGrupos() {
+  gruposConsumo = await SGMF.get('/api/grupos-consumo');
+  pecasConsumo = await SGMF.get('/api/pecas');
+  const grupoSelect = document.getElementById('grupoConsumo');
+  if (grupoSelect) {
+    grupoSelect.innerHTML = '<option value="">Selecione</option>' + gruposConsumo.filter(g => g.ativo).map(g => `<option value="${g.id}">${SGMF.esc(g.nome)}</option>`).join('');
+  }
+  const pecaSelect = document.getElementById('pecaConsumo');
+  if (pecaSelect) {
+    pecaSelect.innerHTML = '<option value="">Selecione</option>' + pecasConsumo.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} · saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}</option>`).join('');
+  }
+}
+
+async function carregarResumoGrupos() {
+  const qs = periodoGrupos();
+  const resumo = await SGMF.get('/api/grupos-consumo/resumo?' + qs);
+  document.getElementById('totalRealizado').textContent = SGMF.moeda(resumo.total_realizado);
+  document.getElementById('totalMeta').textContent = SGMF.moeda(resumo.total_meta);
+  document.getElementById('totalMovimentos').textContent = SGMF.numero(resumo.total_movimentos);
+  const linhas = resumo.grupos.map(g => `<tr>
+    <td><strong>${SGMF.esc(g.nome)}</strong>${g.ativo ? '' : '<br><small class="text-muted">Desativado</small>'}</td>
+    <td class="text-end">${SGMF.numero(g.movimentos)}</td>
+    <td class="text-end">${SGMF.numero(g.quantidade, 2)}</td>
+    <td class="text-end"><strong>${SGMF.moeda(g.realizado)}</strong></td>
+    <td class="text-end">${SGMF.moeda(g.meta)}</td>
+    <td>${SGMF.etiqueta(g.situacao, g.situacao === 'Acima da meta' ? 'vermelha' : (g.situacao === 'Dentro da meta' ? 'verde' : 'cinza'))}</td>
+    ${podeEditarGrupos ? `<td class="text-end"><button class="btn btn-contorno btn-sm" data-editar-grupo="${g.id}"><i class="fa-solid fa-pen"></i></button></td>` : ''}
+  </tr>`).join('');
+  document.getElementById('tabelaResumoGrupos').innerHTML = `<div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Grupo</th><th class="text-end">Retiradas</th><th class="text-end">Quantidade</th><th class="text-end">Realizado</th><th class="text-end">Meta</th><th>Situação</th>${podeEditarGrupos ? '<th></th>' : ''}</tr></thead><tbody>${linhas || '<tr><td colspan="7" class="text-center py-4">Nenhum grupo encontrado.</td></tr>'}</tbody></table></div>`;
+
+  const movimentos = await SGMF.get('/api/grupos-consumo/movimentos?' + qs);
+  const hist = movimentos.map(m => `<tr><td>${SGMF.data(m.data)}</td><td>${SGMF.esc(m.grupo_consumo_nome || 'Não informado')}</td><td>${SGMF.esc(m.peca_descricao || '')}</td><td class="text-end">${SGMF.numero(m.quantidade, 2)}</td><td class="text-end">${SGMF.moeda(m.valor_total)}</td><td>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</td><td>${SGMF.esc(m.documento || '')}</td><td>${SGMF.esc(m.origem || '')}</td></tr>`).join('');
+  document.getElementById('historicoGrupos').innerHTML = `<div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Data</th><th>Grupo</th><th>Peça</th><th class="text-end">Qtd.</th><th class="text-end">Custo</th><th>Responsável</th><th>Documento</th><th>Origem</th></tr></thead><tbody>${hist || '<tr><td colspan="8" class="text-center py-4">Nenhuma retirada no período.</td></tr>'}</tbody></table></div>`;
+
+  document.querySelectorAll('[data-editar-grupo]').forEach(btn => btn.onclick = () => abrirEdicaoGrupo(Number(btn.dataset.editarGrupo)));
+}
+
+function atualizarSaldoPeca() {
+  const el = document.getElementById('pecaConsumo');
+  if (!el) return;
+  const peca = pecasConsumo.find(p => p.id === Number(el.value));
+  document.getElementById('saldoPecaConsumo').textContent = peca ? `Disponível: ${SGMF.numero(peca.quantidade, 2)} ${peca.unidade || ''}` : '';
+}
+
+async function registrarRetiradaGrupo() {
+  const grupoId = Number(document.getElementById('grupoConsumo').value);
+  const pecaId = Number(document.getElementById('pecaConsumo').value);
+  const quantidade = Number(document.getElementById('quantidadeConsumo').value);
+  if (!grupoId || !pecaId || !(quantidade > 0)) return SGMF.aviso('Selecione o grupo, a peça e informe uma quantidade maior que zero.');
+  const grupo = gruposConsumo.find(g => g.id === grupoId);
+  const peca = pecasConsumo.find(p => p.id === pecaId);
+  const ok = await SGMF.confirmar('Confirmar baixa', `${quantidade} ${peca?.unidade || ''} de ${peca?.descricao || 'material'} para ${grupo?.nome || 'grupo'}?`, 'Dar baixa');
+  if (!ok) return;
+  try {
+    await SGMF.post('/api/grupos-consumo/retiradas', {
+      grupo_consumo_id: grupoId,
+      peca_id: pecaId,
+      quantidade,
+      documento: document.getElementById('documentoConsumo').value,
+      observacao: document.getElementById('observacaoConsumo').value
+    });
+    SGMF.sucesso('Baixa registrada no grupo de consumo.');
+    document.getElementById('quantidadeConsumo').value = '';
+    document.getElementById('documentoConsumo').value = '';
+    document.getElementById('observacaoConsumo').value = '';
+    await carregarCadastrosGrupos();
+    atualizarSaldoPeca();
+    await carregarResumoGrupos();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+function abrirEdicaoGrupo(id) {
+  const g = gruposConsumo.find(item => item.id === id);
+  if (!g) return;
+  document.getElementById('grupoEdicaoId').value = g.id;
+  document.getElementById('grupoEdicaoNome').value = g.nome || '';
+  document.getElementById('grupoEdicaoDescricao').value = g.descricao || '';
+  document.getElementById('grupoEdicaoAtivo').checked = !!g.ativo;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGrupoConsumo')).show();
+}
+
+async function salvarGrupo() {
+  const id = Number(document.getElementById('grupoEdicaoId').value);
+  const corpo = {
+    nome: document.getElementById('grupoEdicaoNome').value,
+    descricao: document.getElementById('grupoEdicaoDescricao').value,
+    ativo: document.getElementById('grupoEdicaoAtivo').checked
+  };
+  try {
+    if (id) await SGMF.put('/api/grupos-consumo/' + id, corpo);
+    else await SGMF.post('/api/grupos-consumo', corpo);
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGrupoConsumo')).hide();
+    SGMF.sucesso('Grupo salvo.');
+    await carregarCadastrosGrupos();
+    await carregarResumoGrupos();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+document.getElementById('atualizarGrupos').onclick = () => carregarResumoGrupos().catch(e => SGMF.falha(e.message));
+if (document.getElementById('pecaConsumo')) document.getElementById('pecaConsumo').onchange = atualizarSaldoPeca;
+if (document.getElementById('registrarRetirada')) document.getElementById('registrarRetirada').onclick = registrarRetiradaGrupo;
+if (document.getElementById('novoGrupo')) document.getElementById('novoGrupo').onclick = () => {
+  document.getElementById('grupoEdicaoId').value = '';
+  document.getElementById('grupoEdicaoNome').value = '';
+  document.getElementById('grupoEdicaoDescricao').value = '';
+  document.getElementById('grupoEdicaoAtivo').checked = true;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGrupoConsumo')).show();
+};
+if (document.getElementById('salvarGrupoConsumo')) document.getElementById('salvarGrupoConsumo').onclick = salvarGrupo;
+
+(async () => {
+  try {
+    await carregarCadastrosGrupos();
+    atualizarSaldoPeca();
+    await carregarResumoGrupos();
+  } catch (e) { SGMF.falha(e.message); }
+})();
+</script>
+{% endblock %}

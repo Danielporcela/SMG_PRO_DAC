@@ -52,7 +52,8 @@ def listar_alertas_ativos():
     sulco_minimo = float(_cfg("SULCO_MINIMO_MM", 4.0))
     desvio_consumo = float(_cfg("DESVIO_CONSUMO_ALERTA", 0.15))
 
-    for v in Veiculo.query.filter(Veiculo.ativo.is_(True)).all():
+    for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                  Veiculo.grupo_consumo_legado.isnot(True)).all():
         proxima = float(v.km_proxima_troca_oleo or 0)
         atual = float(v.hodometro or 0)
         restante = proxima - atual
@@ -123,9 +124,11 @@ def listar_alertas_ativos():
             f"Pneu {p.numero_fogo} de {veiculo} está com {p.sulco_mm or 0:g} mm de sulco.",
             "pneu", p.id, "/pneus"))
 
-    for os_obj in OrdemServico.query.filter(
-            OrdemServico.status != "Finalizada",
-            OrdemServico.prioridade.in_(["Alta", "Crítica"])).all():
+    for os_obj in (OrdemServico.query
+            .join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
+            .filter(OrdemServico.status != "Finalizada",
+                    OrdemServico.prioridade.in_(["Alta", "Crítica"]),
+                    Veiculo.grupo_consumo_legado.isnot(True)).all()):
         sev = "critico" if os_obj.prioridade == "Crítica" else "atencao"
         numero = os_obj.numero or f"OS {os_obj.id}"
         alertas.append(_alerta(
@@ -137,7 +140,8 @@ def listar_alertas_ativos():
     # Consumo: compara o abastecimento mais recente com a média histórica
     # anterior do mesmo veículo. O alerta some quando o consumo volta ao padrão.
     if desvio_consumo > 0:
-        veiculos_ids = [v.id for v in Veiculo.query.filter(Veiculo.ativo.is_(True)).all()]
+        veiculos_ids = [v.id for v in Veiculo.query.filter(
+            Veiculo.ativo.is_(True), Veiculo.grupo_consumo_legado.isnot(True)).all()]
         for vid in veiculos_ids:
             regs = (Abastecimento.query
                     .filter(Abastecimento.veiculo_id == vid,

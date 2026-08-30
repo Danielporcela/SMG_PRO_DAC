@@ -20,6 +20,8 @@
         <select class="form-select" id="rFornecedor"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rGrupo">Grupo (peças)</label>
         <select class="form-select" id="rGrupo"><option value="">Todos</option></select></div>
+      <div class="col-md-2"><label class="form-label" for="rGrupoConsumo">Grupo de consumo</label>
+        <select class="form-select" id="rGrupoConsumo"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rStatusPeca">Impressão de peças</label>
         <select class="form-select" id="rStatusPeca">
           <option value="inventario">Inventário completo</option>
@@ -75,6 +77,8 @@ const RELATORIOS = [
     texto: 'OS do período com tipo, status, dias parado e custos abertos.' },
   { id: 'custos', nome: 'Custos por veículo', icone: 'fa-sack-dollar',
     texto: 'Consolidado de combustível, manutenção e custo por km.' },
+  { id: 'custos_grupos', nome: 'Custos por grupo de consumo', icone: 'fa-people-group',
+    texto: 'Retiradas, valor consumido, meta e situação de Limpeza, CCO, Oficina e demais setores.' },
   { id: 'gastos_nf', nome: 'Gastos com notas fiscais', icone: 'fa-file-invoice-dollar',
     texto: 'Notas fiscais de entrada finalizadas no período: peças, tributos e fornecedor.' },
   { id: 'veiculos', nome: 'Frota cadastrada', icone: 'fa-truck-front',
@@ -97,7 +101,7 @@ function parametros() {
     fim: document.getElementById('rFim').value
   });
   ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id',
-   'rGrupo:grupo', 'rStatusPeca:status_peca'].forEach(par => {
+   'rGrupo:grupo', 'rGrupoConsumo:grupo_consumo_id', 'rStatusPeca:status_peca'].forEach(par => {
     const [campo, chave] = par.split(':');
     const v = document.getElementById(campo).value;
     if (v) p.set(chave, v);
@@ -277,6 +281,7 @@ if (botaoRestaurar) {
     preencher('rVeiculo', 'veiculos'),
     preencher('rMotorista', 'motoristas'),
     preencher('rFornecedor', 'fornecedores'),
+    preencher('rGrupoConsumo', 'grupos-consumo'),
     preencherGrupos()
   ]);
 })();

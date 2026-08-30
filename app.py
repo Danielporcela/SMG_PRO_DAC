@@ -32,6 +32,7 @@ def criar_app(config=Config):
     from routes.auth_senha import bp_auth_senha
     from routes.extras import bp_extras
     from routes.grupos import bp_grupos
+    from routes.grupos_consumo import bp_grupos_consumo
     from routes.paginas import bp_paginas
     from routes.relatorios import bp_relatorios
     from routes.relatorios_compras import bp_relatorios_compras
@@ -47,6 +48,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_extras)
     app.register_blueprint(bp_relatorios)
     app.register_blueprint(bp_grupos)
+    app.register_blueprint(bp_grupos_consumo)
     app.register_blueprint(bp_paginas)
     app.register_blueprint(bp_correcao_os)
     app.register_blueprint(bp_uniformes)
@@ -63,12 +65,14 @@ def criar_app(config=Config):
                                                      garantir_ordens_compra,
                                                      garantir_pecas_serial,
                                                      garantir_servicos_terceiros_financeiros,
-                                                     garantir_usuario_movimentos_estoque)
+                                                     garantir_usuario_movimentos_estoque,
+                                                     garantir_grupos_consumo)
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()
         garantir_servicos_terceiros_financeiros()
         garantir_usuario_movimentos_estoque()
+        garantir_grupos_consumo()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -131,7 +135,9 @@ def criar_app(config=Config):
         def pode(tela, nivel_minimo="visualizar"):
             if session.get("perfil") == "admin":
                 return True
-            nivel_atual = (session.get("permissoes") or {}).get(tela, "nenhum")
+            from models import PADRAO_POR_PERFIL
+            nivel_atual = (session.get("permissoes") or {}).get(
+                tela, PADRAO_POR_PERFIL.get(session.get("perfil"), "nenhum"))
             return pesos.get(nivel_atual, 0) >= pesos.get(nivel_minimo, 1)
 
         return {"pode": pode}
@@ -169,6 +175,11 @@ def criar_app(config=Config):
 
     with app.app_context():
         preparar_banco()
+        # Em banco totalmente novo, preparar_banco cria as tabelas depois da
+        # primeira checagem de compatibilidade. Rodamos novamente somente a
+        # garantia idempotente dos grupos para semear os grupos padrão.
+        from services.compatibilidade_banco import garantir_grupos_consumo
+        garantir_grupos_consumo()
         try:
             criar_admin_inicial()
         except Exception as e:

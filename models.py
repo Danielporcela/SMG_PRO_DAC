@@ -33,6 +33,7 @@ TELAS_SISTEMA = [
     ("compras", "Ordens de compra", "Operação"),
     ("combustivel", "Abastecimentos", "Operação"),
     ("pneus", "Pneus", "Operação"),
+    ("grupos_consumo", "Grupos de consumo", "Operação"),
     ("veiculos", "Veículos", "Cadastros"),
     ("motoristas", "Motoristas", "Cadastros"),
     ("fornecedores", "Oficinas e postos", "Cadastros"),
@@ -75,7 +76,7 @@ CARGOS_SUGERIDOS = {
             "dashboard": "visualizar", "estoque": "editar", "fornecedores": "editar",
             "manutencao": "visualizar", "pneus": "visualizar", "veiculos": "visualizar",
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
-            "grupos": "editar",
+            "grupos": "editar", "grupos_consumo": "editar",
         },
     },
     # Quem aprova e efetiva a compra. 'compras' em nível 'editar' é o que
@@ -85,7 +86,7 @@ CARGOS_SUGERIDOS = {
         "permissoes": {
             "dashboard": "visualizar", "compras": "editar", "estoque": "visualizar",
             "fornecedores": "visualizar", "relatorios": "visualizar",
-            "orcamento": "visualizar",
+            "orcamento": "visualizar", "grupos_consumo": "visualizar",
         },
     },
     "Chefe de oficina": {
@@ -253,6 +254,7 @@ class Veiculo(db.Model):
     orcamento_mensal = db.Column(db.Float, default=0)
     observacao = db.Column(db.Text)
     ativo = db.Column(db.Boolean, default=True)
+    grupo_consumo_legado = db.Column(db.Boolean, default=False, index=True)
 
     @property
     def km_proxima_troca_oleo(self):
@@ -273,6 +275,7 @@ class Veiculo(db.Model):
             "intervalo_preventiva_dias": self.intervalo_preventiva_dias,
             "orcamento_mensal": self.orcamento_mensal,
             "observacao": self.observacao, "ativo": self.ativo,
+            "grupo_consumo_legado": bool(self.grupo_consumo_legado),
             "identificacao": f"{self.prefixo} · {self.placa}",
         }
 
@@ -373,6 +376,22 @@ def importar_grupos_das_pecas():
     return sorted(criados)
 
 
+class GrupoConsumo(db.Model):
+    """Setor interno que recebe materiais sem usar uma ordem da frota."""
+    __tablename__ = "grupos_consumo"
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    descricao = db.Column(db.String(200))
+    ativo = db.Column(db.Boolean, default=True)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome, "descricao": self.descricao,
+                "ativo": bool(self.ativo),
+                "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+                "identificacao": self.nome}
+
+
 class Peca(db.Model):
     """Módulo 11 — estoque de peças."""
     __tablename__ = "pecas"
@@ -437,7 +456,9 @@ class MovimentoEstoque(db.Model):
     observacao = db.Column(db.String(200))
     usuario_id = db.Column(db.Integer)
     usuario_nome = db.Column(db.String(120))
+    grupo_consumo_id = db.Column(db.Integer, db.ForeignKey("grupos_consumo.id"), index=True)
     peca = db.relationship("Peca")
+    grupo_consumo = db.relationship("GrupoConsumo")
 
     def to_dict(self):
         return {"id": self.id, "data": self.data.isoformat() if self.data else None,
@@ -448,7 +469,9 @@ class MovimentoEstoque(db.Model):
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "documento": self.documento, "ordem_servico_id": self.ordem_servico_id,
                 "observacao": self.observacao, "usuario_id": self.usuario_id,
-                "usuario_nome": self.usuario_nome}
+                "usuario_nome": self.usuario_nome,
+                "grupo_consumo_id": self.grupo_consumo_id,
+                "grupo_consumo_nome": self.grupo_consumo.nome if self.grupo_consumo else None}
 
 
 class PecaSerial(db.Model):
@@ -939,14 +962,19 @@ class Orcamento(db.Model):
     categoria = db.Column(db.String(20), default="Manutenção")  # Manutenção | Combustível | Pneus
     veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"))
     centro_custo = db.Column(db.String(60))
+    grupo_consumo_id = db.Column(db.Integer, db.ForeignKey("grupos_consumo.id"), index=True)
     meta_valor = db.Column(db.Float, default=0)
     veiculo = db.relationship("Veiculo")
+    grupo_consumo = db.relationship("GrupoConsumo")
 
     def to_dict(self):
         return {"id": self.id, "ano": self.ano, "mes": self.mes, "categoria": self.categoria,
                 "veiculo_id": self.veiculo_id,
                 "veiculo_nome": f"{self.veiculo.prefixo} · {self.veiculo.placa}" if self.veiculo else None,
-                "centro_custo": self.centro_custo, "meta_valor": self.meta_valor}
+                "centro_custo": self.centro_custo,
+                "grupo_consumo_id": self.grupo_consumo_id,
+                "grupo_consumo_nome": self.grupo_consumo.nome if self.grupo_consumo else None,
+                "meta_valor": self.meta_valor}
 
 
 class Anexo(db.Model):

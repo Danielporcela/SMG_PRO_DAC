@@ -10,7 +10,7 @@ from functools import wraps
 from flask import jsonify, request, session
 
 from extensions import db
-from models import PESO_NIVEL, LogAuditoria
+from models import PADRAO_POR_PERFIL, PESO_NIVEL, LogAuditoria
 
 
 # ----------------------------------------------------------------- segurança
@@ -55,7 +55,8 @@ def nivel_na_tela(tela):
     """
     if session.get("perfil") == "admin":
         return "editar"
-    return (session.get("permissoes") or {}).get(tela, "nenhum")
+    return (session.get("permissoes") or {}).get(
+        tela, PADRAO_POR_PERFIL.get(session.get("perfil"), "nenhum"))
 
 
 def nivel_permite(tela, nivel_minimo="visualizar"):

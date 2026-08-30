@@ -10,7 +10,7 @@ from functools import wraps
 from flask import Blueprint, redirect, render_template, session, url_for
 
 from extensions import db
-from models import Usuario
+from models import PADRAO_POR_PERFIL, Usuario
 
 bp_paginas = Blueprint("paginas", __name__)
 
@@ -41,7 +41,8 @@ def exige_tela(tela, nivel_minimo="visualizar"):
             if tela in TELAS_SOMENTE_ADMIN:
                 liberado = session.get("perfil") == "admin"
             else:
-                nivel_atual = (session.get("permissoes") or {}).get(tela, "nenhum")
+                nivel_atual = (session.get("permissoes") or {}).get(
+                    tela, PADRAO_POR_PERFIL.get(session.get("perfil"), "nenhum"))
                 if session.get("perfil") == "admin":
                     nivel_atual = "editar"
                 pesos = {"nenhum": 0, "visualizar": 1, "editar": 2}
@@ -86,6 +87,7 @@ def servicos_terceiros():
 _tela("/compras", "compras.html", "compras")
 _tela("/combustivel", "combustivel.html", "combustivel")
 _tela("/pneus", "pneus.html", "pneus")
+_tela("/grupos-consumo", "grupos_consumo.html", "grupos_consumo")
 _tela("/estoque", "estoque.html", "estoque")
 _tela("/funcionarios", "funcionarios.html", "funcionarios")
 _tela("/uniformes", "uniformes.html", "uniformes")

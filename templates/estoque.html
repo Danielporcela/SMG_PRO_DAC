@@ -376,13 +376,14 @@ async function abrirHistoricoPeca(peca) {
     area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0" style="font-size:13px">
       <thead><tr>
         <th class="ps-3">Data</th><th>Tipo</th><th class="text-end">Quantidade</th>
-        <th class="text-end">Valor</th><th>Documento</th><th>OS</th><th>Observação</th><th>Responsável</th>
+        <th class="text-end">Valor</th><th>Grupo de custo</th><th>Documento</th><th>OS</th><th>Observação</th><th>Responsável</th>
       </tr></thead>
       <tbody>${movimentos.map(m => `<tr>
         <td class="ps-3 num">${SGMF.data(m.data)}</td>
         <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
         <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
         <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+        <td>${SGMF.esc(m.grupo_consumo_nome) || 'Frota / não informado'}</td>
         <td>${SGMF.esc(m.documento) || '—'}</td>
         <td class="num">${m.ordem_servico_id ? `#${SGMF.esc(m.ordem_servico_id)}` : '—'}</td>
         <td>${SGMF.esc(m.observacao) || '—'}</td>
@@ -960,13 +961,14 @@ async function carregarMovimentos() {
   const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
   area.innerHTML = `<table class="table table-sm mb-0" style="font-size:13px">
     <thead><tr><th class="ps-3">Data</th><th>Peça</th><th>Tipo</th>
-    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Documento</th><th>Responsável</th></tr></thead>
+    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Grupo de custo</th><th>Documento</th><th>Responsável</th></tr></thead>
     <tbody>${dados.slice(0, 15).map(m => `<tr>
       <td class="ps-3 num">${SGMF.data(m.data)}</td>
       <td>${SGMF.esc(m.peca_descricao) || '—'}</td>
       <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
       <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
       <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+      <td>${SGMF.esc(m.grupo_consumo_nome) || 'Frota / não informado'}</td>
       <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td>
       <td>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</td></tr>`).join('')}</tbody></table>`;
 }

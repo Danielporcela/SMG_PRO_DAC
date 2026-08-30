@@ -219,6 +219,14 @@ def ler_planilha(tipo, arquivo):
             elif chave:
                 vistos.add(chave)
 
+        if tipo == "veiculos" and not erros:
+            from services.grupos_consumo import nome_grupo_consumo_legado
+            candidato = Veiculo(**registro)
+            grupo_consumo = nome_grupo_consumo_legado(candidato)
+            if grupo_consumo:
+                erros.append(
+                    f"{grupo_consumo} é grupo de consumo. Use o menu Grupos de consumo.")
+
         # As datas saem como texto ISO para atravessar o JSON da prévia e
         # voltarem íntegras na hora de gravar.
         registro = {k: (v.isoformat() if isinstance(v, date) else v)
@@ -260,6 +268,12 @@ def gravar(tipo, linhas):
             saldo = dados.pop("quantidade_inicial", None)
             custo = dados.get("custo_unitario") or 0
             obj = Model(**dados)
+            if tipo == "veiculos":
+                from services.grupos_consumo import nome_grupo_consumo_legado
+                grupo_consumo = nome_grupo_consumo_legado(obj)
+                if grupo_consumo:
+                    raise ErroNegocio(
+                        f"{grupo_consumo} é grupo de consumo. Use o menu Grupos de consumo.")
             db.session.add(obj)
             db.session.flush()
             if tipo == "pecas" and saldo:
