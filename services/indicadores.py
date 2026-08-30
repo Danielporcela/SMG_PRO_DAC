@@ -8,6 +8,7 @@ from sqlalchemy import func
 from extensions import db
 from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo)
+from services.auditoria_estoque import contar_os_pendentes
 from services.tempo import hoje as data_de_hoje
 
 GRUPOS = ["Motor", "Suspensão", "Freios", "Elétrica", "Hidráulica", "Pneus",
@@ -159,6 +160,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "prazo_medio_atendimento": prazo_medio,
         "os_finalizadas": sum(1 for o in ordens if o.status == "Finalizada"),
         "os_abertas": sum(1 for o in ordens if o.status != "Finalizada"),
+        "os_estoque_pendentes": contar_os_pendentes(),
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
@@ -402,6 +404,12 @@ def alertas():
         elif (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"] + 1:
             add("atencao", "Pneus", f"Pneu {p.numero_fogo} próximo do limite",
                 f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo)
+
+    pendencias_estoque_os = contar_os_pendentes()
+    if pendencias_estoque_os:
+        add("atencao", "Estoque", "OS finalizadas com baixa pendente",
+            f"{pendencias_estoque_os} OS precisam de conferência e regularização do estoque.",
+            "auditoria_estoque_os")
 
     # estoque abaixo do mínimo
     for pe in Peca.query.filter(Peca.estoque_minimo > 0,

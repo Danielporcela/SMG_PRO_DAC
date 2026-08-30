@@ -147,15 +147,50 @@ def test_saldo_inicial_vira_movimento_de_entrada(logado, base):
     assert movimentos[0]["quantidade"] == 20
 
 
-def test_peca_aplicada_na_os_baixa_o_estoque(logado, base):
+def test_peca_lancada_na_os_fica_pendente_ate_finalizacao(logado, base):
     os_criada = logado.post("/api/ordens", json={"veiculo_id": base["veiculo"]["id"]}).get_json()
     resposta = logado.post(f"/api/ordens/{os_criada['id']}/itens",
                            json={"peca_id": base["peca"]["id"], "quantidade": 5}).get_json()
 
-    assert logado.get(f"/api/pecas/{base['peca']['id']}").get_json()["quantidade"] == 15
-    assert resposta["itens"][0]["baixado_estoque"] is True
+    assert logado.get(f"/api/pecas/{base['peca']['id']}").get_json()["quantidade"] == 20
+    assert resposta["itens"][0]["baixado_estoque"] is False
     assert resposta["itens"][0]["descricao"] == "Filtro de óleo"
     assert resposta["itens"][0]["valor_unitario"] == 50.0
+
+    finalizada = logado.put(f"/api/ordens/{os_criada['id']}",
+                            json={"status": "Finalizada"})
+    assert finalizada.status_code == 200
+    assert logado.get(f"/api/pecas/{base['peca']['id']}").get_json()["quantidade"] == 15
+    detalhes = logado.get(f"/api/ordens/{os_criada['id']}/itens").get_json()
+    assert detalhes["itens"][0]["baixado_estoque"] is True
+
+
+def test_finalizar_a_mesma_os_duas_vezes_nao_duplica_baixa(logado, base):
+    os_criada = logado.post("/api/ordens", json={"veiculo_id": base["veiculo"]["id"]}).get_json()
+    logado.post(f"/api/ordens/{os_criada['id']}/itens",
+                json={"peca_id": base["peca"]["id"], "quantidade": 5})
+
+    primeira = logado.put(f"/api/ordens/{os_criada['id']}", json={"status": "Finalizada"})
+    segunda = logado.put(f"/api/ordens/{os_criada['id']}", json={"status": "Finalizada"})
+
+    assert primeira.status_code == 200
+    assert segunda.status_code == 200
+    assert logado.get(f"/api/pecas/{base['peca']['id']}").get_json()["quantidade"] == 15
+
+
+def test_finalizacao_com_estoque_insuficiente_faz_rollback(logado, base):
+    os_criada = logado.post("/api/ordens", json={"veiculo_id": base["veiculo"]["id"]}).get_json()
+    logado.post(f"/api/ordens/{os_criada['id']}/itens",
+                json={"peca_id": base["peca"]["id"], "quantidade": 25})
+
+    resposta = logado.put(f"/api/ordens/{os_criada['id']}", json={"status": "Finalizada"})
+
+    assert resposta.status_code == 400
+    assert "insuficiente" in resposta.get_json()["erro"]
+    assert logado.get(f"/api/pecas/{base['peca']['id']}").get_json()["quantidade"] == 20
+    ordem = logado.get(f"/api/ordens/{os_criada['id']}").get_json()
+    assert ordem["status"] == "Aberta"
+    assert ordem["data_fechamento"] is None
 
 
 def test_remover_item_devolve_a_peca_ao_estoque(logado, base):

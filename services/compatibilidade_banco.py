@@ -129,3 +129,20 @@ def garantir_servicos_terceiros_financeiros():
     if "servicos_terceiros" not in tabelas:
         ServicoTerceiro.__table__.create(engine, checkfirst=True)
 
+def garantir_usuario_movimentos_estoque():
+    """Adiciona a identificação do responsável sem alterar registros existentes."""
+    engine = db.engine
+    insp = inspect(engine)
+    if "movimentos_estoque" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "usuario_id": "INTEGER",
+        "usuario_nome": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("movimentos_estoque")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "{nome}" {tipo}'))
+

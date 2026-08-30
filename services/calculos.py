@@ -1,6 +1,7 @@
 """Cálculos automáticos disparados quando um registro é salvo."""
 from datetime import date
 
+from flask import has_request_context, session
 from sqlalchemy import text
 
 from services.tempo import hoje
@@ -60,8 +61,15 @@ def validar_km(abast):
 
 # ---------------------------------------------------------------- estoque
 def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
-                       documento=None, observacao=None):
-    """Entrada, saída ou ajuste — sempre com registro do movimento."""
+                       documento=None, observacao=None, usuario_id=None, usuario_nome=None):
+    """Entrada, saída ou ajuste com registro do movimento e do responsável."""
+    if has_request_context():
+        if usuario_id is None:
+            usuario_id = session.get("usuario_id")
+        if not usuario_nome:
+            usuario_nome = session.get("usuario_nome")
+    if not usuario_nome:
+        usuario_nome = "Sistema"
     peca = db.session.get(Peca, peca_id)
     if not peca:
         raise ErroNegocio("Peça não encontrada no estoque.")
@@ -103,15 +111,16 @@ def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
     db.session.add(MovimentoEstoque(
         peca_id=peca.id, tipo=tipo, quantidade=quantidade,
         custo_unitario=float(custo_unitario or peca.custo_unitario or 0),
-        ordem_servico_id=os_id, documento=documento, observacao=observacao))
+        ordem_servico_id=os_id, documento=documento, observacao=observacao,
+        usuario_id=usuario_id, usuario_nome=usuario_nome))
     return peca
 
 
 def baixar_item_os(item: ItemOS):
-    """Baixa do estoque pela quantidade lançada no item da OS.
+    """Baixa o estoque pela quantidade lançada no item da OS.
 
-    O sistema não exige mais número de série para produtos/peças: ao lançar
-    uma peça na ordem de serviço, o saldo é reduzido imediatamente.
+    A chamada principal ocorre ao finalizar a ordem de serviço. O campo
+    baixado_estoque impede que o mesmo item seja processado duas vezes.
     """
     if item.peca_id and not item.baixado_estoque:
         movimentar_estoque(item.peca_id, "saida", item.quantidade,
@@ -174,6 +183,10 @@ def _sincronizar_saldo_peca(peca_id):
 
 def _registrar_movimento_serial(serial, tipo, veiculo_id=None, ordem_servico_id=None,
                                 km_veiculo=None, observacao=None, usuario=None):
+    if not usuario and has_request_context():
+        usuario = session.get("usuario_nome")
+    if not usuario:
+        usuario = "Sistema"
     db.session.add(MovimentoPecaSerial(
         peca_serial_id=serial.id, tipo=tipo, veiculo_id=veiculo_id,
         ordem_servico_id=ordem_servico_id, km_veiculo=km_veiculo,

@@ -231,6 +231,28 @@
   <div class="cartao-corpo p-0"><div id="listaMovimentos"></div></div>
 </div>
 
+<div class="modal fade" id="modalHistoricoPeca" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0">Histórico da peça</h5>
+          <small id="historicoPecaTitulo" style="color:var(--hi-vis)"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="historicoPecaConteudo">
+          <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando histórico…</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="modalMovimento" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -336,6 +358,42 @@ async function cadastrarGrupoDoCampo() {
   }
 }
 
+async function abrirHistoricoPeca(peca) {
+  const titulo = document.getElementById('historicoPecaTitulo');
+  const area = document.getElementById('historicoPecaConteudo');
+  titulo.textContent = `${peca.codigo} · ${peca.descricao}`;
+  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando histórico…</div>`;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHistoricoPeca')).show();
+
+  try {
+    const movimentos = await SGMF.get(`/api/movimentos?peca_id=${encodeURIComponent(peca.id)}`);
+    if (!movimentos.length) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-clock-rotate-left"></i>
+        <strong>Nenhuma movimentação registrada</strong>Esta peça ainda não possui movimentações no histórico.</div>`;
+      return;
+    }
+    const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+    area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0" style="font-size:13px">
+      <thead><tr>
+        <th class="ps-3">Data</th><th>Tipo</th><th class="text-end">Quantidade</th>
+        <th class="text-end">Valor</th><th>Documento</th><th>OS</th><th>Observação</th><th>Responsável</th>
+      </tr></thead>
+      <tbody>${movimentos.map(m => `<tr>
+        <td class="ps-3 num">${SGMF.data(m.data)}</td>
+        <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
+        <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+        <td>${SGMF.esc(m.documento) || '—'}</td>
+        <td class="num">${m.ordem_servico_id ? `#${SGMF.esc(m.ordem_servico_id)}` : '—'}</td>
+        <td>${SGMF.esc(m.observacao) || '—'}</td>
+        <td><strong>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</strong></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>Não foi possível carregar o histórico</strong>${SGMF.esc(e.message)}</div>`;
+  }
+}
+
 const telaEstoque = SGMF.tela({
   recurso: 'pecas',
   tela: 'estoque',
@@ -402,7 +460,10 @@ const telaEstoque = SGMF.tela({
     { campo: 'valor_total', rotulo: 'Valor em estoque', classe: 'num text-end', render: v => SGMF.moeda(v) },
     { campo: 'localizacao', rotulo: 'Local' },
     { campo: 'abaixo_minimo', rotulo: 'Situação',
-      render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') }
+      render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') },
+    { campo: 'id', rotulo: 'Histórico', classe: 'text-center',
+      render: v => `<button class="btn btn-contorno btn-sm" data-historico="${v}" title="Ver histórico">
+        <i class="fa-solid fa-clock-rotate-left me-1"></i>Histórico</button>` }
   ],
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
                            <i class="fa-solid fa-right-left"></i></button>`,
@@ -418,6 +479,13 @@ const telaEstoque = SGMF.tela({
     if (areaTabela && !areaTabela.dataset.movLigado) {
       areaTabela.dataset.movLigado = '1';
       areaTabela.addEventListener('click', (e) => {
+        const historico = e.target.closest('[data-historico]');
+        if (historico) {
+          const pecaHistorico = telaEstoque.dados().find(p => p.id == historico.dataset.historico);
+          if (pecaHistorico) abrirHistoricoPeca(pecaHistorico);
+          return;
+        }
+
         const b = e.target.closest('[data-mov]');
         if (!b) return;
         const peca = telaEstoque.dados().find(p => p.id == b.dataset.mov);
@@ -892,14 +960,15 @@ async function carregarMovimentos() {
   const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
   area.innerHTML = `<table class="table table-sm mb-0" style="font-size:13px">
     <thead><tr><th class="ps-3">Data</th><th>Peça</th><th>Tipo</th>
-    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Documento</th></tr></thead>
+    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Documento</th><th>Responsável</th></tr></thead>
     <tbody>${dados.slice(0, 15).map(m => `<tr>
       <td class="ps-3 num">${SGMF.data(m.data)}</td>
       <td>${SGMF.esc(m.peca_descricao) || '—'}</td>
       <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
       <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
       <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
-      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td></tr>`).join('')}</tbody></table>`;
+      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td>
+      <td>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</td></tr>`).join('')}</tbody></table>`;
 }
 </script>
 {% endblock %}

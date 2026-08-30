@@ -25,6 +25,7 @@ def criar_app(config=Config):
     migrate.init_app(app, db, directory=os.path.join(os.path.dirname(__file__), "migrations"))
 
     from routes.api import bp_api
+    from routes.auditoria_estoque import bp_auditoria_estoque
     from routes.auth import bp_auth, bp_usuarios
     from routes.busca_pecas import bp_busca_pecas
     from routes.compras import bp_compras
@@ -42,6 +43,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_auth_senha)
     app.register_blueprint(bp_usuarios)
     app.register_blueprint(bp_api)
+    app.register_blueprint(bp_auditoria_estoque)
     app.register_blueprint(bp_extras)
     app.register_blueprint(bp_relatorios)
     app.register_blueprint(bp_grupos)
@@ -60,11 +62,13 @@ def criar_app(config=Config):
         from services.compatibilidade_banco import (garantir_itens_os_servicos_terceiros,
                                                      garantir_ordens_compra,
                                                      garantir_pecas_serial,
-                                                     garantir_servicos_terceiros_financeiros)
+                                                     garantir_servicos_terceiros_financeiros,
+                                                     garantir_usuario_movimentos_estoque)
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()
         garantir_servicos_terceiros_financeiros()
+        garantir_usuario_movimentos_estoque()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço

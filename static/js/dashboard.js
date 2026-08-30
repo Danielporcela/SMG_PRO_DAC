@@ -68,6 +68,9 @@
         nota: d.prazo_medio_atendimento === null
           ? 'Nenhuma OS finalizada no período'
           : `${d.os_finalizadas} OS finalizada(s)` }),
+      medidor('OS com baixa pendente', d.os_estoque_pendentes, {
+        classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
+        nota: d.os_estoque_pendentes ? 'regularização de estoque necessária' : 'todas regularizadas' }),
       medidor('Estoque', SGMF.moeda(d.estoque_valor), {
         classe: d.estoque_critico ? 'atencao' : '', icone: 'fa-boxes-stacked',
         estilo: 'font-size:19px', nota: `${d.estoque_critico} itens a repor` })

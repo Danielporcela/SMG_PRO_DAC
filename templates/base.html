@@ -51,6 +51,7 @@
     {% if session.perfil == 'admin' %}
     <a href="{{ url_for('paginas.usuarios') }}" class="{{ 'ativo' if pagina == 'usuarios' }}"><i class="fa-solid fa-users-gear"></i> Usuários</a>
     <a href="{{ url_for('paginas.auditoria') }}" class="{{ 'ativo' if pagina == 'auditoria' }}"><i class="fa-solid fa-clipboard-list"></i> Auditoria</a>
+    <a href="{{ url_for('paginas.auditoria_estoque_os') }}" class="{{ 'ativo' if pagina == 'auditoria_estoque_os' }}"><i class="fa-solid fa-boxes-stacked"></i> Auditoria de estoque das OS</a>
     <a href="{{ url_for('paginas.notificacoes') }}" class="{{ 'ativo' if pagina == 'notificacoes' }}"><i class="fa-solid fa-envelope"></i> Avisos por e-mail</a>
     {% endif %}
     {% endif %}

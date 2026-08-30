@@ -109,6 +109,12 @@ def _antes_os(obj, dados, anterior):
 
 
 def _depois_os(obj, dados, anterior):
+    # A peça fica pendente enquanto a OS está aberta. A baixa acontece ao
+    # salvar a OS como Finalizada. baixar_item_os é idempotente e ignora
+    # itens que já tiveram o estoque processado.
+    if obj.status == "Finalizada":
+        for item in obj.itens:
+            baixar_item_os(item)
     sincronizar_status_veiculo(obj)
 
 
@@ -159,13 +165,9 @@ def adicionar_item(os_id):
             raise ErroNegocio("Descreva a peça ou o serviço aplicado.")
         db.session.add(item)
         db.session.flush()
-        # Quando o item tem peça vinculada, a baixa do estoque só acontece
-        # ao informar o(s) número(s) de série de cada unidade instalada —
-        # ver /ordens/<id>/itens/<id>/vincular-serial logo abaixo. Itens
-        # antigos sem nenhuma unidade cadastrada continuam pelo fluxo por
-        # quantidade (compatibilidade).
-        if not item.peca_id:
-            baixar_item_os(item)
+        # Peças de estoque ficam pendentes neste momento. A baixa por quantidade
+        # é processada quando a OS é salva como Finalizada. Serviços não possuem
+        # peca_id e, portanto, nunca movimentam o estoque.
         registrar_log("criar", "itens_os", item.id, f"OS {ordem.numero}")
         db.session.commit()
     except (ErroNegocio, ValueError) as e:
@@ -370,10 +372,13 @@ registrar_crud(
 @visualizar_tela("estoque")
 def listar_movimentos():
     q = MovimentoEstoque.query
-    if request.args.get("peca_id"):
-        q = q.filter(MovimentoEstoque.peca_id == int(request.args["peca_id"]))
+    peca_id = request.args.get("peca_id")
+    if peca_id:
+        q = q.filter(MovimentoEstoque.peca_id == int(peca_id))
     q = _filtro_periodo(MovimentoEstoque.data)(q, request.args)
-    return jsonify([m.to_dict() for m in q.order_by(MovimentoEstoque.id.desc()).limit(500)])
+    q = q.order_by(MovimentoEstoque.id.desc())
+    movimentos = q.all() if peca_id else q.limit(500).all()
+    return jsonify([m.to_dict() for m in movimentos])
 
 
 @bp_api.post("/movimentos")
