@@ -712,7 +712,7 @@ def restaurar_backup():
 @visualizar_tela("relatorios")
 def backup():
     """Cópia integral dos dados em JSON — útil antes de qualquer manutenção."""
-    from models import Fornecedor, Motorista, Orcamento, ServicoTerceiro, Usuario
+    from models import Fornecedor, Lavagem, Motorista, Orcamento, ServicoTerceiro, Usuario
     pacote = {
         "gerado_em": agora().isoformat(),
         "veiculos": [v.to_dict() for v in Veiculo.query.all()],
@@ -721,6 +721,7 @@ def backup():
         "fornecedores": [f.to_dict() for f in Fornecedor.query.all()],
         "ordens": [o.to_dict(com_itens=True) for o in OrdemServico.query.all()],
         "servicos_terceiros": [s.to_dict() for s in ServicoTerceiro.query.all()],
+        "lavagens": [l.to_dict() for l in Lavagem.query.all()],
         "abastecimentos": [a.to_dict() for a in Abastecimento.query.all()],
         "pneus": [p.to_dict() for p in Pneu.query.all()],
         "pecas": [p.to_dict() for p in Peca.query.all()],

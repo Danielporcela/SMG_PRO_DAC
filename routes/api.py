@@ -4,9 +4,9 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, LogAuditoria,
-                    Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca, PecaSerial,
-                    Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
+from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
+                    LogAuditoria, Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca,
+                    PecaSerial, Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
 from services import indicadores
 from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
@@ -109,6 +109,31 @@ registrar_crud(
     obrigatorios=("data", "veiculo_id", "prestador", "descricao", "valor"),
     tela="manutencao", antes_salvar=_validar_servico_terceiro,
     filtrar=_filtrar_servicos_terceiros)
+
+
+# ---------------------------------------------------- Lançamento financeiro: lavagem
+def _validar_lavagem(obj, dados, anterior):
+    if not obj.veiculo_id or not db.session.get(Veiculo, obj.veiculo_id):
+        raise ErroNegocio("Selecione um veículo válido.")
+    if (obj.valor or 0) <= 0:
+        raise ErroNegocio("Informe um valor maior que zero para a lavagem.")
+
+
+def _filtrar_lavagens(q, args):
+    q = _filtro_periodo(Lavagem.data)(q, args)
+    veiculo_id = args.get("veiculo_id", type=int)
+    if veiculo_id:
+        q = q.filter(Lavagem.veiculo_id == veiculo_id)
+    return q
+
+
+registrar_crud(
+    bp_api, "lavagens", Lavagem,
+    campos={"data": "date", "veiculo_id": "int", "valor": "float", "observacao": "str"},
+    ordem=Lavagem.data.desc(),
+    obrigatorios=("data", "veiculo_id", "valor"),
+    tela="manutencao", antes_salvar=_validar_lavagem,
+    filtrar=_filtrar_lavagens)
 
 
 # ------------------------------------------------------ Módulo 3: manutenção

@@ -6,7 +6,8 @@ SGMF.tela = function (config) {
   const {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
-    aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true
+    aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
+    rotuloSalvar = null
   } = config;
 
   const idModal = `modal_${recurso}`;
@@ -23,6 +24,13 @@ SGMF.tela = function (config) {
     if (c.tipo === 'select' || c.tipo === 'ref') {
       entrada = `<select class="form-select" id="${nome}" data-campo="${c.nome}">
                    <option value="">${c.vazio || '— selecione —'}</option></select>`;
+    } else if (c.tipo === 'moeda') {
+      /* Texto comum, não <input type="number">: number faz o navegador ler
+         "." como separador decimal, então digitar "20.000" (separador de
+         milhar) virava 20. Aqui o usuário só digita dígitos e o campo se
+         formata sozinho (ver SGMF.mascaraMoeda). */
+      entrada = `<input type="text" class="form-control text-end" id="${nome}"
+                   data-campo="${c.nome}" placeholder="${c.exemplo || '0,00'}">`;
     } else if (c.tipo === 'textarea') {
       entrada = `<textarea class="form-control" id="${nome}" data-campo="${c.nome}" rows="${c.linhas || 3}"></textarea>`;
     } else if (c.tipo === 'checkbox') {
@@ -66,13 +74,16 @@ SGMF.tela = function (config) {
           </div>
           <div class="modal-footer">
             <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
-            <button class="btn btn-primario" id="${idModal}_salvar">Salvar ${titulo}</button>
+            <button class="btn btn-primario" id="${idModal}_salvar">${rotuloSalvar || `Salvar ${titulo}`}</button>
           </div>
         </div>
       </div>
     </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
     document.getElementById(`${idModal}_salvar`).addEventListener('click', salvar);
+    campos.filter(c => c.tipo === 'moeda').forEach(c => {
+      SGMF.mascaraMoeda(document.getElementById(`campo_${c.nome}`));
+    });
   }
 
   async function preencherSelects() {
@@ -97,6 +108,7 @@ SGMF.tela = function (config) {
       if (c.tipo === 'personalizado') return;  // preenchido pelo aoAbrirFormulario da própria tela
       let valor = registro ? registro[c.nome] : (typeof c.padrao === 'function' ? c.padrao() : c.padrao);
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
+      else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
       el.disabled = !!(c.somenteNovo && registro);
     });
@@ -110,6 +122,7 @@ SGMF.tela = function (config) {
       const el = document.getElementById(`campo_${c.nome}`);
       if (!el || c.tipo === 'personalizado') return;
       if (c.tipo === 'checkbox') dados[c.nome] = el.checked;
+      else if (c.tipo === 'moeda') dados[c.nome] = SGMF.valorMoeda(el) || null;
       else if (c.tipo === 'number' || c.tipo === 'ref') dados[c.nome] = el.value === '' ? null : Number(el.value);
       else dados[c.nome] = el.value.trim() === '' ? null : (c.maiuscula ? el.value.toUpperCase().trim() : el.value.trim());
     });

@@ -25,6 +25,7 @@
     {% if pode('alertas') %}<a href="{{ url_for('paginas.alertas') }}" class="{{ 'ativo' if pagina == 'alertas' }}"><i class="fa-solid fa-triangle-exclamation"></i> Alertas <span class="contador d-none" id="contadorAlertas">0</span></a>{% endif %}
     {% if pode('manutencao') %}<a href="{{ url_for('paginas.manutencao') }}" class="{{ 'ativo' if pagina == 'manutencao' }}"><i class="fa-solid fa-screwdriver-wrench"></i> Ordens de serviço</a>{% endif %}
     {% if pode('manutencao') %}<a href="{{ url_for('paginas.servicos_terceiros', novo=1) }}" class="{{ 'ativo' if pagina == 'servicos_terceiros' }}"><i class="fa-solid fa-plus-circle"></i> Lançar serviço terceiro</a>{% endif %}
+    {% if pode('manutencao') %}<a href="{{ url_for('paginas.lavagem', novo=1) }}" class="{{ 'ativo' if pagina == 'lavagem' }}"><i class="fa-solid fa-soap"></i> Lavagem</a>{% endif %}
     {% if pode('compras') %}<a href="/compras" class="{{ 'ativo' if pagina == 'compras' }}"><i class="fa-solid fa-cart-shopping"></i> Ordens de compra</a>{% endif %}
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
@@ -120,6 +121,7 @@
 <script>
   window.SGMF_PERFIL = "{{ session.perfil }}";
   window.SGMF_PERMISSOES = {{ (session.permissoes or {}) | tojson }};
+  window.SGMF_USUARIO_NOME = {{ (session.usuario_nome or "") | tojson }};
 </script>
 <script src="{{ url_for('static', filename='vendor/js/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/js/jquery.min.js') }}"></script>

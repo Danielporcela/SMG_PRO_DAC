@@ -112,8 +112,50 @@ const SGMF = (() => {
   const paraISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const hoje = () => paraISO(new Date());
   const primeiroDiaMes = () => { const d = new Date(); d.setDate(1); return paraISO(d); };
+  /* Hora local do navegador (fuso do usuário), mesmo raciocínio de `hoje`:
+     nunca usar toISOString()/getUTCHours(), que converteriam para UTC. */
+  const horaAtual = () => { const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
   const etiqueta = (texto, cor) => `<span class="etiqueta ${esc(cor)}">${esc(texto)}</span>`;
+
+  /* ------------------------------------------------------- máscara de moeda
+     Campos de valor (R$) usavam <input type="number">, que trata o ponto
+     como separador DECIMAL — então digitar "20.000" (hábito brasileiro de
+     usar ponto como separador de milhar) virava 20, não 20 mil, e o
+     sistema "não aceitava" valores acima de mil. Aqui o campo vira um
+     <input type="text"> comum: os dígitos formam o valor diretamente (ex.:
+     digitar 20000 mostra "20.000") e a vírgula decimal é opcional, só
+     entra em jogo se o próprio usuário digitá-la. */
+  function formatarEntradaMoeda(bruto) {
+    const limpo = (bruto || '').replace(/[^\d,]/g, '');
+    const idxVirgula = limpo.indexOf(',');
+    let inteiro = idxVirgula === -1 ? limpo : limpo.slice(0, idxVirgula);
+    const decimal = idxVirgula === -1 ? null : limpo.slice(idxVirgula + 1).replace(/,/g, '').slice(0, 2);
+    inteiro = inteiro.replace(/^0+(?=\d)/, '');
+    let texto = inteiro ? Number(inteiro).toLocaleString('pt-BR') : '';
+    if (decimal !== null) texto += ',' + decimal;
+    const valor = (inteiro || decimal) ? Number(`${inteiro || '0'}.${decimal || '0'}`) : 0;
+    return { texto, valor };
+  }
+
+  function mascaraMoeda(el) {
+    el.setAttribute('inputmode', 'decimal');
+    el.addEventListener('input', () => { el.value = formatarEntradaMoeda(el.value).texto; });
+    el.addEventListener('blur', () => {
+      const { valor } = formatarEntradaMoeda(el.value);
+      el.value = valor ? valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    });
+  }
+
+  function valorMoeda(el) {
+    return formatarEntradaMoeda(el.value).valor;
+  }
+
+  function definirValorMoeda(el, valor) {
+    const numero = Number(valor) || 0;
+    el.value = numero ? numero.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+  }
 
   const CORES_STATUS = {
     'Disponível': 'verde', 'Em manutenção': 'ambar', 'Inativo': 'cinza',
@@ -218,6 +260,7 @@ const SGMF = (() => {
 
   /* ------------------------------------------------------------- permissão */
   const perfil = () => window.SGMF_PERFIL || 'operador';
+  const usuarioNome = () => window.SGMF_USUARIO_NOME || '';
   const nivelNaTela = (tela) => {
     if (perfil() === 'admin') return 'editar';
     const mapa = window.SGMF_PERMISSOES || {};
@@ -269,8 +312,9 @@ const SGMF = (() => {
   return {
     api, get, post, put, del, toast, sucesso, falha, aviso, confirmar,
     esc, escSeTexto, escObjeto,
-    moeda, numero, data, hoje, primeiroDiaMes, etiqueta, status,
+    moeda, numero, data, hoje, primeiroDiaMes, horaAtual, etiqueta, status,
+    mascaraMoeda, valorMoeda, definirValorMoeda,
     opcoes, limparCache, grafico, PALETA, GRUPOS, POSICOES, carregarContadorAlertas,
-    perfil, somenteLeitura, podeVer, podeEditar, nivelNaTela, imprimir
+    perfil, usuarioNome, somenteLeitura, podeVer, podeEditar, nivelNaTela, imprimir
   };
 })();

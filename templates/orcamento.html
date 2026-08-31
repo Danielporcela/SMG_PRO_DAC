@@ -28,7 +28,7 @@ SGMF.tela({
       opcoes: MESES.map((m, i) => ({ valor: i + 1, texto: m })) },
     { nome: 'categoria', rotulo: 'Categoria', tipo: 'select', col: 3, padrao: 'Manutenção',
       opcoes: ['Manutenção', 'Combustível', 'Pneus', 'Consumo interno', 'Geral'] },
-    { nome: 'meta_valor', rotulo: 'Meta (R$)', tipo: 'number', col: 3, obrigatorio: true },
+    { nome: 'meta_valor', rotulo: 'Meta (R$)', tipo: 'moeda', col: 3, obrigatorio: true },
     { nome: 'veiculo_id', rotulo: 'Veículo (opcional)', tipo: 'ref', recurso: 'veiculos', col: 4,
       ajuda: 'Use para metas específicas da frota.' },
     { nome: 'grupo_consumo_id', rotulo: 'Grupo de consumo (opcional)', tipo: 'ref', recurso: 'grupos-consumo', col: 4,

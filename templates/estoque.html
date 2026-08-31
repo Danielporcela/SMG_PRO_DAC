@@ -411,7 +411,7 @@ const telaEstoque = SGMF.tela({
     { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
     { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
       ajuda: 'Lançado como entrada. Depois use "Movimentar".' },
-    { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'number', col: 4 },
+    { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'moeda', col: 4 },
     { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
       ajuda: 'Abaixo disso o sistema avisa para repor.' }
   ],

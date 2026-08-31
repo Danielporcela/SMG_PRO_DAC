@@ -881,6 +881,36 @@ class ServicoTerceiro(db.Model):
         }
 
 
+class Lavagem(db.Model):
+    """Despesa de lavagem de veículo — lançamento financeiro próprio.
+
+    Assim como ServicoTerceiro, o gasto entra no painel pela data deste
+    registro, na categoria própria "Lavagem".
+    """
+    __tablename__ = "lavagens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
+    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False, index=True)
+    valor = db.Column(db.Float, default=0, nullable=False)
+    observacao = db.Column(db.Text)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    veiculo = db.relationship("Veiculo")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "data": self.data.isoformat() if self.data else None,
+            "veiculo_id": self.veiculo_id,
+            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+                              if self.veiculo else None),
+            "valor": round(self.valor or 0, 2),
+            "observacao": self.observacao,
+            "identificacao": f"Lavagem · {self.veiculo.prefixo if self.veiculo else '—'}",
+        }
+
+
 class Abastecimento(db.Model):
     """Módulo 5 — combustível."""
     __tablename__ = "abastecimentos"

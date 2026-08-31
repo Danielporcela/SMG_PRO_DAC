@@ -6,7 +6,7 @@ from flask import current_app
 from sqlalchemy import func
 
 from extensions import db
-from models import (Abastecimento, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
+from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo)
 from services.auditoria_estoque import contar_os_pendentes
 from services.tempo import hoje as data_de_hoje
@@ -39,6 +39,14 @@ def _servicos_terceiros(inicio, fim, veiculo_id=None):
     q = ServicoTerceiro.query.filter(ServicoTerceiro.data.between(inicio, fim))
     if veiculo_id:
         q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
+    return q.all()
+
+
+def _lavagens(inicio, fim, veiculo_id=None):
+    """Despesas de lavagem contadas pela data real do lançamento."""
+    q = Lavagem.query.filter(Lavagem.data.between(inicio, fim))
+    if veiculo_id:
+        q = q.filter(Lavagem.veiculo_id == veiculo_id)
     return q.all()
 
 
@@ -88,6 +96,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     inicio, fim = periodo_padrao(inicio, fim)
     ordens = _custo_os(inicio, fim, veiculo_id)
     servicos_terceiros = _servicos_terceiros(inicio, fim, veiculo_id)
+    lavagens = _lavagens(inicio, fim, veiculo_id)
 
     q_ab = Abastecimento.query.filter(Abastecimento.data.between(inicio, fim))
     if veiculo_id:
@@ -104,6 +113,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     gasto_manut_os = round(sum(o.custo_total for o in ordens), 2)
     gasto_terceiros = round(sum(s.valor or 0 for s in servicos_terceiros), 2)
     gasto_manut = round(gasto_manut_os + gasto_terceiros, 2)
+    gasto_lavagem = round(sum(l.valor or 0 for l in lavagens), 2)
     gasto_comb = round(sum(a.valor_total or 0 for a in abastecimentos), 2)
     notas_compra = _notas_finalizadas(inicio, fim)
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
@@ -126,7 +136,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
 
     # Economia do período: quanto o custo por km atual está melhor (ou pior)
     # que a média histórica, aplicado aos km rodados agora.
-    custo_km_atual = round((gasto_comb + gasto_manut) / km_rodados, 4) if km_rodados else 0
+    custo_km_atual = round((gasto_comb + gasto_manut + gasto_lavagem) / km_rodados, 4) if km_rodados else 0
     referencia = _custo_km_historico(inicio, veiculo_id)
     if referencia and km_rodados:
         economia = round((referencia - custo_km_atual) * km_rodados, 2)
@@ -148,16 +158,18 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_servicos_terceiros": gasto_terceiros,
         "servicos_terceiros_qtd": len(servicos_terceiros),
         "gasto_manutencao": gasto_manut,
-        "gasto_total": round(gasto_comb + gasto_manut, 2),
+        "gasto_lavagem": gasto_lavagem,
+        "lavagens_qtd": len(lavagens),
+        "gasto_total": round(gasto_comb + gasto_manut + gasto_lavagem, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
         # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
         # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
         # aderência ao orçamento por veículo sempre significaram no painel.
-        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_compras, 2),
+        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_lavagem + gasto_compras, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
-        "custo_por_km": round((gasto_comb + gasto_manut) / km_rodados, 2) if km_rodados else 0,
+        "custo_por_km": round((gasto_comb + gasto_manut + gasto_lavagem) / km_rodados, 2) if km_rodados else 0,
         "disponibilidade": round(max(0, (horas_disponiveis - horas_paradas)) / horas_disponiveis * 100, 1)
         if horas_disponiveis else 100,
         "mttr_dias": mttr,
@@ -172,7 +184,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
-        "aderencia_orcamento": round((gasto_comb + gasto_manut) / orcado * 100, 1) if orcado else 0,
+        "aderencia_orcamento": round((gasto_comb + gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(sum((p.quantidade or 0) * (p.custo_unitario or 0)
                                    for p in Peca.query.all()), 2),
         "estoque_critico": Peca.query.filter(Peca.estoque_minimo > 0,
@@ -186,7 +198,7 @@ def series_graficos(inicio=None, fim=None):
     hoje = data_de_hoje()
 
     # 12 meses móveis de gasto
-    meses, comb_mes, manut_mes, compras_mes, meta_mes = [], [], [], [], []
+    meses, comb_mes, manut_mes, compras_mes, meta_mes, lavagem_mes = [], [], [], [], [], []
     for i in range(11, -1, -1):
         ref = (hoje.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
         ini = ref
@@ -198,6 +210,7 @@ def series_graficos(inicio=None, fim=None):
         terceiros = _servicos_terceiros(ini, f)
         manut_mes.append(round(sum(o.custo_total for o in ordens)
                                + sum(s.valor or 0 for s in terceiros), 2))
+        lavagem_mes.append(round(sum(l.valor or 0 for l in _lavagens(ini, f)), 2))
         compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
                               .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month,
@@ -212,6 +225,7 @@ def series_graficos(inicio=None, fim=None):
         ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
                                            OrdemServico.data_abertura.between(inicio, fim)).all()
         terceiros = _servicos_terceiros(inicio, fim, v.id)
+        lavagens_v = _lavagens(inicio, fim, v.id)
         comb = db.session.query(func.sum(Abastecimento.valor_total)).filter(
             Abastecimento.veiculo_id == v.id,
             Abastecimento.data.between(inicio, fim)).scalar() or 0
@@ -222,11 +236,12 @@ def series_graficos(inicio=None, fim=None):
             Abastecimento.veiculo_id == v.id,
             Abastecimento.data.between(inicio, fim)).scalar() or 0
         gasto_terceiros = round(sum(s.valor or 0 for s in terceiros), 2)
+        gasto_lavagem_v = round(sum(l.valor or 0 for l in lavagens_v), 2)
         manutencao = round(sum(o.custo_total for o in ordens) + gasto_terceiros, 2)
-        total = round(manutencao + comb, 2)
+        total = round(manutencao + comb + gasto_lavagem_v, 2)
         por_veiculo.append({
             "veiculo": v.prefixo, "placa": v.placa, "manutencao": manutencao,
-            "servicos_terceiros": gasto_terceiros,
+            "servicos_terceiros": gasto_terceiros, "lavagem": gasto_lavagem_v,
             "combustivel": round(comb, 2), "total": total, "km": round(km),
             "consumo": round(km / litros, 2) if litros else 0,
             "custo_km": round(total / km, 2) if km else 0,
@@ -289,11 +304,11 @@ def series_graficos(inicio=None, fim=None):
 
     return {
         "meses": meses, "combustivel_mes": comb_mes, "manutencao_mes": manut_mes,
-        "compras_mes": compras_mes,
+        "compras_mes": compras_mes, "lavagem_mes": lavagem_mes,
         "meta_mes": meta_mes,
-        "realizado_mes": [round(c + m, 2) for c, m in zip(comb_mes, manut_mes)],
-        "realizado_geral_mes": [round(c + m + p, 2)
-                                for c, m, p in zip(comb_mes, manut_mes, compras_mes)],
+        "realizado_mes": [round(c + m + l, 2) for c, m, l in zip(comb_mes, manut_mes, lavagem_mes)],
+        "realizado_geral_mes": [round(c + m + l + p, 2)
+                                for c, m, l, p in zip(comb_mes, manut_mes, lavagem_mes, compras_mes)],
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
@@ -388,8 +403,10 @@ def alertas():
                 Abastecimento.veiculo_id == v.id,
                 Abastecimento.data.between(ini, hoje)).scalar() or 0
             terceiros = _servicos_terceiros(ini, hoje, v.id)
+            lavagens_v = _lavagens(ini, hoje, v.id)
             gasto = (sum(o.custo_total for o in ordens) + comb
-                     + sum(s.valor or 0 for s in terceiros))
+                     + sum(s.valor or 0 for s in terceiros)
+                     + sum(l.valor or 0 for l in lavagens_v))
             if gasto > v.orcamento_mensal:
                 add("critico", "Orçamento", f"{v.prefixo} · acima do orçamento",
                     f"R$ {gasto:,.2f} gastos contra R$ {v.orcamento_mensal:,.2f} previstos."

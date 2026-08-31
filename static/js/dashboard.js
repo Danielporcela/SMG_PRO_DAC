@@ -40,6 +40,9 @@
       medidor('Serviços terceiros', SGMF.moeda(d.gasto_servicos_terceiros), {
         icone: 'fa-hand-holding-dollar', estilo: 'font-size:19px',
         nota: `${d.servicos_terceiros_qtd} lançamento(s) no período` }),
+      medidor('Lavagem', SGMF.moeda(d.gasto_lavagem), {
+        icone: 'fa-soap', estilo: 'font-size:19px',
+        nota: `${d.lavagens_qtd} lançamento(s) no período` }),
       medidor('Compras (NF)', SGMF.moeda(d.gasto_compras), {
         icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
         nota: `${d.notas_fiscais_qtd} nota(s) finalizada(s)` }),
@@ -89,6 +92,8 @@
             backgroundColor: '#0F3D56', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Manutenção (incl. terceiros)', data: g.manutencao_mes,
             backgroundColor: '#7FA9C2', stack: 'gasto', borderRadius: 2 },
+          { type: 'bar', label: 'Lavagem', data: g.lavagem_mes,
+            backgroundColor: '#4FB0C6', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Compras (NF)', data: g.compras_mes,
             backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
@@ -164,6 +169,26 @@
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: { x: { grid: { display: false } }, y: { grid: { color: '#EBEFF3' } } }
+      }
+    });
+
+    SGMF.grafico('graficoLavagem', {
+      type: 'bar',
+      data: {
+        labels: g.meses,
+        datasets: [{ label: 'Lavagem', data: g.lavagem_mes,
+                     backgroundColor: '#4FB0C6', borderRadius: 2 }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => SGMF.moeda(c.parsed.y) } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { ticks: { callback: v => 'R$ ' + SGMF.numero(v) }, grid: { color: '#EBEFF3' } }
+        }
       }
     });
 
@@ -354,6 +379,19 @@
     });
   }
 
+  function imprimirGraficoLavagem() {
+    const g = precisaGraficos(); if (!g) return;
+    const linhas = g.meses.map((mes, i) => ({ mes, valor: g.lavagem_mes[i] }));
+    abrirImpressaoRelatorio({
+      titulo: 'Gasto com lavagem (últimos 12 meses)', canvasId: 'graficoLavagem', semPeriodo: true,
+      colunas: [
+        { rotulo: 'Mês', campo: 'mes' },
+        { rotulo: 'Lavagem', classe: 'text-end num', render: l => SGMF.moeda(l.valor) }
+      ],
+      linhas
+    });
+  }
+
   function imprimirTopPecas() {
     const g = precisaGraficos(); if (!g) return;
     abrirImpressaoRelatorio({
@@ -371,7 +409,7 @@
 
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
-    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirTopPecas
+    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas
   });
 
   async function atualizar() {

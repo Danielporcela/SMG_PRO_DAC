@@ -129,6 +129,23 @@ def garantir_servicos_terceiros_financeiros():
     if "servicos_terceiros" not in tabelas:
         ServicoTerceiro.__table__.create(engine, checkfirst=True)
 
+def garantir_lavagens_financeiro():
+    """Cria a tabela dos lançamentos financeiros de lavagem.
+
+    Em instalações novas, ``db.create_all`` cria a tabela. Em bancos já
+    existentes, esta função adiciona a tabela sem alterar dados.
+    """
+    from models import Lavagem
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "veiculos" not in tabelas:
+        return
+    if "lavagens" not in tabelas:
+        Lavagem.__table__.create(engine, checkfirst=True)
+
 def garantir_usuario_movimentos_estoque():
     """Adiciona a identificação do responsável sem alterar registros existentes."""
     engine = db.engine

@@ -73,7 +73,7 @@
           </div>
           <div class="col-md-2">
             <label class="form-label" for="itemValor">Valor unit.</label>
-            <input type="number" min="0" step="any" class="form-control form-control-sm" id="itemValor">
+            <input type="text" class="form-control form-control-sm text-end" id="itemValor" placeholder="0,00">
           </div>
           <div class="col-md-1">
             <button class="btn btn-primario btn-sm w-100" id="itemAdicionar" title="Adicionar item">
@@ -116,18 +116,17 @@ const telaOS = SGMF.tela({
   filtroPeriodo: true,
   ordem: [[1, 'desc']],
   campos: [
-    { nome: 'cco', rotulo: 'CCO', col: 2 },
+    { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
-    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3 },
+    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4 },
     { nome: 'setor', rotulo: 'Setor', col: 4 },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4 },
     { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2 },
     { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4,
-      opcoes: ['Manutenção corretiva', 'Sistema mecânico', 'Borracharia',
-               'Sistema hidráulico', 'Solda', 'Manutenção preventiva',
-               'Sistema elétrico', 'Acidente'] },
+      opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
+               'Serviço solda', 'Chapeação e pintura'] },
     { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
     { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva',
@@ -239,6 +238,7 @@ function atualizarTipoItem() {
 
 document.getElementById('itemTipo').addEventListener('change', atualizarTipoItem);
 atualizarTipoItem();
+SGMF.mascaraMoeda(document.getElementById('itemValor'));
 
 document.getElementById('itemPeca').addEventListener('change', (e) => {
   const peca = pecasDisponiveis.find(p => p.id == e.target.value);
@@ -246,7 +246,7 @@ document.getElementById('itemPeca').addEventListener('change', (e) => {
     document.getElementById('itemTipo').value = 'peca';
     atualizarTipoItem();
     document.getElementById('itemDescricao').value = peca.descricao;
-    document.getElementById('itemValor').value = peca.custo_unitario || '';
+    SGMF.definirValorMoeda(document.getElementById('itemValor'), peca.custo_unitario);
   }
 });
 
@@ -461,7 +461,7 @@ document.getElementById('itemAdicionar').onclick = async () => {
   const peca = pecaId ? pecasDisponiveis.find(p => p.id === pecaId) : null;
   const descricao = document.getElementById('itemDescricao').value.trim();
   const prestador = document.getElementById('itemPrestador').value.trim();
-  const valorUnitario = Number(document.getElementById('itemValor').value) || 0;
+  const valorUnitario = SGMF.valorMoeda(document.getElementById('itemValor'));
   const quantidade = Number(document.getElementById('itemQtd').value) || 1;
 
   if (tipoItem === 'peca' && !pecaId) return SGMF.aviso('Selecione a peça do estoque.');

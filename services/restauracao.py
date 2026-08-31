@@ -12,13 +12,13 @@ Regras de segurança adotadas:
 from datetime import date
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, Motorista, MovimentoEstoque,
-                    Orcamento, OrdemServico, Peca, Pneu, ServicoTerceiro, Veiculo)
+from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, Lavagem, Motorista,
+                    MovimentoEstoque, Orcamento, OrdemServico, Peca, Pneu, ServicoTerceiro, Veiculo)
 from services.crud import ErroNegocio
 
 # ordem de exclusão: filhos antes dos pais
-ORDEM_LIMPEZA = [ItemOS, MovimentoEstoque, ServicoTerceiro, Abastecimento, OrdemServico, Pneu,
-                 Orcamento, GrupoConsumo, Peca, Veiculo, Motorista, Fornecedor]
+ORDEM_LIMPEZA = [ItemOS, MovimentoEstoque, ServicoTerceiro, Lavagem, Abastecimento, OrdemServico,
+                 Pneu, Orcamento, GrupoConsumo, Peca, Veiculo, Motorista, Fornecedor]
 
 # (chave no arquivo, modelo, campos aceitos)
 TABELAS = [
@@ -45,6 +45,8 @@ TABELAS = [
     ("servicos_terceiros", ServicoTerceiro,
      ["id", "data", "veiculo_id", "ordem_servico_id", "prestador", "tipo_servico",
       "descricao", "valor", "documento", "observacao"]),
+    ("lavagens", Lavagem,
+     ["id", "data", "veiculo_id", "valor", "observacao"]),
     ("abastecimentos", Abastecimento,
      ["id", "data", "veiculo_id", "motorista_id", "fornecedor_id", "combustivel",
       "km_atual", "litros", "valor_litro", "valor_total", "tanque_cheio",
