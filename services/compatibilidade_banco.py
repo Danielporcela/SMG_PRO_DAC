@@ -40,6 +40,8 @@ def garantir_ordens_compra():
             "motivo_reprovacao": "VARCHAR(200)",
             "comprado_por": "VARCHAR(120)",
             "data_compra": "DATE",
+            "fechado_por": "VARCHAR(120)",
+            "data_fechamento": "DATE",
         },
         "itens_ordem_compra": {
             "ordem_compra_id": "INTEGER",
@@ -49,6 +51,9 @@ def garantir_ordens_compra():
             "quantidade": "FLOAT",
             "valor_unitario": "FLOAT",
             "observacao": "VARCHAR(200)",
+            "recebido": "BOOLEAN DEFAULT 0",
+            "data_recebimento": "DATE",
+            "recebido_por": "VARCHAR(120)",
         },
     }
 
@@ -58,6 +63,25 @@ def garantir_ordens_compra():
             for nome, tipo in colunas.items():
                 if nome not in existentes:
                     conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+    # Instalações antigas tinham o fluxo Pendente/Aprovada/Reprovada/Comprada.
+    # O fluxo atual é Compras do dia/Efetuado a compra/Fechada — converte o
+    # que já estiver gravado para o status mais próximo, uma única vez.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE ordens_compra SET status = 'Compras do dia' "
+            "WHERE status IN ('Pendente', 'Aprovada', 'Reprovada')"))
+        conn.execute(text(
+            "UPDATE ordens_compra SET status = 'Efetuado a compra' "
+            "WHERE status = 'Comprada'"))
+        # Ordens antigas já compradas não têm itens marcados como recebidos —
+        # sem essa marcação, todo item delas apareceria como pendência nova.
+        # Como não há como saber o que já chegou, assume-se recebido para não
+        # gerar uma lista de pendências cheia de itens de compras já feitas.
+        conn.execute(text(
+            "UPDATE itens_ordem_compra SET recebido = 1 "
+            "WHERE COALESCE(recebido, 0) != 1 AND ordem_compra_id IN ("
+            "  SELECT id FROM ordens_compra WHERE status = 'Efetuado a compra')"))
 
 
 def garantir_pecas_serial():

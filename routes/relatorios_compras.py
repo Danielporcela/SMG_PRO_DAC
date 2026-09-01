@@ -2,13 +2,13 @@
 
 Uma rota só, no mesmo endereço das outras exportações do sistema:
 
-    /relatorios/ordens_compra.xlsx?inicio=2026-01-01&fim=2026-01-31&status=Pendente
+    /relatorios/ordens_compra.xlsx?inicio=2026-01-01&fim=2026-01-31&status=Compras do dia
 
 A planilha sai com três abas:
 
     Resumo   — quanto tem em cada situação, por setor e por prioridade
-    Ordens   — uma linha por ordem, com a trilha de aprovação
-    Itens    — uma linha por item, para conferir o que foi pedido e cotar
+    Ordens   — uma linha por ordem, com a trilha de compra e recebimento
+    Itens    — uma linha por item, com o que já foi recebido e o que falta
 
 Quem enxerga: quem tem 'visualizar' em Ordens de compra OU em Relatórios —
 o financeiro costuma ter só a segunda, e o almoxarifado só a primeira.
@@ -32,8 +32,8 @@ MOEDA = 'R$ #,##0.00'
 PETROLEO = "0F3D56"
 CINZA = "F5F7F9"
 
-CORES_SITUACAO = {"Pendente": "FFF3CD", "Aprovada": "D9F2DE",
-                  "Reprovada": "FADBD8", "Comprada": "DCE9F5"}
+CORES_SITUACAO = {"Compras do dia": "FFF3CD", "Efetuado a compra": "DCE9F5",
+                  "Fechada": "D9F2DE"}
 
 
 # ---------------------------------------------------------------- auxiliares
@@ -109,7 +109,7 @@ def _montar_resumo(aba, ordens, inicio, fim, status):
     linha += 1
 
     total_valor = sum(o.valor_total for o in ordens) or 0
-    for situacao in ("Pendente", "Aprovada", "Reprovada", "Comprada"):
+    for situacao in ("Compras do dia", "Efetuado a compra", "Fechada"):
         do_grupo = [o for o in ordens if o.status == situacao]
         valor = sum(o.valor_total for o in do_grupo)
         aba.cell(row=linha, column=1, value=situacao).fill = \
@@ -173,22 +173,23 @@ def _montar_resumo(aba, ordens, inicio, fim, status):
 # ------------------------------------------------------------- aba Ordens
 def _montar_ordens(aba, ordens):
     titulos = ["OC", "Solicitada em", "Solicitante", "Setor", "Prioridade", "Situação",
-               "Fornecedor sugerido", "Itens", "Valor estimado", "Aprovada/reprovada por",
-               "Data da decisão", "Motivo da reprovação", "Comprada por", "Data da compra",
+               "Fornecedor sugerido", "Itens", "Itens pendentes", "Valor estimado",
+               "Comprada por", "Data da compra", "Fechada por", "Data de fechamento",
                "Justificativa"]
     _cabecalho(aba, titulos)
-    _ajustar_larguras(aba, [11, 14, 20, 16, 12, 12, 24, 8, 16, 22, 15, 34, 20, 14, 44])
+    _ajustar_larguras(aba, [11, 14, 20, 16, 12, 16, 24, 8, 14, 16, 20, 14, 20, 16, 44])
 
     for posicao, o in enumerate(ordens, start=2):
         valores = [o.numero, o.data_solicitacao, o.solicitante, o.setor, o.prioridade, o.status,
-                   o.fornecedor.nome if o.fornecedor else None, len(o.itens), o.valor_total,
-                   o.aprovado_por, o.data_aprovacao, o.motivo_reprovacao,
-                   o.comprado_por, o.data_compra, o.justificativa]
+                   o.fornecedor.nome if o.fornecedor else None, len(o.itens),
+                   len(o.itens_pendentes), o.valor_total,
+                   o.comprado_por, o.data_compra, o.fechado_por, o.data_fechamento,
+                   o.justificativa]
         for coluna, valor in enumerate(valores, start=1):
             aba.cell(row=posicao, column=coluna, value=valor)
         aba.cell(row=posicao, column=2).number_format = 'DD/MM/YYYY'
-        aba.cell(row=posicao, column=9).number_format = MOEDA
-        aba.cell(row=posicao, column=11).number_format = 'DD/MM/YYYY'
+        aba.cell(row=posicao, column=10).number_format = MOEDA
+        aba.cell(row=posicao, column=12).number_format = 'DD/MM/YYYY'
         aba.cell(row=posicao, column=14).number_format = 'DD/MM/YYYY'
         aba.cell(row=posicao, column=6).fill = \
             PatternFill("solid", fgColor=CORES_SITUACAO.get(o.status, "FFFFFF"))
@@ -202,9 +203,10 @@ def _montar_ordens(aba, ordens):
 # -------------------------------------------------------------- aba Itens
 def _montar_itens(aba, ordens):
     titulos = ["OC", "Situação", "Solicitada em", "Setor", "Item", "Origem", "Código da peça",
-               "Saldo atual", "Unidade", "Qtde", "Valor unit. estimado", "Total", "Observação"]
+               "Saldo atual", "Unidade", "Qtde", "Valor unit. estimado", "Total", "Recebido",
+               "Recebido por", "Data de recebimento", "Observação"]
     _cabecalho(aba, titulos)
-    _ajustar_larguras(aba, [11, 12, 14, 16, 40, 11, 15, 12, 9, 10, 18, 14, 32])
+    _ajustar_larguras(aba, [11, 16, 14, 16, 40, 11, 15, 12, 9, 10, 18, 14, 10, 20, 16, 32])
 
     linha = 2
     for o in ordens:
@@ -213,14 +215,19 @@ def _montar_itens(aba, ordens):
                        "Estoque" if i.peca_id else "Digitado",
                        i.peca.codigo if i.peca else None,
                        i.peca.quantidade if i.peca else None,
-                       i.unidade, i.quantidade, i.valor_unitario, i.subtotal, i.observacao]
+                       i.unidade, i.quantidade, i.valor_unitario, i.subtotal,
+                       "Sim" if i.recebido else "Não", i.recebido_por, i.data_recebimento,
+                       i.observacao]
             for coluna, valor in enumerate(valores, start=1):
                 aba.cell(row=linha, column=coluna, value=valor)
             aba.cell(row=linha, column=3).number_format = 'DD/MM/YYYY'
             aba.cell(row=linha, column=11).number_format = MOEDA
             aba.cell(row=linha, column=12).number_format = MOEDA
+            aba.cell(row=linha, column=15).number_format = 'DD/MM/YYYY'
             aba.cell(row=linha, column=2).fill = \
                 PatternFill("solid", fgColor=CORES_SITUACAO.get(o.status, "FFFFFF"))
+            aba.cell(row=linha, column=13).fill = \
+                PatternFill("solid", fgColor="D9F2DE" if i.recebido else "FADBD8")
             linha += 1
 
     aba.freeze_panes = "A2"

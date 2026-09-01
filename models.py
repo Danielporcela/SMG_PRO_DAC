@@ -1514,6 +1514,9 @@ class ItemOrdemCompra(db.Model):
     quantidade = db.Column(db.Float, default=1)
     valor_unitario = db.Column(db.Float, default=0)   # preço estimado, opcional
     observacao = db.Column(db.String(200))
+    comprado = db.Column(db.Boolean, default=False, nullable=False)
+    comprado_por = db.Column(db.String(120))
+    data_compra_item = db.Column(db.Date)
     peca = db.relationship("Peca")
 
     @property
@@ -1529,7 +1532,10 @@ class ItemOrdemCompra(db.Model):
                 "quantidade": self.quantidade, "valor_unitario": self.valor_unitario,
                 "valor_total": self.subtotal,
                 "origem": "estoque" if self.peca_id else "livre",
-                "observacao": self.observacao}
+                "observacao": self.observacao,
+                "comprado": bool(self.comprado),
+                "comprado_por": self.comprado_por,
+                "data_compra_item": self.data_compra_item.isoformat() if self.data_compra_item else None}
 
 
 def proximo_numero_ordem_compra():
