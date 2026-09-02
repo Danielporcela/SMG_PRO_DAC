@@ -51,7 +51,7 @@ def garantir_ordens_compra():
             "quantidade": "FLOAT",
             "valor_unitario": "FLOAT",
             "observacao": "VARCHAR(200)",
-            "recebido": "BOOLEAN DEFAULT 0",
+            "recebido": "BOOLEAN DEFAULT false",
             "data_recebimento": "DATE",
             "recebido_por": "VARCHAR(120)",
         },
@@ -79,8 +79,8 @@ def garantir_ordens_compra():
         # Como não há como saber o que já chegou, assume-se recebido para não
         # gerar uma lista de pendências cheia de itens de compras já feitas.
         conn.execute(text(
-            "UPDATE itens_ordem_compra SET recebido = 1 "
-            "WHERE COALESCE(recebido, 0) != 1 AND ordem_compra_id IN ("
+            "UPDATE itens_ordem_compra SET recebido = true "
+            "WHERE COALESCE(recebido, false) != true AND ordem_compra_id IN ("
             "  SELECT id FROM ordens_compra WHERE status = 'Efetuado a compra')"))
 
 
