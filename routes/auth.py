@@ -26,6 +26,7 @@ def login():
     session["usuario_id"] = usuario.id
     session["usuario_nome"] = usuario.nome
     session["perfil"] = usuario.perfil
+    session["cargo"] = usuario.cargo or ""
     # Mapa {tela: nivel} calculado uma vez no login — evita ir ao banco a
     # cada clique só para saber se a tela está liberada.
     session["permissoes"] = usuario.permissoes_mapa()
@@ -42,7 +43,7 @@ def logout():
 @login_obrigatorio
 def eu():
     return jsonify({"id": session["usuario_id"], "nome": session["usuario_nome"],
-                    "perfil": session.get("perfil")})
+                    "perfil": session.get("perfil"), "cargo": session.get("cargo")})
 
 
 @bp_auth.post("/api/trocar-senha")

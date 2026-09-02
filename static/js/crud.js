@@ -110,8 +110,10 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
+      const podeEditarCampoSetor = SGMF.perfil() === 'admin' ||
+        (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
       el.disabled = !!(c.somenteNovo && registro) ||
-        !!(c.travarParaOutroSetor && registro && !['admin', 'operador'].includes(SGMF.perfil()));
+        !!(c.travarParaOutroSetor && !podeEditarCampoSetor);
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();

@@ -260,6 +260,7 @@ const SGMF = (() => {
 
   /* ------------------------------------------------------------- permissão */
   const perfil = () => window.SGMF_PERFIL || 'operador';
+  const cargo = () => window.SGMF_CARGO || '';
   const usuarioNome = () => window.SGMF_USUARIO_NOME || '';
   const nivelNaTela = (tela) => {
     if (perfil() === 'admin') return 'editar';
@@ -351,6 +352,6 @@ const SGMF = (() => {
     moeda, numero, data, hoje, primeiroDiaMes, horaAtual, etiqueta, status,
     mascaraMoeda, valorMoeda, definirValorMoeda,
     opcoes, limparCache, grafico, PALETA, GRUPOS, POSICOES, carregarContadorAlertas,
-    perfil, usuarioNome, somenteLeitura, podeVer, podeEditar, nivelNaTela, imprimir
+    perfil, cargo, usuarioNome, somenteLeitura, podeVer, podeEditar, nivelNaTela, imprimir
   };
 })();

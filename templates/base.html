@@ -120,6 +120,7 @@
 
 <script>
   window.SGMF_PERFIL = "{{ session.perfil }}";
+  window.SGMF_CARGO = {{ (session.cargo or "") | tojson }};
   window.SGMF_PERMISSOES = {{ (session.permissoes or {}) | tojson }};
   window.SGMF_USUARIO_NOME = {{ (session.usuario_nome or "") | tojson }};
 </script>
