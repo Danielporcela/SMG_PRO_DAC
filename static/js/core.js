@@ -295,9 +295,12 @@ const SGMF = (() => {
      combustível, manutenção, ranking, compras, lavagem, serviços de
      terceiros). O servidor sempre manda um valor padrão (últimos 30 dias)
      via `_filtro_periodo.html`. Para que o período escolhido pelo usuário
-     "sobreviva" à troca de tela, guardamos a última seleção no localStorage
+     "sobreviva" à troca de tela, guardamos a última seleção no sessionStorage
      do navegador e a restauramos aqui, sobrepondo o valor padrão do
-     servidor, sempre que os campos existirem na página. */
+     servidor, sempre que os campos existirem na página.
+     Usamos sessionStorage (e não localStorage) de propósito: ele dura
+     apenas enquanto a aba/navegador está aberto, então um período de teste
+     nunca fica "grudado" para sempre em sessões futuras. */
   const CHAVE_PERIODO = 'sgmf_periodo';
 
   function restaurarPeriodoSalvo() {
@@ -306,17 +309,17 @@ const SGMF = (() => {
     if (!inicioEl || !fimEl) return;
 
     try {
-      const salvo = JSON.parse(localStorage.getItem(CHAVE_PERIODO) || 'null');
+      const salvo = JSON.parse(sessionStorage.getItem(CHAVE_PERIODO) || 'null');
       if (salvo && salvo.inicio) inicioEl.value = salvo.inicio;
       if (salvo && salvo.fim) fimEl.value = salvo.fim;
-    } catch (e) { /* localStorage indisponível ou dado inválido: ignora */ }
+    } catch (e) { /* sessionStorage indisponível ou dado inválido: ignora */ }
 
     const salvarPeriodo = () => {
       try {
-        localStorage.setItem(CHAVE_PERIODO, JSON.stringify({
+        sessionStorage.setItem(CHAVE_PERIODO, JSON.stringify({
           inicio: inicioEl.value, fim: fimEl.value
         }));
-      } catch (e) { /* ignora se o navegador bloquear localStorage */ }
+      } catch (e) { /* ignora se o navegador bloquear sessionStorage */ }
     };
     inicioEl.addEventListener('change', salvarPeriodo);
     fimEl.addEventListener('change', salvarPeriodo);
