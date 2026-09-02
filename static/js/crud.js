@@ -13,6 +13,8 @@ SGMF.tela = function (config) {
   const idModal = `modal_${recurso}`;
   let tabela = null;
   let registros = [];
+  let sujo = false;             // true assim que o usuário mexe em algum campo do formulário
+  let fechamentoLiberado = false;  // true quando o fechamento já foi confirmado (ou é um salvamento)
 
   /* ------------------------------------------------------------- formulário */
   function campoHtml(c) {
@@ -84,6 +86,30 @@ SGMF.tela = function (config) {
     campos.filter(c => c.tipo === 'moeda').forEach(c => {
       SGMF.mascaraMoeda(document.getElementById(`campo_${c.nome}`));
     });
+
+    const elModal = document.getElementById(idModal);
+    document.getElementById(`${idModal}_campos`)
+      .addEventListener('input', () => { sujo = true; });
+    document.getElementById(`${idModal}_campos`)
+      .addEventListener('change', () => { sujo = true; });
+
+    // Fechou (X, "Cancelar", clique fora ou Esc) com algo preenchido e não
+    // salvo? Segura o fechamento e confirma antes de descartar.
+    elModal.addEventListener('hide.bs.modal', (ev) => {
+      if (!sujo || fechamentoLiberado) return;
+      ev.preventDefault();
+      SGMF.confirmar('Sair sem salvar?',
+        'As informações preenchidas neste formulário serão perdidas.', 'Sair sem salvar')
+        .then((ok) => {
+          if (!ok) return;
+          fechamentoLiberado = true;
+          bootstrap.Modal.getInstance(elModal).hide();
+        });
+    });
+    elModal.addEventListener('hidden.bs.modal', () => {
+      sujo = false;
+      fechamentoLiberado = false;
+    });
   }
 
   async function preencherSelects() {
@@ -98,6 +124,8 @@ SGMF.tela = function (config) {
   }
 
   function abrir(registro = null) {
+    sujo = false;
+    fechamentoLiberado = false;
     document.getElementById(`${idModal}_id`).value = registro ? registro.id : '';
     document.getElementById(`${idModal}_titulo`).textContent =
       registro ? `Editar ${titulo}` : `Novo ${titulo}`;
@@ -145,6 +173,7 @@ SGMF.tela = function (config) {
     try {
       if (id) await SGMF.put(`/api/${recurso}/${id}`, dados);
       else await SGMF.post(`/api/${recurso}`, dados);
+      fechamentoLiberado = true;
       bootstrap.Modal.getInstance(document.getElementById(idModal)).hide();
       SGMF.sucesso(id ? `${titulo} atualizado` : `${titulo} cadastrado`);
       SGMF.limparCache(recurso);

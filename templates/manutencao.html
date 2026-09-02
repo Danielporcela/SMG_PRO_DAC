@@ -116,7 +116,7 @@ const telaOS = SGMF.tela({
   ordem: [[1, 'desc']],
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
-    { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true, travarParaOutroSetor: true },
+    { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
     { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
