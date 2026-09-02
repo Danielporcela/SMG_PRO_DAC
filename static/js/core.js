@@ -290,8 +290,41 @@ const SGMF = (() => {
     } catch (e) { falha(e.message); }
   }
 
+  /* ------------------------------------------------------ filtro de período
+     Os campos #filtroInicio/#filtroFim existem em várias telas (dashboard,
+     combustível, manutenção, ranking, compras, lavagem, serviços de
+     terceiros). O servidor sempre manda um valor padrão (últimos 30 dias)
+     via `_filtro_periodo.html`. Para que o período escolhido pelo usuário
+     "sobreviva" à troca de tela, guardamos a última seleção no localStorage
+     do navegador e a restauramos aqui, sobrepondo o valor padrão do
+     servidor, sempre que os campos existirem na página. */
+  const CHAVE_PERIODO = 'sgmf_periodo';
+
+  function restaurarPeriodoSalvo() {
+    const inicioEl = document.getElementById('filtroInicio');
+    const fimEl = document.getElementById('filtroFim');
+    if (!inicioEl || !fimEl) return;
+
+    try {
+      const salvo = JSON.parse(localStorage.getItem(CHAVE_PERIODO) || 'null');
+      if (salvo && salvo.inicio) inicioEl.value = salvo.inicio;
+      if (salvo && salvo.fim) fimEl.value = salvo.fim;
+    } catch (e) { /* localStorage indisponível ou dado inválido: ignora */ }
+
+    const salvarPeriodo = () => {
+      try {
+        localStorage.setItem(CHAVE_PERIODO, JSON.stringify({
+          inicio: inicioEl.value, fim: fimEl.value
+        }));
+      } catch (e) { /* ignora se o navegador bloquear localStorage */ }
+    };
+    inicioEl.addEventListener('change', salvarPeriodo);
+    fimEl.addEventListener('change', salvarPeriodo);
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     carregarContadorAlertas();
+    restaurarPeriodoSalvo();
 
     const abrir = document.getElementById('abrirMinhaConta');
     if (abrir) abrir.onclick = () =>

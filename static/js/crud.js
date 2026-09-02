@@ -110,7 +110,8 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
-      el.disabled = !!(c.somenteNovo && registro);
+      el.disabled = !!(c.somenteNovo && registro) ||
+        !!(c.travarParaOutroSetor && registro && !['admin', 'operador'].includes(SGMF.perfil()));
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
@@ -145,6 +146,17 @@ SGMF.tela = function (config) {
       bootstrap.Modal.getInstance(document.getElementById(idModal)).hide();
       SGMF.sucesso(id ? `${titulo} atualizado` : `${titulo} cadastrado`);
       SGMF.limparCache(recurso);
+      /* Um registro NOVO some da lista se o período filtrado no topo da tela
+         não cobrir a data de hoje (o registro fica salvo, só não aparece).
+         Para não confundir o usuário, garante que o filtro inclua hoje. */
+      if (!id && filtroPeriodo) {
+        const i = document.getElementById('filtroInicio'), f = document.getElementById('filtroFim');
+        const hoje = SGMF.hoje();
+        let ajustou = false;
+        if (i && i.value > hoje) { i.value = hoje; ajustou = true; }
+        if (f && f.value < hoje) { f.value = hoje; ajustou = true; }
+        if (ajustou) [i, f].forEach(el => el && el.dispatchEvent(new Event('change')));
+      }
       await carregar();
     } catch (e) {
       SGMF.falha(e.message);

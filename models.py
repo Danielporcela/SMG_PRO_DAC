@@ -74,7 +74,7 @@ CARGOS_SUGERIDOS = {
         "perfil": "restrito",
         "permissoes": {
             "dashboard": "visualizar", "estoque": "editar", "fornecedores": "editar",
-            "manutencao": "visualizar", "pneus": "visualizar", "veiculos": "visualizar",
+            "manutencao": "editar", "pneus": "visualizar", "veiculos": "visualizar",
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
             "grupos": "editar", "grupos_consumo": "editar",
         },

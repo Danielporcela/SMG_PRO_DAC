@@ -172,7 +172,12 @@ registrar_crud(
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
     antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,
-    filtrar=_filtro_periodo(OrdemServico.data_abertura))
+    filtrar=_filtro_periodo(OrdemServico.data_abertura),
+    # A OS é aberta pelo CCO (perfil admin/operador). Quem entra depois só
+    # para lançar peça/serviço (ex.: Almoxarifado) não pode alterar os
+    # dados de abertura — só estes 5 campos ficam liberados para edição.
+    campos_liberados_para_restrito={"prioridade", "mecanico", "data_fechamento",
+                                    "hora_fim", "descricao"})
 
 
 @bp_api.get("/ordens/<int:os_id>/itens")
