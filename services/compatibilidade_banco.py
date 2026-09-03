@@ -51,6 +51,14 @@ def garantir_ordens_compra():
             "quantidade": "FLOAT",
             "valor_unitario": "FLOAT",
             "observacao": "VARCHAR(200)",
+            # Campos adicionados posteriormente ao módulo de compras.
+            # Precisam ser garantidos aqui porque bancos antigos podem estar
+            # marcados no Alembic como atualizados, mas ainda não possuir
+            # essas colunas. Sem elas, o SELECT de ItemOrdemCompra falha
+            # quando /api/ordens_compra carrega a lista da tela.
+            "comprado": "BOOLEAN DEFAULT false",
+            "comprado_por": "VARCHAR(120)",
+            "data_compra_item": "DATE",
             "recebido": "BOOLEAN DEFAULT false",
             "data_recebimento": "DATE",
             "recebido_por": "VARCHAR(120)",
@@ -63,6 +71,12 @@ def garantir_ordens_compra():
             for nome, tipo in colunas.items():
                 if nome not in existentes:
                     conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+    # Corrige registros antigos que possam ter NULL no campo booleano.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE itens_ordem_compra SET comprado = false "
+            "WHERE comprado IS NULL"))
 
     # Instalações antigas tinham o fluxo Pendente/Aprovada/Reprovada/Comprada.
     # O fluxo atual é Compras do dia/Efetuado a compra/Fechada — converte o

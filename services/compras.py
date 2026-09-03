@@ -130,46 +130,23 @@ def listar_itens(ordem_id):
 @bp_compras.post(f"/{ROTA}/<int:ordem_id>/itens")
 @editar_tela(TELA)
 def adicionar_item(ordem_id):
-    """Aceita as duas formas de lançar item:
-
-    1) peca_id  -> item escolhido no estoque (descrição, unidade e valor
-       vêm da peça quando não forem informados);
-    2) descricao -> item escrito à mão, para o que não existe cadastrado.
-    """
+    """Adiciona somente itens digitados manualmente."""
     ordem = db.get_or_404(OrdemCompra, ordem_id)
     dados = request.get_json(silent=True) or {}
     try:
         _exigir_pendente(ordem)
-
-        peca_id = dados.get("peca_id") or None
         descricao = (dados.get("descricao") or "").strip()
-        unidade = (dados.get("unidade") or "").strip()
-        valor = dados.get("valor_unitario")
-        peca = None
-
-        if peca_id:
-            peca = db.session.get(Peca, int(peca_id))
-            if peca is None:
-                raise ErroNegocio("A peça escolhida não existe mais no estoque.")
-            descricao = descricao or peca.descricao
-            unidade = unidade or (peca.unidade or "UN")
-            if valor in (None, ""):
-                valor = peca.custo_unitario or 0
-        elif not descricao:
-            raise ErroNegocio("Escolha uma peça do estoque ou escreva a descrição do item.")
-
-        quantidade = _numero(dados.get("quantidade"), 1) or 1
-        if quantidade <= 0:
-            raise ErroNegocio("A quantidade precisa ser maior que zero.")
+        if not descricao:
+            raise ErroNegocio("Digite a descrição do item.")
 
         item = ItemOrdemCompra(
             ordem_compra_id=ordem.id,
-            peca_id=peca.id if peca else None,
+            peca_id=None,
             descricao=descricao[:160],
-            unidade=(unidade or "UN")[:10],
-            quantidade=quantidade,
-            valor_unitario=_numero(valor, 0),
-            observacao=(dados.get("observacao") or "").strip()[:200] or None,
+            unidade="UN",
+            quantidade=1,
+            valor_unitario=0,
+            observacao=None,
         )
         db.session.add(item)
         db.session.flush()
@@ -181,8 +158,7 @@ def adicionar_item(ordem_id):
         return jsonify({"erro": str(e)}), 400
     except Exception:
         db.session.rollback()
-        return jsonify({"erro": "Não foi possível lançar o item. Confira a quantidade "
-                                "e o valor informados."}), 400
+        return jsonify({"erro": "Não foi possível adicionar o item."}), 400
     return _resposta(ordem)
 
 
@@ -229,22 +205,15 @@ def marcar_item_comprado(ordem_id, item_id):
     return _resposta(ordem)
 
 
-@bp_compras.delete(f"/{ROTA}/<int:ordem_id>/itens/<int:item_id>/entregue")
-@editar_tela(TELA)
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/itens/<int:item_id>/entregue")
+@visualizar_tela(TELA)
 def marcar_item_entregue(ordem_id, item_id):
-    """Item entregue: some da lista — apaga o lançamento definitivamente.
-
-    Só vale para item lançado à mão (sem peca_id), o mesmo escopo do
-    botão "comprado". Item vindo do estoque continua saindo só pela
-    rota normal de remoção, respeitando o status da ordem.
-    """
+    """Marca o item como entregue e o retira da lista. Não usa DELETE,
+    portanto não aciona a senha administrativa global de exclusão."""
     ordem = db.get_or_404(OrdemCompra, ordem_id)
     item = db.session.get(ItemOrdemCompra, item_id)
     if item is None or item.ordem_compra_id != ordem.id:
         return jsonify({"erro": "Este item não pertence a esta ordem de compra."}), 404
-    if item.peca_id:
-        return jsonify({"erro": "Esse controle é só para itens lançados à mão, "
-                                "sem vínculo com o estoque."}), 400
     db.session.delete(item)
     registrar_log("excluir", "itens_ordem_compra", item_id,
                   f"{ordem.numero} · entregue")
