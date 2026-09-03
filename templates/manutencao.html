@@ -11,6 +11,21 @@
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoOS"></div>
+<div class="cartao mb-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-chart-line me-2" style="color:var(--petroleo)"></i>Evolução dos mecânicos</h3>
+    <select class="form-select form-select-sm ms-auto" style="max-width:280px" id="filtroGraficoMecanico">
+      <option value="">Todos (5 com mais OS)</option>
+    </select>
+  </div>
+  <div class="cartao-corpo">
+    <canvas id="graficoMecanicos" height="90"></canvas>
+    <div class="vazio d-none" id="graficoMecanicosVazio">
+      <i class="fa-solid fa-chart-line"></i><strong>Sem OS com mecânico informado no período</strong>
+      Selecione um mecânico responsável nas ordens de serviço para ver a evolução aqui.
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -108,6 +123,12 @@
   .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
 </style>
 <script>
+/* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
+   (select) e no filtro do gráfico de evolução, em ordem alfabética. */
+const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
+  'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
+  'Reny', 'Rodrigo', 'Vinícius'];
+
 const telaOS = SGMF.tela({
   recurso: 'ordens',
   tela: 'manutencao',
@@ -132,12 +153,11 @@ const telaOS = SGMF.tela({
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
     { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', col: 4,
-      tipo: 'datalist', opcoesDinamicas: 'mecanicos' },
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4,
+      opcoes: MECANICOS },
     { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3,
-      ajuda: 'Preenchido sozinho ao finalizar.' },
+    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12 }
   ],
   colunas: [
@@ -165,6 +185,8 @@ const telaOS = SGMF.tela({
                          <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
                            <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
+    ultimasLinhasOS = linhas;
+    desenharGraficoMecanicos(linhas);
     const abertas = linhas.filter(o => o.status !== 'Finalizada');
     const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
     const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
@@ -185,29 +207,78 @@ const telaOS = SGMF.tela({
   }
 });
 
-/* ─── Lista de mecânicos para o datalist ─────────────────────────────── */
-(async () => {
-  try {
-    const mecanicos = await SGMF.get('/api/mecanicos-os');
-    const dl = document.createElement('datalist');
-    dl.id = 'listaMecanicos';
-    mecanicos.forEach(nome => {
-      const opt = document.createElement('option');
-      opt.value = nome;
-      dl.appendChild(opt);
-    });
-    document.body.appendChild(dl);
-    // Ligar o datalist ao campo do formulário quando ele for renderizado
-    const observer = new MutationObserver(() => {
-      const campo = document.querySelector('input[name="mecanico"], input[placeholder*="ecânico"]');
-      if (campo && !campo.getAttribute('list')) {
-        campo.setAttribute('list', 'listaMecanicos');
-        campo.setAttribute('autocomplete', 'off');
+/* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
+   Agrupa as OS do período (já carregadas pela tela) por mês e por
+   mecânico. Sem filtro selecionado, mostra os 5 mecânicos com mais OS no
+   período; com um mecânico escolhido no select, mostra só a linha dele. */
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const CORES_GRAFICO = ['#0F3D56', '#F5A800', '#C4451D', '#2E7D32', '#6B4EA0', '#17587B', '#8D6E63'];
+let graficoMecanicosChart = null;
+let ultimasLinhasOS = [];
+
+document.getElementById('filtroGraficoMecanico').innerHTML =
+  '<option value="">Todos (5 com mais OS)</option>' +
+  MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
+
+function desenharGraficoMecanicos(linhas) {
+  const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
+  const meses = [...new Set(comMecanico.map(o => o.data_abertura.slice(0, 7)))].sort();
+
+  const vazio = !meses.length;
+  document.getElementById('graficoMecanicosVazio').classList.toggle('d-none', !vazio);
+  document.getElementById('graficoMecanicos').classList.toggle('d-none', vazio);
+  if (vazio) {
+    if (graficoMecanicosChart) { graficoMecanicosChart.destroy(); graficoMecanicosChart = null; }
+    return;
+  }
+
+  const porMecanico = {};
+  comMecanico.forEach(o => {
+    const mes = o.data_abertura.slice(0, 7);
+    porMecanico[o.mecanico] = porMecanico[o.mecanico] || {};
+    porMecanico[o.mecanico][mes] = (porMecanico[o.mecanico][mes] || 0) + 1;
+  });
+
+  const filtro = document.getElementById('filtroGraficoMecanico').value;
+  const nomesParaMostrar = filtro ? [filtro] : Object.keys(porMecanico)
+    .sort((a, b) => Object.values(porMecanico[b]).reduce((s, v) => s + v, 0) -
+                    Object.values(porMecanico[a]).reduce((s, v) => s + v, 0))
+    .slice(0, 5);
+
+  const rotulos = meses.map(m => {
+    const [ano, mes] = m.split('-');
+    return `${MESES_ABREV[Number(mes) - 1]}/${ano.slice(2)}`;
+  });
+
+  const datasets = nomesParaMostrar.map((nome, i) => ({
+    label: nome,
+    data: meses.map(m => (porMecanico[nome] && porMecanico[nome][m]) || 0),
+    borderColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    backgroundColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    tension: .3,
+    fill: false
+  }));
+
+  if (graficoMecanicosChart) {
+    graficoMecanicosChart.data.labels = rotulos;
+    graficoMecanicosChart.data.datasets = datasets;
+    graficoMecanicosChart.update();
+  } else {
+    graficoMecanicosChart = new Chart(document.getElementById('graficoMecanicos'), {
+      type: 'line',
+      data: { labels: rotulos, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' }, title: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'OS abertas' } } }
       }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-  } catch (e) { /* sem mecânicos ainda — campo funciona como texto livre */ }
-})();
+  }
+}
+
+document.getElementById('filtroGraficoMecanico').addEventListener('change',
+  () => desenharGraficoMecanicos(ultimasLinhasOS));
 
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
