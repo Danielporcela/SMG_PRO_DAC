@@ -52,8 +52,6 @@
       medidor('Gasto total geral', SGMF.moeda(d.gasto_total_geral), {
         icone: 'fa-coins', estilo: 'font-size:19px',
         nota: 'frota + compras de peças (NF)' }),
-      medidor('MTTR', `${SGMF.numero(d.mttr_dias, 1)} <small>dias</small>`, {
-        icone: 'fa-clock-rotate-left', nota: 'para reparo' }),
       medidor('Economia no período', d.economia_periodo === null
           ? '—' : SGMF.moeda(Math.abs(d.economia_periodo)), {
         classe: d.economia_periodo === null ? '' : (d.economia_periodo >= 0 ? 'ok' : 'critico'),
@@ -64,13 +62,6 @@
           : `${d.economia_periodo >= 0 ? 'Economia' : 'Gasto a mais'} de ` +
             `${SGMF.numero(Math.abs(d.variacao_custo_km), 1)}% no custo por km ` +
             `(histórico ${SGMF.moeda(d.custo_km_historico)})` }),
-      medidor('Prazo médio de atendimento', d.prazo_medio_atendimento === null
-          ? '—' : `${SGMF.numero(d.prazo_medio_atendimento, 1)} <small>dias</small>`, {
-        icone: 'fa-hourglass-half',
-        classe: d.prazo_medio_atendimento !== null && d.prazo_medio_atendimento > 5 ? 'atencao' : '',
-        nota: d.prazo_medio_atendimento === null
-          ? 'Nenhuma OS finalizada no período'
-          : `${d.os_finalizadas} OS finalizada(s)` }),
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
         nota: d.os_estoque_pendentes ? 'regularização de estoque necessária' : 'todas regularizadas' }),
