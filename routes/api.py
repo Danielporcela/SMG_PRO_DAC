@@ -17,7 +17,7 @@ from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_m
 from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_crud,
                            registrar_log, visualizar_tela)
-from services.tempo import hoje, ler_data
+from services.tempo import agora, hoje, ler_data
 
 bp_api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -142,8 +142,11 @@ def _antes_os(obj, dados, anterior):
         obj.numero = proximo_numero_os()
     if obj.status == "Finalizada" and not obj.data_fechamento:
         obj.data_fechamento = hoje()
+    if obj.status == "Finalizada" and not obj.hora_fim:
+        obj.hora_fim = agora().time().replace(second=0, microsecond=0)
     if obj.status != "Finalizada":
         obj.data_fechamento = None
+        obj.hora_fim = None
 
 
 def _depois_os(obj, dados, anterior):
@@ -175,8 +178,10 @@ registrar_crud(
     filtrar=_filtro_periodo(OrdemServico.data_abertura),
     # A OS é aberta pelo CCO (perfil admin/operador). Quem entra depois só
     # para lançar peça/serviço (ex.: Almoxarifado) não pode alterar os
-    # dados de abertura — só estes 5 campos ficam liberados para edição.
-    campos_liberados_para_restrito={"prioridade", "mecanico", "data_fechamento",
+    # dados de abertura — só estes campos ficam liberados para edição.
+    # "status" está incluído para permitir que o Almoxarifado (ou outro
+    # perfil restrito com acesso de edição à tela) finalize a OS.
+    campos_liberados_para_restrito={"prioridade", "mecanico", "status", "data_fechamento",
                                     "hora_fim", "descricao"})
 
 
