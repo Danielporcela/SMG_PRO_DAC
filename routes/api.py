@@ -1,7 +1,7 @@
 """API REST dos módulos: frota, manutenção, combustível, pneus, estoque e orçamento."""
 from datetime import date
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
 from extensions import db
 from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
@@ -138,6 +138,12 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _antes_os(obj, dados, anterior):
+    # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
+    # O preenchimento no navegador continua existindo, mas esta regra garante
+    # o valor mesmo que a requisição venha de outro navegador/computador.
+    if anterior is None and not (obj.cco or "").strip():
+        obj.cco = (session.get("usuario_nome") or "").strip() or None
+
     if not obj.numero:
         obj.numero = proximo_numero_os()
     if obj.status == "Finalizada" and not obj.data_fechamento:
@@ -171,7 +177,8 @@ registrar_crud(
             "veiculo_id": "int", "motorista_id": "int", "fornecedor_id": "int",
             "mecanico": "str", "tipo": "str", "prioridade": "str", "status": "str",
             "grupo": "str", "hora_inicio": "time", "hora_fim": "time",
-            "km_veiculo": "float", "descricao": "str",
+            "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
+            "local_execucao": "str", "km_veiculo": "float", "descricao": "str",
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
     antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,

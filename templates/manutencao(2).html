@@ -13,16 +13,16 @@
 <div class="instrumentos mb-3" id="resumoOS"></div>
 <div class="cartao mb-3">
   <div class="cartao-topo">
-    <h3><i class="fa-solid fa-chart-line me-2" style="color:var(--petroleo)"></i>Evolução dos mecânicos</h3>
+    <h3><i class="fa-solid fa-chart-line me-2" style="color:var(--petroleo)"></i>Horas trabalhadas pelos mecânicos</h3>
     <select class="form-select form-select-sm ms-auto" style="max-width:280px" id="filtroGraficoMecanico">
-      <option value="">Todos (5 com mais OS)</option>
+      <option value="">Todos (5 com mais horas)</option>
     </select>
   </div>
   <div class="cartao-corpo">
     <canvas id="graficoMecanicos" height="90"></canvas>
     <div class="vazio d-none" id="graficoMecanicosVazio">
-      <i class="fa-solid fa-chart-line"></i><strong>Sem OS com mecânico informado no período</strong>
-      Selecione um mecânico responsável nas ordens de serviço para ver a evolução aqui.
+      <i class="fa-solid fa-chart-line"></i><strong>Sem horas trabalhadas registradas no período</strong>
+      Informe horário inicial e final nas ordens de serviço para calcular as horas trabalhadas.
     </div>
   </div>
 </div>
@@ -134,7 +134,6 @@ const telaOS = SGMF.tela({
   tela: 'manutencao',
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
-  autoSalvarAoFechar: true,
   ordem: [[1, 'desc']],
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
@@ -208,22 +207,36 @@ const telaOS = SGMF.tela({
   }
 });
 
-/* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
-   Agrupa as OS do período (já carregadas pela tela) por mês e por
-   mecânico. Sem filtro selecionado, mostra os 5 mecânicos com mais OS no
-   período; com um mecânico escolhido no select, mostra só a linha dele. */
+/* ─── Gráfico "Horas trabalhadas pelos mecânicos" ────────────────────────
+   Soma a duração real das OS (hora_fim - hora_inicio), por mês e por
+   mecânico. O indicador do gráfico é sempre tempo trabalhado, nunca
+   quantidade de OS. Sem filtro, mostra os 5 mecânicos com mais horas
+   no período; com filtro, mostra somente o mecânico selecionado. */
 const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const CORES_GRAFICO = ['#0F3D56', '#F5A800', '#C4451D', '#2E7D32', '#6B4EA0', '#17587B', '#8D6E63'];
 let graficoMecanicosChart = null;
 let ultimasLinhasOS = [];
 
 document.getElementById('filtroGraficoMecanico').innerHTML =
-  '<option value="">Todos (5 com mais OS)</option>' +
+  '<option value="">Todos (5 com mais horas)</option>' +
   MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
 
+function formatarHorasGrafico(minutos) {
+  const total = Math.round(minutos || 0);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
 function desenharGraficoMecanicos(linhas) {
-  const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
-  const meses = [...new Set(comMecanico.map(o => o.data_abertura.slice(0, 7)))].sort();
+  // Só entra no gráfico uma OS com mecânico, data e duração calculável.
+  // A duração vem de hora_inicio/hora_fim e representa as horas efetivamente
+  // trabalhadas registradas na OS.
+  const comHoras = linhas.filter(o =>
+    o.mecanico && o.data_abertura && Number.isFinite(Number(o.duracao_minutos)) &&
+    Number(o.duracao_minutos) > 0
+  );
+  const meses = [...new Set(comHoras.map(o => o.data_abertura.slice(0, 7)))].sort();
 
   const vazio = !meses.length;
   document.getElementById('graficoMecanicosVazio').classList.toggle('d-none', !vazio);
@@ -233,11 +246,13 @@ function desenharGraficoMecanicos(linhas) {
     return;
   }
 
+  // Soma minutos por mecânico e mês.
   const porMecanico = {};
-  comMecanico.forEach(o => {
+  comHoras.forEach(o => {
     const mes = o.data_abertura.slice(0, 7);
-    porMecanico[o.mecanico] = porMecanico[o.mecanico] || {};
-    porMecanico[o.mecanico][mes] = (porMecanico[o.mecanico][mes] || 0) + 1;
+    const nome = o.mecanico;
+    porMecanico[nome] = porMecanico[nome] || {};
+    porMecanico[nome][mes] = (porMecanico[nome][mes] || 0) + Number(o.duracao_minutos);
   });
 
   const filtro = document.getElementById('filtroGraficoMecanico').value;
@@ -253,7 +268,10 @@ function desenharGraficoMecanicos(linhas) {
 
   const datasets = nomesParaMostrar.map((nome, i) => ({
     label: nome,
-    data: meses.map(m => (porMecanico[nome] && porMecanico[nome][m]) || 0),
+    data: meses.map(m => {
+      const minutos = (porMecanico[nome] && porMecanico[nome][m]) || 0;
+      return Number((minutos / 60).toFixed(2));
+    }),
     borderColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
     backgroundColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
     tension: .3,
@@ -271,8 +289,24 @@ function desenharGraficoMecanicos(linhas) {
       options: {
         responsive: true,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { position: 'bottom' }, title: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'OS abertas' } } }
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${formatarHorasGrafico(ctx.parsed.y * 60)}`
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Horas trabalhadas' },
+            ticks: {
+              callback: valor => `${valor}h`
+            }
+          }
+        }
       }
     });
   }
