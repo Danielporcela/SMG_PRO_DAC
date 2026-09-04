@@ -234,3 +234,26 @@ def garantir_grupos_consumo():
     garantir_grupos_padrao()
     marcar_veiculos_grupo_consumo_legado()
     db.session.commit()
+
+
+def garantir_campos_ordens_servico():
+    """Garante campos adicionados posteriormente à tabela de ordens de serviço.
+
+    Compatível com bancos existentes (SQLite/PostgreSQL): adiciona somente as
+    colunas ausentes e não altera nem apaga os registros já gravados.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "ordens_servico" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "hora_abertura": "TIME",
+        "assinatura_mecanico": "TEXT",
+    }
+
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("ordens_servico")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "ordens_servico" ADD COLUMN "{nome}" {tipo}'))
