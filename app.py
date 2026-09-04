@@ -67,7 +67,8 @@ def criar_app(config=Config):
                                                      garantir_pecas_serial,
                                                      garantir_servicos_terceiros_financeiros,
                                                      garantir_usuario_movimentos_estoque,
-                                                     garantir_grupos_consumo)
+                                                     garantir_grupos_consumo,
+                                                     garantir_campos_ordens_servico)
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()
