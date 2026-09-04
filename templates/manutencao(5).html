@@ -1,0 +1,705 @@
+{% extends "lista.html" %}
+{% block titulo %}Ordens de serviço{% endblock %}
+{% block cabecalho %}Ordens de serviço{% endblock %}
+{% block descricao %}Módulo 3 — abertura, execução, peças, serviços de terceiros e custo total calculado automaticamente.{% endblock %}
+{% block rotulo_novo %}Nova OS{% endblock %}
+{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+{% block acoes %}
+  {% include "_filtro_periodo.html" %}
+  <button class="btn btn-primario" id="botaoNovo"><i class="fa-solid fa-plus me-1"></i> Nova OS</button>
+{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoOS"></div>
+<div class="cartao mb-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-chart-line me-2" style="color:var(--petroleo)"></i>Evolução dos mecânicos</h3>
+    <select class="form-select form-select-sm ms-auto" style="max-width:280px" id="filtroGraficoMecanico">
+      <option value="">Todos (5 com mais OS)</option>
+    </select>
+  </div>
+  <div class="cartao-corpo">
+    <canvas id="graficoMecanicos" height="90"></canvas>
+    <div class="vazio d-none" id="graficoMecanicosVazio">
+      <i class="fa-solid fa-chart-line"></i><strong>Sem OS com mecânico informado no período</strong>
+      Selecione um mecânico responsável nas ordens de serviço para ver a evolução aqui.
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block depois_tabela %}
+<div class="modal fade" id="modalPecas" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="pecasTitulo">Peças e serviços</h5>
+          <small style="color:var(--hi-vis)" id="pecasSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pecasOsId">
+
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-md-4">
+            <label class="form-label" for="itemTipo">Tipo de lançamento</label>
+            <select class="form-select form-select-sm" id="itemTipo">
+              <option value="peca">Peça / material do estoque</option>
+              <option value="servico_avulso">Serviço interno / avulso</option>
+            </select>
+          </div>
+          <div class="col-md-8 d-none" id="areaPrestadorServico">
+            <label class="form-label" for="itemPrestador">Prestador / empresa responsável *</label>
+            <input class="form-control form-control-sm" id="itemPrestador" maxlength="120"
+                   placeholder="Ex.: Tornearia Silva, João Torneiro, Oficina de Câmbio ABC">
+          </div>
+        </div>
+
+        <div class="mb-2" id="areaPecaEstoque">
+          <label class="form-label" for="itemBuscaPeca">Procurar peça no estoque</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <input class="form-control" id="itemBuscaPeca" autocomplete="off"
+                   placeholder="Digite o código, a referência ou o nome — ex.: 0018, FIL-001, filtro de óleo">
+            <button class="btn btn-contorno" type="button" id="itemLimparPeca"
+                    title="Limpar a peça escolhida"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div id="itemResultadoPecas" class="resultado-pecas d-none"></div>
+          <div id="itemPecaEscolhida" class="form-text mt-1"></div>
+        </div>
+
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-md-4" id="colunaPecaEstoque">
+            <label class="form-label" for="itemPeca">Peça do estoque (lista completa)</label>
+            <select class="form-select form-select-sm" id="itemPeca">
+              <option value="">— selecione uma peça —</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="itemDescricao">Descrição do item / serviço</label>
+            <input class="form-control form-control-sm" id="itemDescricao"
+                   placeholder="Ex.: filtro de óleo, serviço de torneiro, conserto da caixa de câmbio">
+          </div>
+          <div class="col-md-1">
+            <label class="form-label" for="itemQtd">Qtde</label>
+            <input type="number" min="0.01" step="any" class="form-control form-control-sm" id="itemQtd" value="1">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="itemValor">Valor unit.</label>
+            <input type="text" class="form-control form-control-sm text-end" id="itemValor" placeholder="0,00">
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-primario btn-sm w-100" id="itemAdicionar" title="Adicionar item">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+        </div>
+        <p class="form-text mt-0" id="itemAjuda">Peças do estoque saem do saldo automaticamente ao serem adicionadas
+          e voltam se o item for removido.</p>
+        <div id="listaItens"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  /* Lista que aparece embaixo da caixa "Procurar peça no estoque". */
+  .resultado-pecas { border: 1px solid #D3DBE2; border-radius: 6px; background: #fff;
+                     max-height: 240px; overflow-y: auto; margin-top: 4px; }
+  .opcao-peca { display: block; width: 100%; text-align: left; border: 0;
+                border-bottom: 1px solid #EEF1F4; background: transparent;
+                padding: 7px 10px; font-size: 13px; line-height: 1.35; }
+  .opcao-peca:last-child { border-bottom: 0; }
+  .opcao-peca:hover, .opcao-peca.ativa { background: #EAF2F7; }
+  .opcao-peca .codigo { font-weight: 700; margin-right: 6px; }
+  .opcao-peca .detalhe { display: block; font-size: 11.5px; color: #6B7C8A; }
+  .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
+</style>
+<style>
+  #modal_ordens .modal-dialog { max-width: 1180px; }
+  #modal_ordens .modal-content { border-radius: 8px; overflow: hidden; }
+  #modal_ordens .modal-header { padding: 16px 20px; }
+  #modal_ordens .modal-title { font-size: 22px; letter-spacing: .02em; }
+  #modal_ordens .modal-body { background: #f7f9fb; padding: 20px; }
+  #modal_ordens .form-label { font-weight: 600; color: #173246; }
+  #modal_ordens textarea { min-height: 115px; resize: vertical; }
+  #modal_ordens #campo_assinatura_mecanico { min-height: 72px; border: 1px dashed #9aaab6; background: #fff; }
+</style>
+<script>
+/* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
+   (select) e no filtro do gráfico de evolução, em ordem alfabética. */
+const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
+  'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
+  'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
+
+const telaOS = SGMF.tela({
+  recurso: 'ordens',
+  tela: 'manutencao',
+  titulo: 'ordem de serviço',
+  filtroPeriodo: true,
+  autoSalvarAoFechar: true,
+  ordem: [[1, 'desc']],
+  campos: [
+    { nome: 'cco', rotulo: 'CCO', col: 4, padrao: SGMF.usuarioNome, obrigatorio: true },
+    { nome: 'veiculo_id', rotulo: 'Prefixo', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
+    { nome: 'km_veiculo', rotulo: 'KM', tipo: 'number', col: 4 },
+
+    { nome: 'data_abertura', rotulo: 'Data da abertura da OS', tipo: 'date', col: 4, obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'hora_abertura', rotulo: 'Horário da abertura', tipo: 'time', col: 4, padrao: SGMF.horaAtual },
+    { nome: 'solicitante', rotulo: 'Solicitante', col: 4 },
+
+    { nome: 'setor', rotulo: 'Setor', col: 4 },
+    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4,
+      opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
+               'Serviço solda', 'Chapeação e pintura'] },
+    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
+      opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
+
+    { nome: 'problema', rotulo: 'Descrição detalhada dos defeitos', tipo: 'textarea', col: 12, linhas: 5 },
+    { nome: 'descricao', rotulo: 'Serviços executados', tipo: 'textarea', col: 12, linhas: 5 },
+
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva',
+      opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4,
+      opcoes: MECANICOS, bloquearParaCCO: true },
+    { nome: 'data_fechamento', rotulo: 'Data da conclusão do serviço', tipo: 'date', col: 4,
+      ajuda: 'Preenchimento manual pelo mecânico.' },
+
+    { nome: 'hora_inicio', rotulo: 'Horário inicial do serviço', tipo: 'time', col: 4,
+      bloquearParaCCO: true, ajuda: 'Preenchimento manual pelo mecânico.' },
+    { nome: 'hora_fim', rotulo: 'Horário final do serviço', tipo: 'time', col: 4,
+      bloquearParaCCO: true, ajuda: 'Preenchimento manual pelo mecânico.' },
+    { nome: 'assinatura_mecanico', rotulo: 'Assinatura do mecânico responsável', tipo: 'textarea', col: 12, linhas: 3,
+      bloquearParaCCO: true, ajuda: 'Confirmação do mecânico pelo serviço executado.' }
+  ],
+  colunas: [
+    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
+    { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
+    { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
+    { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
+    { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
+    { campo: 'grupo', rotulo: 'Tipo de serviço', render: v => v || '—' },
+    { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
+    { campo: 'mecanico', rotulo: 'Mecânico', render: v => v || '—' },
+    { campo: 'hora_inicio', rotulo: 'Início', classe: 'num', render: v => v || '—' },
+    { campo: 'hora_fim', rotulo: 'Fim', classe: 'num', render: v => v || '—' },
+    { campo: 'duracao_minutos', rotulo: 'Horas', classe: 'num',
+      render: v => v != null ? `${Math.floor(v/60)}h ${String(v%60).padStart(2,'0')}m` : '—' },
+    { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
+    { campo: 'custo_pecas', rotulo: 'Peças', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'custo_servicos_total', rotulo: 'Serviços', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
+                           <i class="fa-solid fa-gears"></i></button>
+                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
+  aoRenderizar: (linhas) => {
+    ultimasLinhasOS = linhas;
+    desenharGraficoMecanicos(linhas);
+    const abertas = linhas.filter(o => o.status !== 'Finalizada');
+    const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
+    const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
+    document.getElementById('resumoOS').innerHTML = `
+      <div class="medidor"><div class="rotulo">OS no período</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
+      <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>`;
+
+    document.querySelectorAll('[data-pecas]').forEach(b =>
+      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
+
+    document.querySelectorAll('[data-imprimir]').forEach(b =>
+      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
+
+    SGMF.anexos.ligarBotoes('ordens', linhas,
+      (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
+      () => telaOS.carregar());
+  }
+});
+
+/* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
+   Agrupa as OS do período (já carregadas pela tela) por mês e por
+   mecânico. Sem filtro selecionado, mostra os 5 mecânicos com mais OS no
+   período; com um mecânico escolhido no select, mostra só a linha dele. */
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const CORES_GRAFICO = ['#0F3D56', '#F5A800', '#C4451D', '#2E7D32', '#6B4EA0', '#17587B', '#8D6E63'];
+let graficoMecanicosChart = null;
+let ultimasLinhasOS = [];
+
+document.getElementById('filtroGraficoMecanico').innerHTML =
+  '<option value="">Todos (5 com mais OS)</option>' +
+  MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
+
+function desenharGraficoMecanicos(linhas) {
+  const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
+  const meses = [...new Set(comMecanico.map(o => o.data_abertura.slice(0, 7)))].sort();
+
+  const vazio = !meses.length;
+  document.getElementById('graficoMecanicosVazio').classList.toggle('d-none', !vazio);
+  document.getElementById('graficoMecanicos').classList.toggle('d-none', vazio);
+  if (vazio) {
+    if (graficoMecanicosChart) { graficoMecanicosChart.destroy(); graficoMecanicosChart = null; }
+    return;
+  }
+
+  const porMecanico = {};
+  comMecanico.forEach(o => {
+    const mes = o.data_abertura.slice(0, 7);
+    porMecanico[o.mecanico] = porMecanico[o.mecanico] || {};
+    porMecanico[o.mecanico][mes] = (porMecanico[o.mecanico][mes] || 0) + 1;
+  });
+
+  const filtro = document.getElementById('filtroGraficoMecanico').value;
+  const nomesParaMostrar = filtro ? [filtro] : Object.keys(porMecanico)
+    .sort((a, b) => Object.values(porMecanico[b]).reduce((s, v) => s + v, 0) -
+                    Object.values(porMecanico[a]).reduce((s, v) => s + v, 0))
+    .slice(0, 5);
+
+  const rotulos = meses.map(m => {
+    const [ano, mes] = m.split('-');
+    return `${MESES_ABREV[Number(mes) - 1]}/${ano.slice(2)}`;
+  });
+
+  const datasets = nomesParaMostrar.map((nome, i) => ({
+    label: nome,
+    data: meses.map(m => (porMecanico[nome] && porMecanico[nome][m]) || 0),
+    borderColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    backgroundColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    tension: .3,
+    fill: false
+  }));
+
+  if (graficoMecanicosChart) {
+    graficoMecanicosChart.data.labels = rotulos;
+    graficoMecanicosChart.data.datasets = datasets;
+    graficoMecanicosChart.update();
+  } else {
+    graficoMecanicosChart = new Chart(document.getElementById('graficoMecanicos'), {
+      type: 'line',
+      data: { labels: rotulos, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' }, title: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'OS abertas' } } }
+      }
+    });
+  }
+}
+
+document.getElementById('filtroGraficoMecanico').addEventListener('change',
+  () => desenharGraficoMecanicos(ultimasLinhasOS));
+
+/* ------------------------------------------------- peças aplicadas na OS */
+let pecasDisponiveis = [];
+
+SGMF.get('/api/pecas').then(lista => {
+  pecasDisponiveis = lista;
+  document.getElementById('itemPeca').innerHTML = '<option value="">— selecione uma peça —</option>' +
+    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
+});
+
+function atualizarTipoItem() {
+  const tipo = document.getElementById('itemTipo').value;
+  const ehPeca = tipo === 'peca';
+  const ehTerceiro = tipo === 'servico_terceiro';
+  document.getElementById('areaPecaEstoque').classList.toggle('d-none', !ehPeca);
+  document.getElementById('colunaPecaEstoque').classList.toggle('d-none', !ehPeca);
+  document.getElementById('areaPrestadorServico').classList.toggle('d-none', !ehTerceiro);
+  document.getElementById('itemAjuda').textContent = ehPeca
+    ? 'Peças do estoque saem do saldo automaticamente ao serem adicionadas e voltam se o item for removido.'
+    : (ehTerceiro
+      ? 'Serviço de terceiro: informe quem executou, o serviço realizado e o valor cobrado. Não movimenta o estoque.'
+      : 'Serviço interno/avulso: registre a descrição, quantidade e valor. Não movimenta o estoque.');
+  if (!ehPeca) limparEscolhaPeca(false);
+  if (!ehTerceiro) document.getElementById('itemPrestador').value = '';
+}
+
+document.getElementById('itemTipo').addEventListener('change', atualizarTipoItem);
+atualizarTipoItem();
+SGMF.mascaraMoeda(document.getElementById('itemValor'));
+
+document.getElementById('itemPeca').addEventListener('change', (e) => {
+  const peca = pecasDisponiveis.find(p => p.id == e.target.value);
+  if (peca) {
+    document.getElementById('itemTipo').value = 'peca';
+    atualizarTipoItem();
+    document.getElementById('itemDescricao').value = peca.descricao;
+    SGMF.definirValorMoeda(document.getElementById('itemValor'), peca.custo_unitario);
+  }
+});
+
+/* ------------------------------------ procurar a peça por nome ou código
+   A lista completa já foi carregada em `pecasDisponiveis` (/api/pecas), então
+   a procura acontece aqui mesmo, sem ir ao servidor: responde na hora.
+   Ignora acento e maiúscula ("oleo" acha "Óleo") e, no código, ignora a
+   pontuação ("fil001" acha "FIL-001"). Todas as palavras digitadas precisam
+   aparecer, em qualquer ordem ("cubo roda" acha "Cubo de roda dianteiro").
+
+   O <select id="itemPeca"> continua existindo e é ele que guarda a escolha —
+   quem já usava a listinha pode continuar usando; a caixa de procura só
+   preenche o mesmo campo.                                                  */
+const MAX_RESULTADOS_PECA = 12;
+let resultadoPecas = [];
+let indicePeca = -1;
+let cronometroPeca = null;
+
+const semAcento = (t) => String(t == null ? '' : t)
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const soAlfanumerico = (t) => semAcento(t).replace(/[^a-z0-9]/g, '');
+
+function procurarPecas(termo) {
+  const termos = semAcento(termo).split(/\s+/).filter(Boolean);
+  if (!termos.length) return [];
+  return pecasDisponiveis.filter(p => {
+    const alvo = semAcento([p.codigo, p.referencia, p.descricao, p.grupo, p.localizacao].join(' '));
+    const compacto = [p.codigo, p.referencia, p.descricao].map(soAlfanumerico).join(' ');
+    return termos.every(t => alvo.includes(t) ||
+      (soAlfanumerico(t) && compacto.includes(soAlfanumerico(t))));
+  });
+}
+
+function esconderResultadoPecas() {
+  document.getElementById('itemResultadoPecas').classList.add('d-none');
+  resultadoPecas = [];
+  indicePeca = -1;
+}
+
+function realcarOpcaoPeca() {
+  const botoes = document.querySelectorAll('#itemResultadoPecas .opcao-peca');
+  botoes.forEach((b, i) => b.classList.toggle('ativa', i === indicePeca));
+  if (botoes[indicePeca]) botoes[indicePeca].scrollIntoView({ block: 'nearest' });
+}
+
+function mostrarResultadoPecas(lista) {
+  const area = document.getElementById('itemResultadoPecas');
+  resultadoPecas = lista.slice(0, MAX_RESULTADOS_PECA);
+  indicePeca = resultadoPecas.length ? 0 : -1;
+  area.classList.remove('d-none');
+
+  if (!lista.length) {
+    area.innerHTML = '<div class="sem-resultado">Nenhuma peça encontrada com esse texto.</div>';
+    return;
+  }
+
+  area.innerHTML = resultadoPecas.map((p, i) => `
+    <button type="button" class="opcao-peca ${i === indicePeca ? 'ativa' : ''}" data-peca="${p.id}">
+      <span class="codigo num">${SGMF.esc(p.codigo)}</span>${SGMF.esc(p.descricao)}
+      <span class="detalhe">saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}${
+        p.localizacao ? ' · ' + SGMF.esc(p.localizacao) : ''} · ${SGMF.moeda(p.custo_unitario)}${
+        p.referencia ? ' · ref. ' + SGMF.esc(p.referencia) : ''}</span>
+    </button>`).join('') +
+    (lista.length > resultadoPecas.length
+      ? `<div class="sem-resultado">Mostrando ${resultadoPecas.length} de ${lista.length}.
+         Digite mais um pedaço para reduzir a lista.</div>`
+      : '');
+
+  area.querySelectorAll('[data-peca]').forEach(b =>
+    b.onclick = () => escolherPeca(b.dataset.peca));
+}
+
+function escolherPeca(id) {
+  const peca = pecasDisponiveis.find(p => p.id == id);
+  if (!peca) return;
+
+  const select = document.getElementById('itemPeca');
+  if (!Array.from(select.options).some(o => o.value == String(peca.id))) {
+    const opcao = document.createElement('option');
+    opcao.value = peca.id;
+    opcao.textContent = `${peca.codigo} · ${peca.descricao}`;
+    select.appendChild(opcao);
+  }
+  select.value = String(peca.id);
+  // Avisa quem escuta o campo (é isso que preenche descrição e valor unitário).
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+
+  document.getElementById('itemBuscaPeca').value = `${peca.codigo} · ${peca.descricao}`;
+  document.getElementById('itemPecaEscolhida').innerHTML =
+    `<i class="fa-solid fa-check me-1" style="color:#2E7D32"></i>
+     <strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)} — saldo
+     ${SGMF.numero(peca.quantidade, 2)} ${SGMF.esc(peca.unidade || '')}` +
+    ((peca.quantidade || 0) <= 0
+      ? ' <strong style="color:#C62828">(sem saldo no estoque)</strong>' : '');
+
+  esconderResultadoPecas();
+  document.getElementById('itemQtd').focus();
+  document.getElementById('itemQtd').select();
+}
+
+function limparEscolhaPeca(focar) {
+  document.getElementById('itemPeca').value = '';
+  document.getElementById('itemBuscaPeca').value = '';
+  document.getElementById('itemPecaEscolhida').innerHTML = '';
+  esconderResultadoPecas();
+  if (focar) document.getElementById('itemBuscaPeca').focus();
+}
+
+document.getElementById('itemBuscaPeca').addEventListener('input', () => {
+  clearTimeout(cronometroPeca);
+  cronometroPeca = setTimeout(() => {
+    const termo = document.getElementById('itemBuscaPeca').value.trim();
+    if (!termo) { esconderResultadoPecas(); return; }
+    mostrarResultadoPecas(procurarPecas(termo));
+  }, 180);
+});
+
+document.getElementById('itemBuscaPeca').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') e.preventDefault();   // não deixa o formulário enviar sozinho
+  if (!resultadoPecas.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    indicePeca = (indicePeca + 1) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    indicePeca = (indicePeca - 1 + resultadoPecas.length) % resultadoPecas.length;
+    realcarOpcaoPeca();
+  } else if (e.key === 'Enter') {
+    if (indicePeca >= 0) escolherPeca(resultadoPecas[indicePeca].id);
+  } else if (e.key === 'Escape') {
+    esconderResultadoPecas();
+  }
+});
+
+document.getElementById('itemLimparPeca').onclick = () => limparEscolhaPeca(true);
+
+// Clicou fora: fecha a listinha de resultados.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#itemResultadoPecas') || e.target.closest('#itemBuscaPeca')) return;
+  if (resultadoPecas.length) esconderResultadoPecas();
+});
+
+async function abrirPecas(os) {
+  document.getElementById('pecasOsId').value = os.id;
+  document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
+  document.getElementById('pecasSubtitulo').textContent =
+    `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+  document.getElementById('itemTipo').value = 'peca';
+  document.getElementById('itemPrestador').value = '';
+  atualizarTipoItem();
+  limparEscolhaPeca(false);
+  await recarregarItens(os.id);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
+}
+
+async function recarregarItens(osId) {
+  const os = await SGMF.get(`/api/ordens/${osId}/itens`);
+  const area = document.getElementById('listaItens');
+  if (!os.itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-screwdriver-wrench"></i>
+      <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
+  } else {
+    area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
+      <thead><tr><th>Item / serviço</th><th>Tipo / prestador</th><th class="text-end">Qtde</th>
+      <th class="text-end">Valor unit.</th><th class="text-end">Total</th><th>Estoque</th><th></th></tr></thead>
+      <tbody>${os.itens.map(i => `<tr>
+        <td>${SGMF.esc(i.descricao)}
+        </td>
+        <td>${i.tipo_item === 'servico_terceiro'
+          ? `${SGMF.etiqueta('terceiro', 'ambar')}<div style="font-size:11px;margin-top:3px">${SGMF.esc(i.prestador_servico) || '—'}</div>`
+          : (i.tipo_item === 'servico_avulso' ? SGMF.etiqueta('serviço', 'cinza') : SGMF.etiqueta('peça', 'azul'))}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+        <td>${i.peca_id ? (i.baixado_estoque ? SGMF.etiqueta('baixado', 'azul') : SGMF.etiqueta('pendente', 'ambar')) : '—'}</td>
+        <td class="text-end"><button class="btn btn-contorno btn-icone" data-item="${i.id}">
+          <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+  }
+
+  document.querySelectorAll('[data-item]').forEach(b => b.onclick = async () => {
+    if (!await SGMF.confirmar('Remover item?', 'A exclusão é definitiva. Se for peça, ela volta ao estoque. Depois será solicitada a senha do administrador.', 'Remover')) return;
+    try {
+      await SGMF.del(`/api/ordens/${osId}/itens/${b.dataset.item}`);
+      SGMF.sucesso('Item removido');
+      await recarregarItens(osId);
+      telaOS.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+/* Diz se o item lançado é um pneu — mesma regra usada no backend
+   (services/posicoes_pneu.eh_item_pneu): procura "pneu" na descrição
+   digitada ou no grupo/descrição da peça do estoque escolhida,
+   ignorando acento e maiúscula. */
+function ehItemPneu(descricao, peca) {
+  const semAcento = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return [descricao, peca && peca.grupo, peca && peca.descricao]
+    .some(t => semAcento(t).includes('pneu'));
+}
+
+
+document.getElementById('itemAdicionar').onclick = async () => {
+  const osId = document.getElementById('pecasOsId').value;
+  const tipoItem = document.getElementById('itemTipo').value;
+  const pecaId = tipoItem === 'peca' ? (Number(document.getElementById('itemPeca').value) || null) : null;
+  const peca = pecaId ? pecasDisponiveis.find(p => p.id === pecaId) : null;
+  const descricao = document.getElementById('itemDescricao').value.trim();
+  const prestador = document.getElementById('itemPrestador').value.trim();
+  const valorUnitario = SGMF.valorMoeda(document.getElementById('itemValor'));
+  const quantidade = Number(document.getElementById('itemQtd').value) || 1;
+
+  if (tipoItem === 'peca' && !pecaId) return SGMF.aviso('Selecione a peça do estoque.');
+  if (!descricao) return SGMF.aviso('Informe a descrição do item ou serviço.');
+  if (tipoItem === 'servico_terceiro' && !prestador)
+    return SGMF.aviso('Informe o prestador ou empresa que executou o serviço de terceiro.');
+  if (quantidade <= 0) return SGMF.aviso('A quantidade precisa ser maior que zero.');
+
+  // Pneu com quantidade > 1: em vez de 1 item com Qtde 3, lança 3 itens
+  // separados (1 pneu cada). Assim a janela de "posição do pneu" (que já
+  // existe no sistema) pede a posição e o número de fogo de cada um deles,
+  // em vez de um único número para os 3.
+  const ehPneu = tipoItem === 'peca' && ehItemPneu(descricao, peca);
+  const qtdItens = ehPneu ? Math.max(1, Math.round(quantidade)) : 1;
+
+  if (ehPneu && qtdItens > 1) {
+    const ok = await SGMF.confirmar('Lançar pneus separadamente?',
+      `Serão criados ${qtdItens} itens (1 por pneu). Em seguida, informe a posição e o número de fogo de cada um na janela que vai abrir.`,
+      'Lançar');
+    if (!ok) return;
+  }
+
+  try {
+    for (let i = 0; i < qtdItens; i++) {
+      await SGMF.post(`/api/ordens/${osId}/itens`, {
+        peca_id: pecaId,
+        tipo_item: tipoItem,
+        prestador_servico: tipoItem === 'servico_terceiro' ? prestador : null,
+        grupo: tipoItem === 'servico_terceiro' ? 'Serviço terceirizado' :
+               (tipoItem === 'servico_avulso' ? 'Serviço avulso' : null),
+        descricao: descricao,
+        quantidade: ehPneu ? 1 : quantidade,
+        valor_unitario: valorUnitario
+      });
+    }
+    document.getElementById('itemPeca').value = '';
+    limparEscolhaPeca(false);
+    document.getElementById('itemDescricao').value = '';
+    document.getElementById('itemPrestador').value = '';
+    document.getElementById('itemQtd').value = 1;
+    document.getElementById('itemValor').value = '';
+    SGMF.sucesso(qtdItens > 1 ? `${qtdItens} pneus adicionados` :
+      (tipoItem === 'servico_terceiro' ? 'Serviço de terceiro lançado' : 'Item adicionado'));
+    SGMF.limparCache('pecas');
+    pecasDisponiveis = await SGMF.get('/api/pecas');
+    await recarregarItens(osId);
+    telaOS.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+/* -------------------------------------------------------- imprimir a OS */
+/* Monta o documento de impressão SEM usar janela.document.write com uma
+   string gigante — o script que o próprio sistema injeta em toda página
+   HTML (o complemento de manutenção de pneus) estava caindo dentro dessa
+   string e quebrando a sintaxe do JavaScript. Agora o conteúdo é montado
+   por partes (createElement/innerHTML) direto no documento da janela já
+   aberta, o que não sofre esse tipo de injeção. */
+async function imprimirOS(os) {
+  let detalhes;
+  try {
+    detalhes = await SGMF.get(`/api/ordens/${os.id}/itens`);
+  } catch (e) {
+    return SGMF.falha(e.message);
+  }
+  const itens = detalhes.itens || [];
+
+  const janela = window.open('', '_blank', 'width=900,height=720');
+  if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+  const linhaItens = itens.length
+    ? itens.map(i => `<tr>
+        <td>${SGMF.esc(i.descricao)}</td>
+        <td>${i.tipo_item === 'servico_terceiro'
+          ? `Terceiro — ${SGMF.esc(i.prestador_servico) || '—'}`
+          : (i.tipo_item === 'servico_avulso' ? 'Serviço avulso' : 'Peça / material')}</td>
+        <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+        <td class="text-end num">${SGMF.moeda(i.valor_total)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;color:#888">Nenhuma peça ou serviço lançado nesta OS.</td></tr>`;
+
+  const doc = janela.document;
+  doc.title = `OS ${os.numero || ''} · SGMF Pro`;
+
+  const estilo = doc.createElement('style');
+  estilo.textContent = `
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #182530; padding: 26px 30px; margin: 0; }
+    h1 { font-size: 20px; margin: 0 0 2px; color: #0F3D56; }
+    h3 { font-size: 13.5px; margin: 18px 0 6px; color: #0F3D56; text-transform: uppercase; letter-spacing: .03em; }
+    .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
+    table.dados { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
+    table.dados th { text-align: left; background: #F5F7F9; padding: 6px 9px; width: 130px; border: 1px solid #D3DBE2; font-weight: 600; }
+    table.dados td { padding: 6px 9px; border: 1px solid #D3DBE2; }
+    table.itens { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+    table.itens th, table.itens td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
+    table.itens th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
+    .num, .text-end { text-align: right; }
+    .descricao-servico { border: 1px solid #D3DBE2; border-radius: 4px; padding: 10px; min-height: 46px; font-size: 12.5px; white-space: pre-wrap; }
+    .total-geral { margin-top: 10px; text-align: right; font-size: 14px; }
+    .assinatura { display: flex; gap: 40px; margin-top: 40px; }
+    .linha-assinatura { flex: 1; border-top: 1px solid #182530; padding-top: 4px;
+                        text-align: center; font-size: 11.5px; color: #444; }
+    .rodape-impressao { margin-top: 20px; font-size: 10.5px; color: #888; }
+    @media print { @page { margin: 14mm; } }
+  `;
+  doc.head.appendChild(estilo);
+
+  const corpo = doc.createElement('div');
+  corpo.innerHTML = `
+    <h1>Ordem de Serviço ${SGMF.esc(os.numero)}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+
+    <table class="dados">
+      <tr><th>CCO</th><td>${SGMF.esc(os.cco) || '—'}</td>
+          <th>Frota (veículo)</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td></tr>
+      <tr><th>Data da abertura</th><td>${SGMF.data(os.data_abertura)}</td>
+          <th>Horário da abertura</th><td>${SGMF.esc(os.hora_abertura) || '—'}</td></tr>
+      <tr><th>Solicitante</th><td>${SGMF.esc(os.solicitante) || '—'}</td>
+          <th>Setor</th><td>${SGMF.esc(os.setor) || '—'}</td></tr>
+      <tr><th>KM</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td>
+          <th>Tipo de serviço</th><td>${SGMF.esc(os.grupo) || '—'}</td></tr>
+      <tr><th>Situação</th><td>${SGMF.esc(os.status) || '—'}</td>
+          <th>Tipo de manutenção</th><td>${SGMF.esc(os.tipo) || '—'}</td></tr>
+      <tr><th>Mecânico</th><td>${SGMF.esc(os.mecanico) || '—'}</td>
+          <th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td></tr>
+      <tr><th>Horário inicial do serviço</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
+          <th>Horário final do serviço</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
+    </table>
+
+    <h3>Problema relatado</h3>
+    <div class="descricao-servico">${SGMF.esc(os.problema) || '—'}</div>
+
+    <h3>Descrição do serviço executado</h3>
+    <div class="descricao-servico">${SGMF.esc(os.descricao) || '—'}</div>
+
+    <h3>Peças e serviços</h3>
+    <table class="itens">
+      <thead><tr><th>Item / serviço</th><th>Tipo / prestador</th><th class="text-end">Quantidade</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
+      <tbody>${linhaItens}</tbody>
+    </table>
+    <div class="total-geral">Peças: <strong>${SGMF.moeda(detalhes.custo_pecas)}</strong> ·
+      Serviços: <strong>${SGMF.moeda(detalhes.custo_servicos_total)}</strong> ·
+      Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
+
+    <div class="assinatura">
+      <div class="linha-assinatura">${SGMF.esc(os.assinatura_mecanico) || "Assinatura do mecânico responsável"}</div>
+    </div>
+
+    <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
+  `;
+  doc.body.appendChild(corpo);
+
+  janela.focus();
+  janela.print();
+}
+</script>
+<script src="/correcao_os/patch.js"></script>
+{% endblock %}

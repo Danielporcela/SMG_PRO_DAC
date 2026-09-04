@@ -83,6 +83,7 @@ SGMF.tela = function (config) {
     </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
     document.getElementById(`${idModal}_salvar`).addEventListener('click', salvar);
+    if (bloqueado()) document.getElementById(`${idModal}_salvar`).classList.add('d-none');
     campos.filter(c => c.tipo === 'moeda').forEach(c => {
       SGMF.mascaraMoeda(document.getElementById(`campo_${c.nome}`));
     });
@@ -128,7 +129,7 @@ SGMF.tela = function (config) {
     fechamentoLiberado = false;
     document.getElementById(`${idModal}_id`).value = registro ? registro.id : '';
     document.getElementById(`${idModal}_titulo`).textContent =
-      registro ? `Editar ${titulo}` : `Novo ${titulo}`;
+      bloqueado() ? `Visualizar ${titulo}` : (registro ? `Editar ${titulo}` : `Novo ${titulo}`);
 
     campos.forEach(c => {
       const el = document.getElementById(`campo_${c.nome}`);
@@ -140,8 +141,10 @@ SGMF.tela = function (config) {
       else el.value = (valor === null || valor === undefined) ? '' : valor;
       const podeEditarCampoSetor = SGMF.perfil() === 'admin' ||
         (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
-      el.disabled = !!(c.somenteNovo && registro) ||
-        !!(c.travarParaOutroSetor && !podeEditarCampoSetor);
+      const isCCO = (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
+      el.disabled = bloqueado() || !!(c.somenteNovo && registro) ||
+        !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
+        !!(c.bloquearParaCCO && isCCO);
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
@@ -228,7 +231,7 @@ SGMF.tela = function (config) {
       return `<td class="${c.classe || ''}">${conteudo}</td>`;
     });
     if (bloqueado()) {
-      celulas.push('<td class="text-muted" style="font-size:11.5px">somente leitura</td>');
+      celulas.push(`<td class="text-nowrap"><button class="btn btn-contorno btn-sm" data-visualizar="${item.id}" title="Visualizar"><i class="fa-solid fa-eye"></i> Visualizar</button></td>`);
       return `<tr>${celulas.join('')}</tr>`;
     }
     const extras = acoesLinha ? acoesLinha(seguro) : '';
@@ -277,6 +280,11 @@ SGMF.tela = function (config) {
      <tbody> (paginação, ordenação, busca). */
   function ligarAcoesLinha() {
     document.getElementById('areaTabela').addEventListener('click', (e) => {
+      const botaoVisualizar = e.target.closest('[data-visualizar]');
+      if (botaoVisualizar) {
+        abrir(registros.find(r => r.id == botaoVisualizar.dataset.visualizar));
+        return;
+      }
       const botaoEditar = e.target.closest('[data-editar]');
       if (botaoEditar) {
         abrir(registros.find(r => r.id == botaoEditar.dataset.editar));
@@ -293,15 +301,16 @@ SGMF.tela = function (config) {
   // Duplo clique na linha: abre a mesma tela usada pelo botão Editar.
   // A ação não interfere nos botões existentes da linha.
   document.getElementById('areaTabela').addEventListener('dblclick', (e) => {
-    if (e.target.closest('button, a, input, select, textarea, [data-editar], [data-excluir]')) return;
+    if (e.target.closest('button, a, input, select, textarea, [data-editar], [data-excluir], [data-visualizar]')) return;
 
     const linha = e.target.closest('tr');
     if (!linha) return;
 
-    const botaoEditar = linha.querySelector('[data-editar]');
-    if (!botaoEditar) return;
+    const botao = linha.querySelector('[data-editar], [data-visualizar]');
+    if (!botao) return;
 
-    const registro = registros.find(r => r.id == botaoEditar.dataset.editar);
+    const id = botao.dataset.editar || botao.dataset.visualizar;
+    const registro = registros.find(r => r.id == id);
     if (registro) abrir(registro);
   });
 

@@ -146,10 +146,19 @@ def _antes_os(obj, dados, anterior):
 
     if not obj.numero:
         obj.numero = proximo_numero_os()
-    if obj.status == "Finalizada" and not obj.data_fechamento:
-        obj.data_fechamento = hoje()
-    if obj.status == "Finalizada" and not obj.hora_fim:
-        obj.hora_fim = agora().time().replace(second=0, microsecond=0)
+    if anterior is None and not obj.hora_abertura:
+        obj.hora_abertura = agora().time().replace(second=0, microsecond=0)
+
+    # O login com cargo CCO abre a OS, mas não preenche dados da execução.
+    # Essa regra é aplicada também no servidor, não apenas no formulário.
+    if (session.get("cargo") or "").strip().upper() == "CCO":
+        obj.mecanico = anterior.get("mecanico") if anterior else None
+        obj.hora_inicio = anterior.get("hora_inicio") if anterior else None
+        obj.hora_fim = anterior.get("hora_fim") if anterior else None
+        obj.data_fechamento = anterior.get("data_fechamento") if anterior else None
+        obj.assinatura_mecanico = anterior.get("assinatura_mecanico") if anterior else None
+    # Data/hora de conclusão são informadas manualmente pelo mecânico.
+    # O sistema não preenche esses campos ao mudar a situação para Finalizada.
     if obj.status != "Finalizada":
         obj.data_fechamento = None
         obj.hora_fim = None
@@ -179,6 +188,7 @@ registrar_crud(
             "grupo": "str", "hora_inicio": "time", "hora_fim": "time",
             "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
             "local_execucao": "str", "km_veiculo": "float", "descricao": "str",
+            "hora_abertura": "time", "assinatura_mecanico": "str",
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
     antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,

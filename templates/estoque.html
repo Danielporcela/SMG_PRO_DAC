@@ -106,17 +106,25 @@
             <h6 class="mb-3">Lançar item</h6>
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="form-label" for="itemPeca">Peça <span style="color:var(--alerta)">*</span></label>
-                <div class="input-group">
-                  <select class="form-select" id="itemPeca"><option value="">— selecione —</option></select>
-                  <button type="button" class="btn btn-contorno" id="botaoPesquisarPecaNF"
-                          data-bs-toggle="modal" data-bs-target="#modalPesquisarPecaNF"
-                          title="Pesquisar peça por nome ou referência">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <span class="d-none d-sm-inline ms-1">Pesquisar</span>
-                  </button>
+                <label class="form-label" for="itemPesquisaPecaNF">Pesquisar peça <span style="color:var(--alerta)">*</span></label>
+                <div class="position-relative">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                    <input type="search" class="form-control" id="itemPesquisaPecaNF"
+                           autocomplete="off" placeholder="Digite o nome ou a referência — ex.: cuica">
+                    <button type="button" class="btn btn-contorno" id="botaoPesquisarPecaNF"
+                            title="Abrir pesquisa detalhada">
+                      <i class="fa-solid fa-list"></i>
+                      <span class="d-none d-sm-inline ms-1">Pesquisa detalhada</span>
+                    </button>
+                  </div>
+                  <div id="resultadoDigitacaoPecaNF" class="list-group position-absolute w-100 shadow-sm"
+                       style="z-index:1080;display:none;max-height:280px;overflow:auto"></div>
                 </div>
-                <small class="text-muted">Use Pesquisar para localizar a peça pelo nome ou referência.</small>
+                <select class="form-select mt-2" id="itemPeca" aria-label="Peça selecionada">
+                  <option value="">— selecione uma peça nos resultados —</option>
+                </select>
+                <small class="text-muted">Digite o nome ou a referência. Ex.: <strong>cuica</strong>. Os resultados aparecem automaticamente.</small>
               </div>
               <div class="col-md-3">
                 <label class="form-label" for="itemQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
@@ -673,6 +681,75 @@ function selecionarPecaNaNF(id) {
   document.getElementById('itemQuantidade').focus();
 }
 
+// Pesquisa direta no próprio formulário: digite "cuica", referência etc.
+let timerPesquisaDigitacaoPecaNF = null;
+let resultadosDigitacaoPecaNF = [];
+
+async function pesquisarDigitandoPecaNF() {
+  const campo = document.getElementById('itemPesquisaPecaNF');
+  const area = document.getElementById('resultadoDigitacaoPecaNF');
+  const termo = campo.value.trim();
+  clearTimeout(timerPesquisaDigitacaoPecaNF);
+  if (!termo) {
+    area.style.display = 'none';
+    area.innerHTML = '';
+    return;
+  }
+  timerPesquisaDigitacaoPecaNF = setTimeout(async () => {
+    try {
+      const resposta = await fetch('/api/busca-pecas?' + new URLSearchParams({q: termo, modo: 'tudo'}), {credentials:'same-origin'});
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || 'Erro na pesquisa.');
+      resultadosDigitacaoPecaNF = dados.pecas || [];
+      if (!resultadosDigitacaoPecaNF.length) {
+        area.innerHTML = '<div class="list-group-item text-muted">Nenhuma peça encontrada.</div>';
+      } else {
+        area.innerHTML = resultadosDigitacaoPecaNF.map(p => `
+          <button type="button" class="list-group-item list-group-item-action" data-escolher-digitacao-peca="${p.id}">
+            <strong>${SGMF.esc(p.descricao)}</strong>
+            <span class="text-muted ms-2">${SGMF.esc(p.referencia || p.codigo || '')}</span>
+            <small class="d-block text-muted">Código: ${SGMF.esc(p.codigo || '—')} · Saldo: ${SGMF.numero(p.quantidade,2)} ${SGMF.esc(p.unidade || '')}</small>
+          </button>`).join('');
+      }
+      area.style.display = 'block';
+    } catch (e) {
+      area.innerHTML = `<div class="list-group-item text-danger">${SGMF.esc(e.message)}</div>`;
+      area.style.display = 'block';
+    }
+  }, 250);
+}
+
+document.getElementById('itemPesquisaPecaNF').addEventListener('input', pesquisarDigitandoPecaNF);
+document.getElementById('itemPesquisaPecaNF').addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('resultadoDigitacaoPecaNF').style.display = 'none';
+  }
+});
+document.getElementById('resultadoDigitacaoPecaNF').addEventListener('click', e => {
+  const botao = e.target.closest('[data-escolher-digitacao-peca]');
+  if (!botao) return;
+  const peca = resultadosDigitacaoPecaNF.find(p => Number(p.id) === Number(botao.dataset.escolherDigitacaoPeca));
+  if (!peca) return;
+  const select = document.getElementById('itemPeca');
+  if (!Array.from(select.options).some(o => String(o.value) === String(peca.id))) {
+    const op = document.createElement('option');
+    op.value = peca.id;
+    op.textContent = `${peca.codigo || ''} · ${peca.descricao || ''}`;
+    select.appendChild(op);
+  }
+  select.value = String(peca.id);
+  select.dispatchEvent(new Event('change', {bubbles:true}));
+  document.getElementById('itemPesquisaPecaNF').value = `${peca.codigo || ''} · ${peca.descricao || ''}`;
+  document.getElementById('resultadoDigitacaoPecaNF').style.display = 'none';
+  document.getElementById('itemQuantidade').focus();
+});
+
+document.addEventListener('click', e => {
+  const campo = document.getElementById('itemPesquisaPecaNF');
+  const area = document.getElementById('resultadoDigitacaoPecaNF');
+  if (campo && area && !e.target.closest('#itemPesquisaPecaNF') && !e.target.closest('#resultadoDigitacaoPecaNF')) area.style.display = 'none';
+});
+
 document.getElementById('botaoPesquisarPecaNF').addEventListener('click', abrirPesquisaPecaNF);
 document.getElementById('executarPesquisaPecaNF').addEventListener('click', pesquisarPecaNF);
 
@@ -810,6 +887,10 @@ function limparFormularioItem() {
    'itemAliquotaIbs', 'itemValorIbs', 'itemAliquotaCbs', 'itemValorCbs'
   ].forEach(id => document.getElementById(id).value = '');
   document.getElementById('itemPeca').value = '';
+  const campoPesquisa = document.getElementById('itemPesquisaPecaNF');
+  if (campoPesquisa) campoPesquisa.value = '';
+  const areaPesquisa = document.getElementById('resultadoDigitacaoPecaNF');
+  if (areaPesquisa) areaPesquisa.style.display = 'none';
   const numSerie = document.getElementById('itemNumerosSerie');
   if (numSerie) numSerie.value = '';
 }

@@ -20,17 +20,18 @@
   </div>
 
   <div class="menu">
+    {% set is_cco = (session.cargo or "")|trim|upper == "CCO" %}
     <div class="menu-titulo">Operação</div>
     {% if pode('dashboard') %}<a href="{{ url_for('paginas.dashboard') }}" class="{{ 'ativo' if pagina == 'dashboard' }}"><i class="fa-solid fa-gauge-high"></i> Painel</a>{% endif %}
     {% if pode('alertas') %}<a href="{{ url_for('paginas.alertas') }}" class="{{ 'ativo' if pagina == 'alertas' }}"><i class="fa-solid fa-triangle-exclamation"></i> Alertas <span class="contador d-none" id="contadorAlertas">0</span></a>{% endif %}
     {% if pode('manutencao') %}<a href="{{ url_for('paginas.manutencao') }}" class="{{ 'ativo' if pagina == 'manutencao' }}"><i class="fa-solid fa-screwdriver-wrench"></i> Ordens de serviço</a>{% endif %}
-    {% if pode('manutencao') %}<a href="{{ url_for('paginas.servicos_terceiros', novo=1) }}" class="{{ 'ativo' if pagina == 'servicos_terceiros' }}"><i class="fa-solid fa-plus-circle"></i> Lançar serviço terceiro</a>{% endif %}
-    {% if pode('manutencao') %}<a href="{{ url_for('paginas.lavagem', novo=1) }}" class="{{ 'ativo' if pagina == 'lavagem' }}"><i class="fa-solid fa-soap"></i> Lavagem</a>{% endif %}
+    {% if pode('manutencao') and not is_cco %}<a href="{{ url_for('paginas.servicos_terceiros', novo=1) }}" class="{{ 'ativo' if pagina == 'servicos_terceiros' }}"><i class="fa-solid fa-plus-circle"></i> Lançar serviço terceiro</a>{% endif %}
+    {% if pode('manutencao') and not is_cco %}<a href="{{ url_for('paginas.lavagem', novo=1) }}" class="{{ 'ativo' if pagina == 'lavagem' }}"><i class="fa-solid fa-soap"></i> Lavagem</a>{% endif %}
     {% if pode('compras') %}<a href="/compras" class="{{ 'ativo' if pagina == 'compras' }}"><i class="fa-solid fa-cart-shopping"></i> Ordens de compra</a>{% endif %}
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
     {% if pode('grupos_consumo') %}<a href="{{ url_for('paginas.grupos_consumo') }}" class="{{ 'ativo' if pagina == 'grupos_consumo' }}"><i class="fa-solid fa-people-group"></i> Grupos de consumo</a>{% endif %}
-    {% if pode('estoque') or pode('manutencao') %}<a href="/pesquisa-pecas" class="{{ 'ativo' if pagina == 'busca_pecas' }}"><i class="fa-solid fa-magnifying-glass"></i> Pesquisa de peças</a>{% endif %}
+    {% if (pode('estoque') or pode('manutencao')) and not is_cco %}<a href="/pesquisa-pecas" class="{{ 'ativo' if pagina == 'busca_pecas' }}"><i class="fa-solid fa-magnifying-glass"></i> Pesquisa de peças</a>{% endif %}
 
     {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('importacao') %}
     <div class="menu-titulo">Cadastros</div>

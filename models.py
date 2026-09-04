@@ -707,6 +707,7 @@ class OrdemServico(db.Model):
     prioridade = db.Column(db.String(20), default="Média")  # Baixa | Média | Alta | Crítica
     status = db.Column(db.String(30), default="Aberta")     # Aberta | Em execução | Aguardando peça | Finalizada
     grupo = db.Column(db.String(40))                        # Motor, Freios, Pneus, ...
+    hora_abertura = db.Column(db.Time)
     hora_inicio = db.Column(db.Time)
     hora_fim = db.Column(db.Time)
     cco = db.Column(db.String(40))
@@ -716,6 +717,7 @@ class OrdemServico(db.Model):
     local_execucao = db.Column(db.String(20))               # Interno | Externo
     km_veiculo = db.Column(db.Float, default=0)
     descricao = db.Column(db.Text)
+    assinatura_mecanico = db.Column(db.Text)
     custo_mao_obra = db.Column(db.Float, default=0)
     custo_servicos = db.Column(db.Float, default=0)
     avaliacao = db.Column(db.Integer)  # 1 a 5
@@ -774,12 +776,14 @@ class OrdemServico(db.Model):
             "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
             "mecanico": self.mecanico, "tipo": self.tipo, "prioridade": self.prioridade,
             "status": self.status, "grupo": self.grupo, "km_veiculo": self.km_veiculo,
+            "hora_abertura": self.hora_abertura.strftime("%H:%M") if self.hora_abertura else None,
             "hora_inicio": self.hora_inicio.strftime("%H:%M") if self.hora_inicio else None,
             "hora_fim": self.hora_fim.strftime("%H:%M") if self.hora_fim else None,
             "duracao_minutos": self.duracao_minutos,
             "cco": self.cco, "solicitante": self.solicitante, "setor": self.setor,
             "problema": self.problema, "local_execucao": self.local_execucao,
-            "descricao": self.descricao, "custo_mao_obra": self.custo_mao_obra,
+            "descricao": self.descricao, "assinatura_mecanico": self.assinatura_mecanico,
+            "custo_mao_obra": self.custo_mao_obra,
             "custo_servicos": self.custo_servicos,
             "custo_servicos_lancados": self.custo_servicos_lancados,
             "custo_servicos_total": self.custo_servicos_total,
