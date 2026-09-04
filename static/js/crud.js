@@ -290,6 +290,21 @@ SGMF.tela = function (config) {
     });
   }
 
+  // Duplo clique na linha: abre a mesma tela usada pelo botão Editar.
+  // A ação não interfere nos botões existentes da linha.
+  document.getElementById('areaTabela').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button, a, input, select, textarea, [data-editar], [data-excluir]')) return;
+
+    const linha = e.target.closest('tr');
+    if (!linha) return;
+
+    const botaoEditar = linha.querySelector('[data-editar]');
+    if (!botaoEditar) return;
+
+    const registro = registros.find(r => r.id == botaoEditar.dataset.editar);
+    if (registro) abrir(registro);
+  });
+
   /* ------------------------------------------------------------- inicializa */
   montarModal();
   ligarAcoesLinha();
