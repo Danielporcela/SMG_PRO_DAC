@@ -153,10 +153,7 @@ const telaCompras = SGMF.tela({
     { campo: 'status', rotulo: 'Situação',
       render: v => SGMF.etiqueta(v, CORES_STATUS_OC[v] || 'cinza') }
   ],
-  acoesLinha: (item) => `${(item.status === 'Pendente' && PODE_DECIDIR_COMPRA) ? `
-                         <button class="btn btn-primario btn-sm" data-aprovar-oc-linha="${item.id}"
-                           title="Aprovar esta ordem"><i class="fa-solid fa-check me-1"></i>Aprovado</button>` : ''}
-                         <button class="btn btn-contorno btn-icone" data-itens-oc="${item.id}"
+  acoesLinha: (item) => `<button type="button" class="btn btn-contorno btn-icone" data-itens-oc="${item.id}"
                            title="Itens e aprovação"><i class="fa-solid fa-list"></i></button>
                          <button class="btn btn-contorno btn-icone" data-imprimir-oc="${item.id}"
                            title="Imprimir"><i class="fa-solid fa-print"></i></button>`,
@@ -177,29 +174,23 @@ const telaCompras = SGMF.tela({
       <div class="medidor"><div class="rotulo">Compradas</div><div class="valor num">${conta('Comprada')}</div>
         <div class="nota">${conta('Reprovada')} reprovada(s)</div></div>`;
 
-    document.querySelectorAll('[data-itens-oc]').forEach(b =>
-      b.onclick = () => abrirItensCompra(b.dataset.itensOc));
+    // O botão fica dentro da tabela dinâmica. Use delegação para não perder o
+    // evento quando o DataTables recria as linhas após filtro/ordenação.
+    if (!document.body.dataset.ocItensHandler) {
+      document.body.dataset.ocItensHandler = '1';
+      document.addEventListener('click', (evento) => {
+        const botao = evento.target.closest('[data-itens-oc]');
+        if (!botao) return;
+        evento.preventDefault();
+        evento.stopPropagation();
+        abrirItensCompra(botao.getAttribute('data-itens-oc'));
+      });
+    }
 
     document.querySelectorAll('[data-imprimir-oc]').forEach(b =>
       b.onclick = () => imprimirCompra(b.dataset.imprimirOc));
-
-    document.querySelectorAll('[data-aprovar-oc-linha]').forEach(b =>
-      b.onclick = () => aprovarOrdemNaLista(b.dataset.aprovarOcLinha));
   }
 });
-
-/* Aprova direto pela linha da lista, sem precisar abrir o modal de itens.
-   Usa o mesmo endpoint /aprovar; o servidor recusa se a ordem não estiver
-   Pendente ou não tiver itens lançados. */
-async function aprovarOrdemNaLista(ordemId) {
-  if (!await SGMF.confirmar('Aprovar esta ordem de compra?',
-      'Ela fica liberada para o financeiro comprar. O estoque não é alterado.', 'Aprovar')) return;
-  try {
-    await SGMF.post(`/api/ordens_compra/${ordemId}/aprovar`, {});
-    SGMF.sucesso('Ordem aprovada');
-    telaCompras.carregar();
-  } catch (e) { SGMF.falha(e.message); }
-}
 
 /* ============================================ itens e fluxo da ordem */
 let ordemAtual = null;
