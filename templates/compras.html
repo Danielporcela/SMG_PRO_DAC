@@ -220,8 +220,11 @@ function renderizarItensCompra() {
   const itens = ordemAtual.itens || [];
 
   document.getElementById('ocFormularioItem').style.display = pendente ? '' : 'none';
-  document.getElementById('ocAprovar').style.display = (pendente && PODE_DECIDIR_COMPRA) ? '' : 'none';
-  document.getElementById('ocReprovar').style.display = (pendente && PODE_DECIDIR_COMPRA) ? '' : 'none';
+  document.getElementById('ocAprovar').style.display = pendente ? '' : 'none';
+  document.getElementById('ocAprovar').disabled = !PODE_DECIDIR_COMPRA;
+  document.getElementById('ocAprovar').title = PODE_DECIDIR_COMPRA ? 'Aprovar ordem de compra' : 'Seu usuário não possui permissão para aprovar';
+  document.getElementById('ocReprovar').style.display = pendente ? '' : 'none';
+  document.getElementById('ocReprovar').disabled = !PODE_DECIDIR_COMPRA;
   document.getElementById('ocComprar').style.display =
     (ordemAtual.status === 'Aprovada' && PODE_DECIDIR_COMPRA) ? '' : 'none';
   document.getElementById('ocReabrir').style.display =
