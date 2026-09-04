@@ -109,12 +109,14 @@
                 <label class="form-label" for="itemPeca">Peça <span style="color:var(--alerta)">*</span></label>
                 <div class="input-group">
                   <select class="form-select" id="itemPeca"><option value="">— selecione —</option></select>
-                  <button type="button" class="btn btn-primario" id="botaoPesquisarPecaNF"
-                          title="Abrir pesquisa de peça por nome ou referência">
-                    <i class="fa-solid fa-magnifying-glass me-1"></i> Pesquisar peça
+                  <button type="button" class="btn btn-contorno" id="botaoPesquisarPecaNF"
+                          data-bs-toggle="modal" data-bs-target="#modalPesquisarPecaNF"
+                          title="Pesquisar peça por nome ou referência">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <span class="d-none d-sm-inline ms-1">Pesquisar</span>
                   </button>
                 </div>
-                <small class="text-muted">Clique em <strong>Pesquisar peça</strong> para buscar pelo nome ou pela referência.</small>
+                <small class="text-muted">Use Pesquisar para localizar a peça pelo nome ou referência.</small>
               </div>
               <div class="col-md-3">
                 <label class="form-label" for="itemQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
@@ -539,11 +541,9 @@ async function preencherSelectFornecedor() {
 let pesquisaPecaNF = { lista: [], termo: '' };
 
 function abrirPesquisaPecaNF() {
-  const elemento = document.getElementById('modalPesquisarPecaNF');
-  const modal = bootstrap.Modal.getOrCreateInstance(elemento, {
-    backdrop: true,
-    keyboard: true
-  });
+  const modal = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalPesquisarPecaNF')
+  );
   const campo = document.getElementById('campoPesquisarPecaNF');
   campo.value = '';
   document.getElementById('resultadoPesquisaPecaNF').innerHTML = `
@@ -675,17 +675,6 @@ function selecionarPecaNaNF(id) {
 
 document.getElementById('botaoPesquisarPecaNF').addEventListener('click', abrirPesquisaPecaNF);
 document.getElementById('executarPesquisaPecaNF').addEventListener('click', pesquisarPecaNF);
-
-/* Garante que a janela de pesquisa fique visível acima da janela "Itens da nota"
-   mesmo no Bootstrap, que normalmente não recomenda modais sobre modais. */
-document.getElementById('modalPesquisarPecaNF').addEventListener('shown.bs.modal', () => {
-  const modal = document.getElementById('modalPesquisarPecaNF');
-  modal.style.zIndex = '1070';
-  document.querySelectorAll('.modal-backdrop').forEach((backdrop, indice) => {
-    backdrop.style.zIndex = indice === 0 ? '1060' : '1065';
-  });
-  setTimeout(() => document.getElementById('campoPesquisarPecaNF')?.focus(), 100);
-});
 
 document.getElementById('campoPesquisarPecaNF').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
