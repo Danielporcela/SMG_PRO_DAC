@@ -36,11 +36,14 @@
           <div class="input-group mb-3">
             <input class="form-control" id="ocDescricao" autocomplete="off"
                    placeholder="Digite o item manualmente — ex.: filtro de óleo, correia dentada, parafuso 10mm">
+            <label class="input-group-text" for="ocQtd">Qtde</label>
+            <input type="number" step="any" min="0.01" class="form-control" id="ocQtd"
+                   style="max-width:90px" value="1">
             <button class="btn btn-primario" type="button" id="ocAdicionar">
               <i class="fa-solid fa-plus me-1"></i> Adicionar item
             </button>
           </div>
-          <p class="form-text mt-0">Digite somente a descrição do item. Não há busca nem seleção de peças do estoque.</p>
+          <p class="form-text mt-0">Digite a descrição e a quantidade do item. Não há busca nem seleção de peças do estoque.</p>
         </div>
 
         <div id="ocListaItens"></div>
@@ -182,7 +185,10 @@ const telaCompras = SGMF.tela({
 /* ============================================ itens e fluxo da ordem */
 let ordemAtual = null;
 
-function limparFormularioItem() { document.getElementById('ocDescricao').value = ''; }
+function limparFormularioItem() {
+  document.getElementById('ocDescricao').value = '';
+  document.getElementById('ocQtd').value = 1;
+}
 
 async function abrirItensCompra(ordemId) {
   try {
@@ -226,7 +232,9 @@ function renderizarItensCompra() {
   } else {
     area.innerHTML = `<div class="list-group">${itens.map(i => `
       <div class="list-group-item d-flex align-items-center justify-content-between gap-2 py-2">
-        <div style="min-width:0"><strong>${SGMF.esc(i.descricao)}</strong>${i.observacao ? `<span class="d-block" style="font-size:11.5px;color:#6B7C8A">${SGMF.esc(i.observacao)}</span>` : ''}</div>
+        <div style="min-width:0"><strong>${SGMF.esc(i.descricao)}</strong>
+          <span class="d-block" style="font-size:11.5px;color:#6B7C8A">Qtde: ${SGMF.numero(i.quantidade, 2)} ${SGMF.esc(i.unidade || '')}</span>
+          ${i.observacao ? `<span class="d-block" style="font-size:11.5px;color:#6B7C8A">${SGMF.esc(i.observacao)}</span>` : ''}</div>
         <button class="btn btn-outline-success btn-sm" data-entregue-item-oc="${i.id}" title="Marcar como entregue">
           <i class="fa-solid fa-check me-1"></i> Entregue
         </button>
@@ -250,12 +258,16 @@ document.getElementById('ocAdicionar').onclick = async () => {
   const descricao = document.getElementById('ocDescricao').value.trim();
   if (!descricao) return SGMF.aviso('Digite a descrição do item.');
 
+  const quantidade = Number(document.getElementById('ocQtd').value);
+  if (!quantidade || quantidade <= 0) return SGMF.aviso('Informe uma quantidade válida.');
+
   const botao = document.getElementById('ocAdicionar');
   botao.disabled = true;
   try {
-    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/itens`, { descricao });
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/itens`, { descricao, quantidade });
     SGMF.sucesso('Item adicionado');
     document.getElementById('ocDescricao').value = '';
+    document.getElementById('ocQtd').value = 1;
     document.getElementById('ocDescricao').focus();
     renderizarItensCompra();
     telaCompras.carregar();

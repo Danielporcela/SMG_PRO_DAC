@@ -139,12 +139,19 @@ def adicionar_item(ordem_id):
         if not descricao:
             raise ErroNegocio("Digite a descrição do item.")
 
+        try:
+            quantidade = float(dados.get("quantidade", 1))
+        except (TypeError, ValueError):
+            raise ErroNegocio("Quantidade inválida.")
+        if quantidade <= 0:
+            raise ErroNegocio("Informe uma quantidade válida.")
+
         item = ItemOrdemCompra(
             ordem_compra_id=ordem.id,
             peca_id=None,
             descricao=descricao[:160],
             unidade="UN",
-            quantidade=1,
+            quantidade=quantidade,
             valor_unitario=0,
             observacao=None,
         )
