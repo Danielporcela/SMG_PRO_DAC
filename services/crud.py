@@ -108,6 +108,10 @@ def checar_tela(tela, nivel_minimo="visualizar"):
     return None
 
 
+def _cargo_atual():
+    return (session.get("cargo") or "").strip().upper()
+
+
 def registrar_log(acao, entidade, registro_id, detalhe=""):
     db.session.add(LogAuditoria(usuario=session.get("usuario_nome", "sistema"),
                                 acao=acao, entidade=entidade,
@@ -158,7 +162,7 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
                    antes_salvar=None, depois_salvar=None, antes_excluir=None,
                    serializar=None, filtrar=None, tela=None,
                    campos_liberados_para_restrito=None,
-                   campos_bloqueados_para_cargos=None):
+                   campos_bloqueados_cco=None):
     """`tela`, quando informado, liga as quatro rotas (listar/obter/criar/
     editar/excluir) à matriz de permissões: listar e obter exigem
     'visualizar'; criar, editar e excluir exigem 'editar'. Sem `tela`, cai
@@ -173,31 +177,20 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     eles. Ex.: uma OS aberta pelo CCO não pode ter seus dados de abertura
     mudados por quem só entra depois para lançar peça/serviço.
 
-    `campos_bloqueados_para_cargos`, quando informado, é um dict
-    {"CARGO": {"campo1", "campo2", ...}} (cargo em maiúsculas) que barra o
-    envio de valor para aqueles campos — na criação e na edição — por
-    quem estiver logado com aquele cargo (Usuario.cargo, texto livre).
-    Diferente de `campos_liberados_para_restrito`, que olha o *perfil*, este
-    olha o *cargo*: existe para telas com um espelho no formulário
-    (`travarParaCargos` em manutencao.html) onde certos cargos só podem
-    VISUALIZAR alguns campos — ex.: quem abre a OS (cargo "CCO") ou
-    acompanha segurança do trabalho não deve preencher os campos de
-    execução/fechamento, só o mecânico/chefe de oficina. Um administrador
-    (perfil "admin") nunca é restringido por esta regra.
+    `campos_bloqueados_cco`, quando informado, faz o caminho inverso: bloqueia
+    a EDIÇÃO (não a criação) desses campos para o login cujo cargo seja
+    "CCO" (via `session["cargo"]`), exceto se o perfil for "admin". O CCO
+    continua enxergando o valor atual (visualização) e continua preenchendo
+    esses campos normalmente ao abrir uma OS nova — só não pode mais
+    alterá-los depois de salva. Isso espelha, do lado do servidor, a trava
+    que já existe no formulário (ver `travarParaCCO` em
+    templates/manutencao.html), para a restrição não depender só do
+    JavaScript do navegador.
     """
     nome = rota.strip("/")
     ser = serializar or (lambda o: o.to_dict())
     protetor_leitura = visualizar_tela(tela) if tela else login_obrigatorio
     protetor_escrita = editar_tela(tela) if tela else pode_escrever
-
-    def _remover_campos_bloqueados_por_cargo(dados):
-        if not campos_bloqueados_para_cargos or session.get("perfil") == "admin":
-            return dados
-        cargo_atual = (session.get("cargo") or "").strip().upper()
-        bloqueados = campos_bloqueados_para_cargos.get(cargo_atual)
-        if not bloqueados:
-            return dados
-        return {k: v for k, v in dados.items() if k not in bloqueados}
 
     @bp.get(f"/{nome}", endpoint=f"{nome}_listar")
     @protetor_leitura
@@ -221,7 +214,7 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     @protetor_escrita
     def _criar(Model=Model, campos=campos, ser=ser, obrigatorios=obrigatorios,
                antes_salvar=antes_salvar, depois_salvar=depois_salvar, nome=nome):
-        dados = _remover_campos_bloqueados_por_cargo(request.get_json(silent=True) or {})
+        dados = request.get_json(silent=True) or {}
         faltando = [c for c in obrigatorios if not dados.get(c)]
         if faltando:
             return jsonify({"erro": "Preencha: " + ", ".join(faltando)}), 400
@@ -249,7 +242,8 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     @protetor_escrita
     def _editar(registro_id, Model=Model, campos=campos, ser=ser,
                 antes_salvar=antes_salvar, depois_salvar=depois_salvar, nome=nome,
-                campos_liberados_para_restrito=campos_liberados_para_restrito):
+                campos_liberados_para_restrito=campos_liberados_para_restrito,
+                campos_bloqueados_cco=campos_bloqueados_cco):
         obj = db.get_or_404(Model, registro_id)
         dados = request.get_json(silent=True) or {}
         if campos_liberados_para_restrito is not None and session.get("perfil") not in ("admin", "operador"):
@@ -257,7 +251,11 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
             # para "outro setor" mexer; o resto do registro fica estático,
             # não importa o que o cliente tenha enviado.
             dados = {k: v for k, v in dados.items() if k in campos_liberados_para_restrito}
-        dados = _remover_campos_bloqueados_por_cargo(dados)
+        if campos_bloqueados_cco and session.get("perfil") != "admin" and _cargo_atual() == "CCO":
+            # Login de CCO: os campos de classificação/execução do serviço
+            # ficam somente-visualização a partir da edição — qualquer valor
+            # enviado para eles aqui é ignorado silenciosamente.
+            dados = {k: v for k, v in dados.items() if k not in campos_bloqueados_cco}
         anterior = ser(obj)
         try:
             aplicar_campos(obj, dados, campos)

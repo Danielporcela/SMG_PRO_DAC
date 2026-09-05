@@ -171,23 +171,14 @@ def _antes_excluir_os(obj):
     desvincular_movimentos(obj.id)
 
 
-# Campos de execução/fechamento da OS: só o mecânico/chefe de oficina deve
-# preenchê-los. Quem abre a OS (cargo "CCO") ou acompanha segurança do
-# trabalho enxerga esses campos, mas só em modo leitura (ver também
-# `travarParaCargos` nos mesmos campos em templates/manutencao.html).
-CAMPOS_EXECUCAO_OS = {"status", "tipo", "prioridade", "mecanico", "data_fechamento",
-                     "hora_inicio_servico", "hora_fim", "assinatura_mecanico"}
-
 registrar_crud(
     bp_api, "ordens", OrdemServico,
     campos={"numero": "str", "data_abertura": "date", "data_fechamento": "date",
             "veiculo_id": "int", "motorista_id": "int", "fornecedor_id": "int",
             "mecanico": "str", "tipo": "str", "prioridade": "str", "status": "str",
-            "grupo": "str", "hora_inicio": "time", "hora_inicio_servico": "time",
-            "hora_fim": "time",
+            "grupo": "str", "hora_inicio": "time", "hora_fim": "time",
             "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
             "local_execucao": "str", "km_veiculo": "float", "descricao": "str",
-            "assinatura_mecanico": "str",
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
     antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,
@@ -197,16 +188,15 @@ registrar_crud(
     # dados de abertura — só estes campos ficam liberados para edição.
     # "status" está incluído para permitir que o Almoxarifado (ou outro
     # perfil restrito com acesso de edição à tela) finalize a OS.
-    # "hora_inicio_servico" e "assinatura_mecanico" entram aqui pelo mesmo
-    # motivo de "hora_fim"/"descricao": são preenchidos durante a execução
-    # do serviço, não na abertura.
     campos_liberados_para_restrito={"prioridade", "mecanico", "status", "data_fechamento",
-                                    "hora_inicio_servico", "hora_fim", "descricao",
-                                    "assinatura_mecanico"},
-    # CCO e Segurança do trabalho abrem/acompanham a OS mas não devem
-    # preencher os campos de execução — só visualizá-los.
-    campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
-                                   "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+                                    "hora_fim", "descricao"},
+    # Login de CCO: pode abrir a OS e preencher tudo, mas ao editar uma OS já
+    # existente perde a edição destes campos (fica só visualização) — quem
+    # decide/atualiza o tipo de serviço, a situação, o tipo de manutenção, a
+    # prioridade, o mecânico responsável e os dados de conclusão passa a ser
+    # só a oficina/administrador.
+    campos_bloqueados_cco={"grupo", "status", "tipo", "prioridade", "mecanico",
+                           "data_fechamento", "hora_fim", "descricao"})
 
 
 @bp_api.get("/ordens/<int:os_id>/itens")

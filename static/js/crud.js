@@ -83,7 +83,6 @@ SGMF.tela = function (config) {
     </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
     document.getElementById(`${idModal}_salvar`).addEventListener('click', salvar);
-    if (bloqueado()) document.getElementById(`${idModal}_salvar`).classList.add('d-none');
     campos.filter(c => c.tipo === 'moeda').forEach(c => {
       SGMF.mascaraMoeda(document.getElementById(`campo_${c.nome}`));
     });
@@ -129,7 +128,7 @@ SGMF.tela = function (config) {
     fechamentoLiberado = false;
     document.getElementById(`${idModal}_id`).value = registro ? registro.id : '';
     document.getElementById(`${idModal}_titulo`).textContent =
-      bloqueado() ? `Visualizar ${titulo}` : (registro ? `Editar ${titulo}` : `Novo ${titulo}`);
+      registro ? `Editar ${titulo}` : `Novo ${titulo}`;
 
     campos.forEach(c => {
       const el = document.getElementById(`campo_${c.nome}`);
@@ -139,22 +138,19 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
-      const cargoAtual = (SGMF.cargo() || '').trim().toUpperCase();
-      const podeEditarCampoSetor = SGMF.perfil() === 'admin' || cargoAtual === 'CCO';
-      const isCCO = cargoAtual === 'CCO';
-      /* Cargos que só podem VISUALIZAR os campos de execução/fechamento da
-         OS (Situação, Tipo de manutenção, Prioridade, Mecânico responsável,
-         Data/horários de conclusão e Assinatura do mecânico): quem abre a
-         OS (CCO) ou acompanha segurança do trabalho não deve preencher
-         esses campos, só o mecânico/chefe de oficina. Admin nunca é
-         restringido. */
-      const CARGOS_SOMENTE_VISUALIZACAO = ['CCO', 'SEGURANÇA DO TRABALHO'];
-      const restringidoPorCargo = SGMF.perfil() !== 'admin' &&
-        CARGOS_SOMENTE_VISUALIZACAO.includes(cargoAtual);
-      el.disabled = bloqueado() || !!(c.somenteNovo && registro) ||
+      const perfilAtual = SGMF.perfil();
+      const ehCCO = (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
+      const podeEditarCampoSetor = perfilAtual === 'admin' || ehCCO;
+      // Login de CCO só abre/visualiza a OS depois de criada: os campos de
+      // classificação e execução do serviço (tipo, situação, prioridade,
+      // mecânico, conclusão e descrição do serviço executado) ficam
+      // travados para edição — o CCO enxerga o valor, mas não altera.
+      // Vale só ao EDITAR um registro existente; na abertura de uma OS
+      // nova o CCO continua preenchendo tudo normalmente.
+      const bloqueadoParaCCO = ehCCO && perfilAtual !== 'admin' && !!registro;
+      el.disabled = !!(c.somenteNovo && registro) ||
         !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
-        !!(c.bloquearParaCCO && isCCO) ||
-        !!(c.travarParaCargos && restringidoPorCargo);
+        !!(c.travarParaCCO && bloqueadoParaCCO);
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
@@ -241,7 +237,7 @@ SGMF.tela = function (config) {
       return `<td class="${c.classe || ''}">${conteudo}</td>`;
     });
     if (bloqueado()) {
-      celulas.push(`<td class="text-nowrap"><button class="btn btn-contorno btn-sm" data-visualizar="${item.id}" title="Visualizar"><i class="fa-solid fa-eye"></i> Visualizar</button></td>`);
+      celulas.push('<td class="text-muted" style="font-size:11.5px">somente leitura</td>');
       return `<tr>${celulas.join('')}</tr>`;
     }
     const extras = acoesLinha ? acoesLinha(seguro) : '';
@@ -290,11 +286,6 @@ SGMF.tela = function (config) {
      <tbody> (paginação, ordenação, busca). */
   function ligarAcoesLinha() {
     document.getElementById('areaTabela').addEventListener('click', (e) => {
-      const botaoVisualizar = e.target.closest('[data-visualizar]');
-      if (botaoVisualizar) {
-        abrir(registros.find(r => r.id == botaoVisualizar.dataset.visualizar));
-        return;
-      }
       const botaoEditar = e.target.closest('[data-editar]');
       if (botaoEditar) {
         abrir(registros.find(r => r.id == botaoEditar.dataset.editar));
@@ -311,16 +302,15 @@ SGMF.tela = function (config) {
   // Duplo clique na linha: abre a mesma tela usada pelo botão Editar.
   // A ação não interfere nos botões existentes da linha.
   document.getElementById('areaTabela').addEventListener('dblclick', (e) => {
-    if (e.target.closest('button, a, input, select, textarea, [data-editar], [data-excluir], [data-visualizar]')) return;
+    if (e.target.closest('button, a, input, select, textarea, [data-editar], [data-excluir]')) return;
 
     const linha = e.target.closest('tr');
     if (!linha) return;
 
-    const botao = linha.querySelector('[data-editar], [data-visualizar]');
-    if (!botao) return;
+    const botaoEditar = linha.querySelector('[data-editar]');
+    if (!botaoEditar) return;
 
-    const id = botao.dataset.editar || botao.dataset.visualizar;
-    const registro = registros.find(r => r.id == id);
+    const registro = registros.find(r => r.id == botaoEditar.dataset.editar);
     if (registro) abrir(registro);
   });
 
