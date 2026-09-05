@@ -96,6 +96,24 @@ CARGOS_SUGERIDOS = {
             "manutencao": "editar", "pneus": "editar",
         },
     },
+    # O cargo precisa ser gravado exatamente como "CCO" / "Segurança do
+    # trabalho" — é esse texto (em maiúsculas) que o formulário de Ordens
+    # de serviço (travarParaCargos) e a API (CAMPOS_EXECUCAO_OS em
+    # routes/api.py) comparam para deixar os campos de execução/fechamento
+    # da OS (Situação, Tipo, Prioridade, Mecânico, datas/horários de
+    # conclusão e Assinatura do mecânico) somente em modo leitura.
+    # Perfil "operador" (não "restrito") de propósito: quem abre a OS
+    # precisa poder editar os dados de abertura dela depois (ver
+    # `campos_liberados_para_restrito` da tela "ordens" em routes/api.py,
+    # que só entra em vigor para perfis restrito/consulta).
+    "CCO": {
+        "perfil": "operador",
+        "permissoes": {},
+    },
+    "Segurança do trabalho": {
+        "perfil": "operador",
+        "permissoes": {},
+    },
     "Mecânico": {
         "perfil": "restrito",
         "permissoes": {"manutencao": "visualizar"},
@@ -707,8 +725,8 @@ class OrdemServico(db.Model):
     prioridade = db.Column(db.String(20), default="Média")  # Baixa | Média | Alta | Crítica
     status = db.Column(db.String(30), default="Aberta")     # Aberta | Em execução | Aguardando peça | Finalizada
     grupo = db.Column(db.String(40))                        # Motor, Freios, Pneus, ...
-    hora_abertura = db.Column(db.Time)
     hora_inicio = db.Column(db.Time)
+    hora_inicio_servico = db.Column(db.Time)                # início da execução (mecânico), separado da abertura
     hora_fim = db.Column(db.Time)
     cco = db.Column(db.String(40))
     solicitante = db.Column(db.String(120))
@@ -717,7 +735,7 @@ class OrdemServico(db.Model):
     local_execucao = db.Column(db.String(20))               # Interno | Externo
     km_veiculo = db.Column(db.Float, default=0)
     descricao = db.Column(db.Text)
-    assinatura_mecanico = db.Column(db.Text)
+    assinatura_mecanico = db.Column(db.String(120))          # nome digitado como confirmação do serviço
     custo_mao_obra = db.Column(db.Float, default=0)
     custo_servicos = db.Column(db.Float, default=0)
     avaliacao = db.Column(db.Integer)  # 1 a 5
@@ -755,11 +773,17 @@ class OrdemServico(db.Model):
 
     @property
     def duracao_minutos(self):
-        """Minutos entre hora_inicio e hora_fim, quando os dois estão
-        preenchidos e o serviço não passou da meia-noite."""
-        if not (self.hora_inicio and self.hora_fim):
+        """Minutos de execução, quando início e fim estão preenchidos e o
+        serviço não passou da meia-noite.
+
+        Usa hora_inicio_servico (horário em que o mecânico começou a
+        executar) quando preenchido; OS antigas, que não têm esse campo,
+        continuam calculando a partir de hora_inicio (horário da abertura),
+        como já acontecia antes deste campo existir."""
+        inicio_campo = self.hora_inicio_servico or self.hora_inicio
+        if not (inicio_campo and self.hora_fim):
             return None
-        inicio = self.hora_inicio.hour * 60 + self.hora_inicio.minute
+        inicio = inicio_campo.hour * 60 + inicio_campo.minute
         fim = self.hora_fim.hour * 60 + self.hora_fim.minute
         return fim - inicio if fim >= inicio else None
 
@@ -776,8 +800,8 @@ class OrdemServico(db.Model):
             "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
             "mecanico": self.mecanico, "tipo": self.tipo, "prioridade": self.prioridade,
             "status": self.status, "grupo": self.grupo, "km_veiculo": self.km_veiculo,
-            "hora_abertura": self.hora_abertura.strftime("%H:%M") if self.hora_abertura else None,
             "hora_inicio": self.hora_inicio.strftime("%H:%M") if self.hora_inicio else None,
+            "hora_inicio_servico": self.hora_inicio_servico.strftime("%H:%M") if self.hora_inicio_servico else None,
             "hora_fim": self.hora_fim.strftime("%H:%M") if self.hora_fim else None,
             "duracao_minutos": self.duracao_minutos,
             "cco": self.cco, "solicitante": self.solicitante, "setor": self.setor,

@@ -137,29 +137,55 @@ const telaOS = SGMF.tela({
   autoSalvarAoFechar: true,
   ordem: [[1, 'desc']],
   campos: [
-    { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
-    { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
-    { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
+    // ── Linha 1: identificação da abertura ─────────────────────────────
+    { nome: 'cco', rotulo: 'CCO', col: 3, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
+    { nome: 'veiculo_id', rotulo: 'Prefixo (veículo)', tipo: 'ref', recurso: 'veiculos', col: 6, obrigatorio: true },
+    { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 3, travarParaOutroSetor: true },
+
+    // ── Linha 2: quando e quem abriu a OS ───────────────────────────────
+    { nome: 'data_abertura', rotulo: 'Data da abertura da OS', tipo: 'date', col: 4, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
+    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 4, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
-    { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
-    { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
-    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
-    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
+
+    // ── Linha 3: setor / tipo de serviço ────────────────────────────────
+    { nome: 'setor', rotulo: 'Setor', col: 6, travarParaOutroSetor: true },
+    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 6, travarParaOutroSetor: true,
       opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },
-    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
+
+    // ── Linha 4 e 5: descrições (largura total) ─────────────────────────
+    { nome: 'problema', rotulo: 'Descrição detalhada dos defeitos', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
+    { nome: 'descricao', rotulo: 'Serviços executados', tipo: 'textarea', col: 12 },
+
+    // ── Linha 6: situação / classificação da manutenção ─────────────────
+    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 3, padrao: 'Aberta',
+      travarParaCargos: true,
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true,
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 3, padrao: 'Preventiva',
+      travarParaOutroSetor: true, travarParaCargos: true,
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
-    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 3, padrao: 'Média',
+      travarParaCargos: true,
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4,
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 3,
+      travarParaCargos: true,
       opcoes: MECANICOS },
-    { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
+
+    // ── Linha 7: fechamento da OS ────────────────────────────────────────
+    { nome: 'data_fechamento', rotulo: 'Data da conclusão do serviço', tipo: 'date', col: 4,
+      travarParaCargos: true,
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
-    { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12 }
+    { nome: 'hora_inicio_servico', rotulo: 'Horário inicial do serviço', tipo: 'time', col: 4,
+      travarParaCargos: true,
+      ajuda: 'Preenchido pelo mecânico ao começar a execução (diferente do horário de abertura).' },
+    { nome: 'hora_fim', rotulo: 'Horário final do serviço', tipo: 'time', col: 4,
+      travarParaCargos: true },
+
+    // ── Linha 8: confirmação do mecânico ─────────────────────────────────
+    { nome: 'assinatura_mecanico', rotulo: 'Assinatura do mecânico responsável', col: 12,
+      travarParaCargos: true,
+      exemplo: 'Digite o nome completo para confirmar o serviço executado',
+      ajuda: 'Digitar o nome completo do mecânico responsável confirma o serviço executado nesta OS.' }
   ],
   colunas: [
     { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
@@ -652,7 +678,8 @@ async function imprimirOS(os) {
       <tr><th>Situação</th><td colspan="3">${SGMF.esc(os.status) || '—'}</td></tr>
       <tr><th>Mecânico</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
       <tr><th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td>
-          <th>Horário final</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
+          <th>Horário inicial do serviço</th><td>${SGMF.esc(os.hora_inicio_servico) || '—'}</td></tr>
+      <tr><th>Horário final do serviço</th><td colspan="3">${SGMF.esc(os.hora_fim) || '—'}</td></tr>
     </table>
 
     <h3>Problema relatado</h3>
@@ -671,7 +698,7 @@ async function imprimirOS(os) {
       Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
 
     <div class="assinatura">
-      <div class="linha-assinatura">Assinatura do mecânico</div>
+      <div class="linha-assinatura">${SGMF.esc(os.assinatura_mecanico) || 'Assinatura do mecânico responsável'}</div>
       <div class="linha-assinatura">Assinatura do responsável</div>
     </div>
 

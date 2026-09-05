@@ -139,12 +139,22 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
-      const podeEditarCampoSetor = SGMF.perfil() === 'admin' ||
-        (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
-      const isCCO = (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
+      const cargoAtual = (SGMF.cargo() || '').trim().toUpperCase();
+      const podeEditarCampoSetor = SGMF.perfil() === 'admin' || cargoAtual === 'CCO';
+      const isCCO = cargoAtual === 'CCO';
+      /* Cargos que só podem VISUALIZAR os campos de execução/fechamento da
+         OS (Situação, Tipo de manutenção, Prioridade, Mecânico responsável,
+         Data/horários de conclusão e Assinatura do mecânico): quem abre a
+         OS (CCO) ou acompanha segurança do trabalho não deve preencher
+         esses campos, só o mecânico/chefe de oficina. Admin nunca é
+         restringido. */
+      const CARGOS_SOMENTE_VISUALIZACAO = ['CCO', 'SEGURANÇA DO TRABALHO'];
+      const restringidoPorCargo = SGMF.perfil() !== 'admin' &&
+        CARGOS_SOMENTE_VISUALIZACAO.includes(cargoAtual);
       el.disabled = bloqueado() || !!(c.somenteNovo && registro) ||
         !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
-        !!(c.bloquearParaCCO && isCCO);
+        !!(c.bloquearParaCCO && isCCO) ||
+        !!(c.travarParaCargos && restringidoPorCargo);
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();

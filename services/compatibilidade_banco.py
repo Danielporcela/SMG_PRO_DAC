@@ -120,6 +120,12 @@ def garantir_pecas_serial():
         ItemOSPecaSerial.__table__.create(engine, checkfirst=True)
 
     insp = inspect(engine)
+    if "itens_nota_fiscal" not in set(insp.get_table_names()):
+        # Banco novo: itens_nota_fiscal ainda não foi criada por
+        # db.create_all() (que só roda mais adiante, em preparar_banco()).
+        # Nada a fazer agora — a coluna nasce certa quando a tabela for
+        # criada, porque o modelo já a declara.
+        return
     with engine.begin() as conn:
         existentes = {c["name"] for c in insp.get_columns("itens_nota_fiscal")}
         if "numeros_serie" not in existentes:
@@ -201,6 +207,33 @@ def garantir_usuario_movimentos_estoque():
             if nome not in existentes:
                 conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "{nome}" {tipo}'))
 
+
+
+def garantir_campos_execucao_os():
+    """Garante as colunas de execução da OS adicionadas após a instalação inicial.
+
+    - hora_inicio_servico: horário em que o mecânico começou a execução,
+      separado do horário de abertura da OS (hora_inicio).
+    - assinatura_mecanico: nome digitado pelo mecânico responsável para
+      confirmar o serviço executado.
+
+    Resolve instalações antigas do mesmo jeito que as demais funções deste
+    módulo: adiciona a coluna sem apagar nenhum dado existente.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "ordens_servico" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "hora_inicio_servico": "TIME",
+        "assinatura_mecanico": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("ordens_servico")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "ordens_servico" ADD COLUMN "{nome}" {tipo}'))
 
 
 def garantir_grupos_consumo():

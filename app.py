@@ -61,7 +61,8 @@ def criar_app(config=Config):
     # Evita ProgrammingError quando a aplicação já possui a tela, mas o
     # PostgreSQL ainda não recebeu as tabelas ou alguma coluna do módulo.
     with app.app_context():
-        from services.compatibilidade_banco import (garantir_itens_os_servicos_terceiros,
+        from services.compatibilidade_banco import (garantir_campos_execucao_os,
+                                                     garantir_itens_os_servicos_terceiros,
                                                      garantir_lavagens_financeiro,
                                                      garantir_ordens_compra,
                                                      garantir_pecas_serial,
@@ -75,6 +76,7 @@ def criar_app(config=Config):
         garantir_lavagens_financeiro()
         garantir_usuario_movimentos_estoque()
         garantir_grupos_consumo()
+        garantir_campos_execucao_os()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
