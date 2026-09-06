@@ -233,6 +233,28 @@
           <strong>Nenhum alerta ativo</strong>Preventivas, pneus e orçamento estão dentro do previsto.</div>`;
   }
 
+  async function carregarConectados() {
+    const area = document.getElementById('painelConectados');
+    if (!area) return; // card só existe para admin (ver dashboard.html)
+
+    const lista = await SGMF.get('/api/painel/conectados');
+    const etiquetaQtd = document.getElementById('etiquetaConectados');
+    if (etiquetaQtd) etiquetaQtd.textContent = `${lista.length} conectado${lista.length === 1 ? '' : 's'}`;
+
+    const tempoAtras = (min) => min < 1 ? 'agora mesmo' : `há ${min} min`;
+
+    area.innerHTML = lista.length
+      ? lista.map(u => `<div class="alerta-item info">
+          <div class="icone"><i class="fa-solid fa-circle-user"></i></div>
+          <div>
+            <div class="titulo">${SGMF.esc(u.nome)}${u.voce ? ' <span class="etiqueta cinza" style="font-size:9.5px;padding:1px 6px">você</span>' : ''}</div>
+            <div class="detalhe">${SGMF.esc(u.cargo || u.perfil)} · ${tempoAtras(u.minutos_atras)}</div>
+          </div>
+        </div>`).join('')
+      : `<div class="vazio"><i class="fa-solid fa-user-slash"></i>
+          <strong>Nenhum login ativo</strong>Ninguém usou o sistema nos últimos minutos.</div>`;
+  }
+
   /* Impressão genérica de "gráfico + tabela": qualquer card de gráfico do
      painel usa esta mesma função, só muda o título, o canvas e as colunas.
      Canvas não sai no SGMF.imprimir() normal (que só copia outerHTML de
@@ -405,7 +427,7 @@
 
   async function atualizar() {
     try {
-      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarAlertas()]);
+      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
   }
 
@@ -413,4 +435,9 @@
   ['filtroInicio', 'filtroFim'].forEach(id =>
     document.getElementById(id).addEventListener('change', atualizar));
   atualizar();
+
+  // "Conectados agora" muda com o tempo mesmo sem o usuário tocar em nada
+  // (login/logout de outra pessoa, sessão que expirou) — atualiza sozinho
+  // a cada 30s, sem recarregar gráficos e indicadores do período inteiro.
+  setInterval(() => { carregarConectados().catch(() => {}); }, 30000);
 })();

@@ -124,6 +124,18 @@
       <div class="cartao-corpo p-0"><div id="tabelaTop"></div></div>
     </div>
   </div>
+
+  {% if session.perfil == 'admin' %}
+  <div class="col-lg-6">
+    <div class="cartao h-100">
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-users me-2" style="color:var(--petroleo)"></i>Logins conectados agora</h3>
+        <span class="etiqueta verde ms-auto" id="etiquetaConectados" style="font-size:11px">—</span>
+      </div>
+      <div class="cartao-corpo p-0" style="max-height:322px;overflow:auto" id="painelConectados"></div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 

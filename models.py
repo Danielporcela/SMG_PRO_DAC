@@ -138,6 +138,11 @@ class Usuario(db.Model):
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=_agora)
 
+    # --- presença: quando foi a última requisição autenticada deste
+    # usuário. Atualizado a cada request (ver app.py) para alimentar o
+    # card "Logins conectados agora" do Painel. --------------------------
+    ultimo_acesso = db.Column(db.DateTime, nullable=True)
+
     # --- recuperação de senha ("Esqueceu a senha?") ---------------------
     token_reset = db.Column(db.String(64), unique=True, nullable=True, index=True)
     token_reset_expira = db.Column(db.DateTime, nullable=True)
@@ -227,6 +232,19 @@ class Usuario(db.Model):
         return {"id": self.id, "nome": self.nome, "email": self.email,
                 "perfil": self.perfil, "cargo": self.cargo, "ativo": self.ativo,
                 "permissoes": self.permissoes_mapa()}
+
+    @classmethod
+    def conectados_agora(cls, minutos=5):
+        """Usuários com requisição autenticada nos últimos `minutos` minutos.
+
+        Não existe uma tabela de sessões: "conectado" aqui é uma janela de
+        atividade recente (ultimo_acesso), atualizada a cada request pelo
+        before_request de app.py. Alimenta o card "Logins conectados agora"
+        do Painel.
+        """
+        limite = _agora() - timedelta(minutes=minutos)
+        return (cls.query.filter(cls.ultimo_acesso.isnot(None), cls.ultimo_acesso >= limite)
+                .order_by(cls.ultimo_acesso.desc()).all())
 
 
 class PermissaoAcesso(db.Model):

@@ -90,6 +90,7 @@ def criar_app(config=Config):
                                                      garantir_ordens_compra,
                                                      garantir_pecas_serial,
                                                      garantir_servicos_terceiros_financeiros,
+                                                     garantir_ultimo_acesso_usuario,
                                                      garantir_usuario_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_campos_ordens_servico)
@@ -101,6 +102,7 @@ def criar_app(config=Config):
         garantir_usuario_movimentos_estoque()
         garantir_grupos_consumo()
         garantir_campos_execucao_os()
+        garantir_ultimo_acesso_usuario()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -143,6 +145,34 @@ def criar_app(config=Config):
 
         # Fica disponível para rotas/logs que queiram registrar quem autorizou.
         g.admin_autorizador_exclusao = autorizador.nome
+        return None
+
+    @app.before_request
+    def marcar_presenca():
+        """Atualiza a marca de "última atividade" de quem está logado.
+
+        Não existe tabela de sessões: "conectado agora" (card do Painel) é
+        só uma janela de atividade recente nesta coluna. Para não gravar no
+        banco em toda requisição, só atualiza quando a marca anterior tem
+        mais de 60s (ou nunca foi gravada) — uma única query UPDATE, sem
+        SELECT antes.
+        """
+        if request.path.startswith("/static/"):
+            return None
+        usuario_id = session.get("usuario_id")
+        if not usuario_id:
+            return None
+
+        from sqlalchemy import or_
+
+        from models import Usuario
+        from services.tempo import agora as _agora_marca
+        agora_marca = _agora_marca()
+        limite = agora_marca - timedelta(seconds=60)
+        (Usuario.query.filter(Usuario.id == usuario_id)
+         .filter(or_(Usuario.ultimo_acesso.is_(None), Usuario.ultimo_acesso < limite))
+         .update({"ultimo_acesso": agora_marca}, synchronize_session=False))
+        db.session.commit()
         return None
 
     @app.context_processor

@@ -209,6 +209,24 @@ def garantir_usuario_movimentos_estoque():
 
 
 
+def garantir_ultimo_acesso_usuario():
+    """Adiciona a coluna de presença (última requisição autenticada).
+
+    Resolve instalações antigas do mesmo jeito que as demais funções deste
+    módulo: adiciona a coluna sem apagar nenhum dado existente. Alimenta o
+    card "Logins conectados agora" do Painel.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "usuarios" not in set(insp.get_table_names()):
+        return
+
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("usuarios")}
+        if "ultimo_acesso" not in existentes:
+            conn.execute(text('ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" DATETIME'))
+
+
 def garantir_campos_execucao_os():
     """Garante as colunas de execução da OS adicionadas após a instalação inicial.
 

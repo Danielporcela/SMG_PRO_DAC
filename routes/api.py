@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from extensions import db
 from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
                     LogAuditoria, Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca,
-                    PecaSerial, Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
+                    PecaSerial, Pneu, ServicoTerceiro, Usuario, Veiculo, proximo_codigo_peca)
 from services import indicadores
 from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
@@ -643,6 +643,29 @@ def painel_rankings():
 @login_obrigatorio
 def painel_alertas():
     return jsonify(indicadores.alertas())
+
+
+@bp_api.get("/painel/conectados")
+@perfil_obrigatorio("admin")
+def painel_conectados():
+    """Logins conectados agora, para o card do Painel (só administradores).
+
+    Não existe tabela de sessões: "conectado" é uma janela de atividade
+    recente (ultimo_acesso), atualizada a cada request em app.py. Padrão:
+    últimos 5 minutos.
+    """
+    minutos = request.args.get("minutos", default=5, type=int)
+    agora_ref = agora()
+    usuarios = Usuario.conectados_agora(minutos=minutos)
+    resultado = []
+    for u in usuarios:
+        minutos_atras = max(0, int((agora_ref - u.ultimo_acesso).total_seconds() // 60))
+        resultado.append({
+            "id": u.id, "nome": u.nome, "email": u.email, "cargo": u.cargo,
+            "perfil": u.perfil, "minutos_atras": minutos_atras,
+            "voce": u.id == session.get("usuario_id"),
+        })
+    return jsonify(resultado)
 
 
 # ------------------------------------------------------------- auditoria
