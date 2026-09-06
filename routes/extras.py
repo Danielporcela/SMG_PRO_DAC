@@ -4,8 +4,8 @@ import io
 from flask import Blueprint, jsonify, request, send_file, session
 
 from extensions import db
-from models import (Abastecimento, Anexo, ControleTarefa, ItemNotaFiscal, NotaFiscal,
-                    OrdemServico, Peca)
+from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
+                    NotaFiscal, OrdemServico, Peca)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
@@ -165,6 +165,28 @@ def _nota_precisa_estar_aberta(nota):
         raise ErroNegocio("Esta nota já foi finalizada e não pode mais ser alterada.")
 
 
+def _verificar_nota_duplicada(fornecedor_id, nota_id=None):
+    """Bloqueia quando já existe outra nota fiscal do mesmo fornecedor
+    ainda aberta (não finalizada). A nota anterior precisa ser finalizada
+    (ou cancelada) antes de abrir uma nova nota para o mesmo fornecedor.
+    """
+    if not fornecedor_id:
+        return
+    conflito = NotaFiscal.query.filter(
+        NotaFiscal.fornecedor_id == fornecedor_id,
+        NotaFiscal.status.notin_(("Finalizada", "Cancelada")))
+    if nota_id is not None:
+        conflito = conflito.filter(NotaFiscal.id != nota_id)
+    conflito = conflito.first()
+    if conflito:
+        fornecedor = db.session.get(Fornecedor, fornecedor_id)
+        nome_fornecedor = fornecedor.nome if fornecedor else "este fornecedor"
+        raise ErroNegocio(
+            f"Já existe a nota fiscal {conflito.numero} de {nome_fornecedor} aberta "
+            f"(status: {conflito.status}). Finalize-a antes de lançar uma nova nota "
+            f"para o mesmo fornecedor.")
+
+
 @bp_extras.get("/api/notas_fiscais")
 @visualizar_tela("estoque")
 def listar_notas_fiscais():
@@ -193,6 +215,7 @@ def criar_nota_fiscal():
     if not dados.get("numero") or not dados.get("fornecedor_id"):
         return jsonify({"erro": "Preencha: Número, Fornecedor"}), 400
     try:
+        _verificar_nota_duplicada(int(dados["fornecedor_id"]))
         nota = NotaFiscal(
             numero=str(dados["numero"]).strip(),
             serie=(dados.get("serie") or "").strip() or None,
@@ -227,7 +250,10 @@ def editar_nota_fiscal(nota_id):
         if dados.get("data_emissao"):
             nota.data_emissao = _data_nf(dados["data_emissao"], "Data de emissão")
         if dados.get("fornecedor_id"):
-            nota.fornecedor_id = int(dados["fornecedor_id"])
+            novo_fornecedor_id = int(dados["fornecedor_id"])
+            if novo_fornecedor_id != nota.fornecedor_id:
+                _verificar_nota_duplicada(novo_fornecedor_id, nota_id=nota.id)
+            nota.fornecedor_id = novo_fornecedor_id
         if "observacao" in dados:
             nota.observacao = (dados.get("observacao") or "").strip() or None
         registrar_log("editar", "notas_fiscais", nota.id, f"NF {nota.numero}")

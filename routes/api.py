@@ -137,7 +137,32 @@ registrar_crud(
 
 
 # ------------------------------------------------------ Módulo 3: manutenção
+def _verificar_os_duplicada(obj):
+    """Bloqueia a OS quando já existe outra OS aberta (não finalizada) para
+    a mesma frota (veículo). Evita duas ordens de serviço concorrentes para
+    o mesmo veículo — a segunda só pode ser aberta depois que a primeira
+    for finalizada.
+    """
+    if not obj.veiculo_id:
+        return
+    conflito = OrdemServico.query.filter(
+        OrdemServico.veiculo_id == obj.veiculo_id,
+        OrdemServico.status != "Finalizada")
+    if obj.id is not None:
+        conflito = conflito.filter(OrdemServico.id != obj.id)
+    conflito = conflito.first()
+    if conflito:
+        veiculo = db.session.get(Veiculo, obj.veiculo_id)
+        nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
+        raise ErroNegocio(
+            f"Já existe a OS {conflito.numero or conflito.id} aberta para {nome_veiculo} "
+            f"(status: {conflito.status}). Finalize-a antes de abrir uma nova OS para "
+            f"o mesmo veículo.")
+
+
 def _antes_os(obj, dados, anterior):
+    _verificar_os_duplicada(obj)
+
     # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
     # O preenchimento no navegador continua existindo, mas esta regra garante
     # o valor mesmo que a requisição venha de outro navegador/computador.
@@ -405,11 +430,46 @@ registrar_crud(
 
 
 # -------------------------------------------------------- Módulo 11: estoque
+def _verificar_peca_duplicada(obj, anterior):
+    """Bloqueia o cadastro/edição quando já existe outra peça com o mesmo
+    nome (descrição) ou o mesmo código. A comparação de nome ignora
+    maiúsculas/minúsculas e espaços nas pontas, para pegar duplicidade real
+    ('Filtro de óleo' vs 'filtro de óleo ').
+    """
+    from sqlalchemy import func
+
+    descricao = (obj.descricao or "").strip()
+    if descricao:
+        conflito_desc = Peca.query.filter(func.lower(Peca.descricao) == descricao.lower())
+        if anterior is not None:
+            conflito_desc = conflito_desc.filter(Peca.id != obj.id)
+        conflito_desc = conflito_desc.first()
+        if conflito_desc:
+            raise ErroNegocio(
+                f"Já existe uma peça cadastrada com este nome: '{conflito_desc.descricao}' "
+                f"(código {conflito_desc.codigo}). Verifique antes de cadastrar novamente.")
+
+    codigo = (obj.codigo or "").strip()
+    if codigo:
+        conflito_cod = Peca.query.filter(Peca.codigo == codigo)
+        if anterior is not None:
+            conflito_cod = conflito_cod.filter(Peca.id != obj.id)
+        conflito_cod = conflito_cod.first()
+        if conflito_cod:
+            raise ErroNegocio(
+                f"Já existe uma peça cadastrada com o código '{codigo}' "
+                f"({conflito_cod.descricao}).")
+
+
 def _antes_peca(obj, dados, anterior):
     """Peça nova: o Código é sempre gerado pelo sistema (0001, 0002...),
     ignorando qualquer valor enviado pela tela — o campo fica travado lá.
     Em edição, o código não muda.
+
+    Antes de gerar/gravar, verifica duplicidade de nome ou código para não
+    deixar duas peças cadastradas como a mesma coisa.
     """
+    _verificar_peca_duplicada(obj, anterior)
     if anterior is None:
         obj.codigo = proximo_codigo_peca()
 
