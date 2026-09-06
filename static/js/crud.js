@@ -7,7 +7,7 @@ SGMF.tela = function (config) {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
     aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
-    rotuloSalvar = null
+    rotuloSalvar = null, aoSalvar = null
   } = config;
 
   const idModal = `modal_${recurso}`;
@@ -180,11 +180,12 @@ SGMF.tela = function (config) {
     const botao = document.getElementById(`${idModal}_salvar`);
     botao.disabled = true;
     try {
-      if (id) await SGMF.put(`/api/${recurso}/${id}`, dados);
-      else await SGMF.post(`/api/${recurso}`, dados);
+      const resposta = id ? await SGMF.put(`/api/${recurso}/${id}`, dados)
+                          : await SGMF.post(`/api/${recurso}`, dados);
       fechamentoLiberado = true;
       bootstrap.Modal.getInstance(document.getElementById(idModal)).hide();
       SGMF.sucesso(id ? `${titulo} atualizado` : `${titulo} cadastrado`);
+      if (aoSalvar) aoSalvar(resposta, id);
       SGMF.limparCache(recurso);
       /* Um registro NOVO some da lista se o período filtrado no topo da tela
          não cobrir a data de hoje (o registro fica salvo, só não aparece).

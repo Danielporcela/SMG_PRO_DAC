@@ -7,6 +7,7 @@ import os
 from datetime import timedelta
 
 from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from extensions import db, migrate
@@ -16,6 +17,28 @@ from services.tempo import hoje
 def criar_app(config=Config):
     app = Flask(__name__)
     app.config.from_object(config)
+
+    # O Render coloca a aplicação atrás de um proxy reverso: sem isso,
+    # request.remote_addr é sempre o IP interno do proxy, não o do
+    # visitante — o que quebrava qualquer controle por IP, incluindo o
+    # bloqueio de login por tentativas erradas (services/login_seguranca.py).
+    # x_for=1 confia em um único proxy à frente (o do Render).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    @app.after_request
+    def cabecalhos_seguranca(resposta):
+        """Cabeçalhos HTTP básicos que faltavam: sem eles, o navegador não
+        tem como recusar renderizar o SGMF dentro de um <iframe> de outro
+        site (clickjacking) nem parar de "adivinhar" o tipo de um arquivo
+        enviado como anexo pelo Content-Type declarado pelo navegador
+        (MIME-sniffing)."""
+        resposta.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resposta.headers.setdefault("X-Frame-Options", "DENY")
+        resposta.headers.setdefault("Referrer-Policy", "same-origin")
+        if app.config.get("SESSION_COOKIE_SECURE"):
+            resposta.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return resposta
 
     for pasta in (app.config["UPLOAD_FOLDER"], app.config["BACKUP_FOLDER"],
                   os.path.join(os.path.dirname(__file__), "database")):
@@ -235,17 +258,35 @@ def preparar_banco():
 
 
 def criar_admin_inicial():
-    """Cria o primeiro acesso se o banco estiver vazio."""
+    """Cria o primeiro acesso se o banco estiver vazio.
+
+    Antes caía em "admin123" quando ADMIN_SENHA não estava configurada no
+    Render — uma senha previsível, documentada no próprio código-fonte.
+    Agora, se a variável não estiver definida, gera uma senha aleatória e
+    imprime UMA VEZ no log de start (Render > Logs) para o administrador
+    copiar e trocar no primeiro acesso.
+    """
+    import secrets
+
     from models import Usuario
     if Usuario.query.count():
         return
+    senha_env = os.environ.get("ADMIN_SENHA")
+    senha_gerada = None if senha_env else secrets.token_urlsafe(12)
     admin = Usuario(nome=os.environ.get("ADMIN_NOME", "Administrador"),
                     email=os.environ.get("ADMIN_EMAIL", "admin@sgmf.local").lower(),
                     perfil="admin")
-    admin.definir_senha(os.environ.get("ADMIN_SENHA", "admin123"))
+    admin.definir_senha(senha_env or senha_gerada)
     db.session.add(admin)
     db.session.commit()
-    print(f"[SGMF] Usuário inicial criado: {admin.email}")
+    if senha_gerada:
+        print(f"[SGMF] ATENÇÃO: ADMIN_SENHA não foi definida no ambiente. "
+              f"Senha inicial gerada para {admin.email}: {senha_gerada}\n"
+              f"[SGMF] Copie agora — ela só aparece uma vez neste log. "
+              f"Troque-a no primeiro login e defina ADMIN_SENHA no Render "
+              f"para controlar a senha em futuros deploys com banco novo.")
+    else:
+        print(f"[SGMF] Usuário inicial criado: {admin.email}")
 
 
 app = criar_app()

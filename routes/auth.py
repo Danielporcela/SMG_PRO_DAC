@@ -1,9 +1,13 @@
+import secrets
+
 from flask import (Blueprint, jsonify, redirect, render_template, request,
                    session, url_for)
 
 from extensions import db
-from models import CARGOS_SUGERIDOS, TELAS_SISTEMA, Usuario
+from models import CARGOS_SUGERIDOS, TELAS_SISTEMA, BloqueioAcesso, Usuario
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_crud
+from services.login_seguranca import bloqueado, ip_cliente, registrar_tentativa
+from services.tempo import agora
 
 bp_auth = Blueprint("auth", __name__)
 
@@ -16,8 +20,18 @@ def login():
         return render_template("login.html")
 
     dados = request.get_json(silent=True) or request.form
-    usuario = Usuario.query.filter_by(email=(dados.get("email") or "").strip().lower()).first()
-    if not usuario or not usuario.conferir_senha(dados.get("senha") or ""):
+    email = (dados.get("email") or "").strip().lower()
+    ip = ip_cliente(request)
+
+    if bloqueado(email, ip):
+        return jsonify({"erro": "Acesso bloqueado após várias tentativas erradas. "
+                                "Fale com um administrador para liberar."}), 403
+
+    usuario = Usuario.query.filter_by(email=email).first()
+    autenticado = bool(usuario and usuario.conferir_senha(dados.get("senha") or ""))
+    registrar_tentativa(email, ip, autenticado)
+
+    if not autenticado:
         return jsonify({"erro": "E-mail ou senha não conferem."}), 401
     if not usuario.ativo:
         return jsonify({"erro": "Este acesso está desativado. Fale com o administrador."}), 403
@@ -71,7 +85,13 @@ def _antes_salvar_usuario(obj, dados, anterior):
     if dados.get("senha"):
         obj.definir_senha(dados["senha"])
     elif not obj.senha_hash:
-        obj.definir_senha("sgmf@123")
+        # Antes usava a senha fixa "sgmf@123" para todo usuário novo sem
+        # senha informada — documentada até na tela de Usuários. Gera uma
+        # senha aleatória por usuário e devolve na resposta desta chamada
+        # (ver _serializar_usuario), para o admin repassar uma única vez.
+        senha_gerada = secrets.token_urlsafe(9)
+        obj.definir_senha(senha_gerada)
+        obj._senha_gerada = senha_gerada
 
 
 def _depois_salvar_usuario(obj, dados, anterior):
@@ -86,17 +106,46 @@ def _depois_salvar_usuario(obj, dados, anterior):
         obj.definir_permissoes(dados.get("permissoes") or [])
 
 
+def _serializar_usuario(obj):
+    dados = obj.to_dict()
+    senha_gerada = getattr(obj, "_senha_gerada", None)
+    if senha_gerada:
+        # Só existe no objeto em memória logo após a criação (não é coluna
+        # do banco); aparece uma única vez, nesta resposta.
+        dados["senha_gerada"] = senha_gerada
+    return dados
+
+
 registrar_crud(bp_usuarios, "usuarios", Usuario,
                campos={"nome": "str", "email": "str", "perfil": "str",
                        "cargo": "str", "ativo": "bool"},
                ordem=Usuario.nome, obrigatorios=("nome", "email"),
-               antes_salvar=_antes_salvar_usuario, depois_salvar=_depois_salvar_usuario)
+               antes_salvar=_antes_salvar_usuario, depois_salvar=_depois_salvar_usuario,
+               serializar=_serializar_usuario)
 
 
 @bp_usuarios.before_request
 @perfil_obrigatorio("admin")
 def _somente_admin():
     return None
+
+
+@bp_usuarios.get("/bloqueios")
+def listar_bloqueios():
+    """Bloqueios de login ativos (e-mail ou IP), para a tela de Auditoria."""
+    ativos = (BloqueioAcesso.query.filter_by(liberado=False)
+              .order_by(BloqueioAcesso.criado_em.desc()).all())
+    return jsonify([b.to_dict() for b in ativos])
+
+
+@bp_usuarios.post("/bloqueios/<int:bloqueio_id>/liberar")
+def liberar_bloqueio(bloqueio_id):
+    bloqueio = db.get_or_404(BloqueioAcesso, bloqueio_id)
+    bloqueio.liberado = True
+    bloqueio.liberado_por = session.get("usuario_nome")
+    bloqueio.liberado_em = agora()
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @bp_usuarios.get("/telas")

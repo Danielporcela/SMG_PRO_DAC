@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import timedelta
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -7,7 +8,20 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 class Config:
     """Configuração base. Em produção (Render) tudo vem de variáveis de ambiente."""
 
-    SECRET_KEY = os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao")
+    _secret_env = os.environ.get("SECRET_KEY")
+    if not _secret_env and os.environ.get("FLASK_ENV") == "production":
+        # Nunca cai num valor fixo e previsível em produção: se a variável
+        # de ambiente não foi configurada no Render, gera uma chave aleatória
+        # a cada start. Isso derruba sessões antigas a cada deploy (aceitável),
+        # mas fecha a brecha de forjar sessão/cookie com uma chave publicada
+        # no código-fonte. Configure SECRET_KEY no Render para não perder
+        # sessão a cada reinício.
+        SECRET_KEY = secrets.token_hex(32)
+        print("[SGMF] ATENÇÃO: variável SECRET_KEY não definida em produção. "
+              "Gerando uma chave temporária (sessões serão derrubadas a cada "
+              "reinício). Defina SECRET_KEY no Render.")
+    else:
+        SECRET_KEY = _secret_env or "chave-de-desenvolvimento-local-nao-usar-em-producao"
 
     # Render entrega a URL do Postgres em DATABASE_URL (prefixo postgres://)
     _db_url = os.environ.get("DATABASE_URL", "")

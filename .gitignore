@@ -5,7 +5,9 @@ venv/
 env/
 .env
 database/*.db
+database/*.db.backup_*
 database/*.sqlite3
+database/*.sqlite3.backup_*
 uploads/*
 !uploads/.gitkeep
 backup/*

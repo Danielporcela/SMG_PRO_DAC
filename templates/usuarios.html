@@ -1,7 +1,7 @@
 {% extends "lista.html" %}
 {% block titulo %}Usuários{% endblock %}
 {% block cabecalho %}Usuários do sistema{% endblock %}
-{% block descricao %}Quem acessa o SGMF, com qual senha e em quais telas. Senha inicial padrão: sgmf@123.{% endblock %}
+{% block descricao %}Quem acessa o SGMF, com qual senha e em quais telas. Um usuário novo sem senha definida recebe uma senha aleatória, mostrada uma única vez logo após salvar.{% endblock %}
 {% block rotulo_novo %}Novo usuário{% endblock %}
 
 {% block scripts %}
@@ -126,7 +126,7 @@ SGMF.tela({
       ] },
     { nome: 'cargo', rotulo: 'Cargo (rótulo livre)', col: 4, exemplo: 'Ex.: Mecânico, Chefe de oficina' },
     { nome: 'senha', rotulo: 'Senha de acesso', tipo: 'password', col: 4,
-      ajuda: 'Deixe em branco para manter a senha atual (ou usar o padrão sgmf@123 num usuário novo).' },
+      ajuda: 'Deixe em branco para manter a senha atual (num usuário novo, gera uma senha aleatória e mostra na hora).' },
     { nome: 'ativo', rotulo: 'Acesso liberado', tipo: 'checkbox', col: 4, padrao: true },
     { nome: 'permissoes', tipo: 'personalizado', col: 12, rotulo: 'Telas liberadas para este usuário' }
   ],
@@ -157,6 +157,19 @@ SGMF.tela({
   aoColetar: (dados) => {
     dados.permissoes = document.getElementById('campo_perfil').value === 'admin'
       ? [] : lerGradePermissoes();
+  },
+  aoSalvar: (resposta) => {
+    // Só vem preenchido quando o servidor gerou uma senha aleatória para
+    // um usuário novo (ver services de usuários) — aparece uma única vez.
+    if (!resposta || !resposta.senha_gerada) return;
+    Swal.fire({
+      icon: 'success',
+      title: 'Senha inicial gerada',
+      html: `Anote agora — ela não será mostrada novamente:<br>
+             <code style="font-size:1.1em">${SGMF.esc(resposta.senha_gerada)}</code>`,
+      confirmButtonText: 'Já anotei',
+      confirmButtonColor: '#0F3D56'
+    });
   }
 });
 </script>

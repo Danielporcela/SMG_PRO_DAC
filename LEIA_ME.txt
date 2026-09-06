@@ -1,0 +1,42 @@
+SGMF Pro — arquivos alterados na análise de segurança
+========================================================
+
+Estrutura deste zip = estrutura do projeto. Copie cada arquivo para o
+mesmo caminho dentro da pasta do projeto, substituindo o que já existe:
+
+  .gitignore                     -> substitui
+  app.py                         -> substitui
+  config.py                      -> substitui
+  models.py                      -> substitui
+  routes/auth.py                 -> substitui
+  services/login_seguranca.py    -> ARQUIVO NOVO (não existia antes)
+  static/js/crud.js              -> substitui
+  templates/usuarios.html        -> substitui
+
+Depois de copiar, ainda falta 1 passo que não é um arquivo — precisa
+rodar no terminal, dentro da pasta do projeto:
+
+  git rm --cached database/sgmf.db.backup_20260819_104031 ^
+                   database/sgmf.db.backup_20260819_104556 ^
+                   database/sgmf.db.backup_20260819_111705
+
+(no Linux/Mac, sem o "^" — só quebre a linha ou coloque tudo numa linha só)
+
+Isso tira os 3 backups do controle do Git (eles continuam no seu disco,
+só saem do próximo commit). O .gitignore novo já impede que backups
+futuros (*.db.backup_*) voltem a ser commitados.
+
+Depois disso:
+  git add -A
+  git commit -m "Correções de segurança: bloqueio de login, senhas
+  aleatórias, SECRET_KEY, cabeçalhos HTTP, backups fora do Git"
+  git push
+
+O Render aplica a migração das tabelas de bloqueio de login sozinho
+(preDeployCommand: flask db upgrade), então não precisa rodar nada de
+banco manualmente.
+
+Lembrete: o histórico antigo do Git ainda contém os backups (com o hash
+da senha do admin). Se o repositório for público, isso pede uma limpeza
+de histórico à parte (git filter-repo ou BFG) — não é obrigatório para
+este deploy funcionar, mas é recomendado.

@@ -205,7 +205,9 @@ class Usuario(db.Model):
         return token
 
     def token_reset_valido(self, token):
-        if self.token_reset != token or self.token_reset_expira is None:
+        if not self.token_reset or not secrets.compare_digest(self.token_reset, token or ""):
+            return False
+        if self.token_reset_expira is None:
             return False
         expira = self.token_reset_expira
         agora = _agora()
