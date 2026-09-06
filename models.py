@@ -242,7 +242,10 @@ class Usuario(db.Model):
         before_request de app.py. Alimenta o card "Logins conectados agora"
         do Painel.
         """
-        limite = _agora() - timedelta(minutes=minutos)
+        # ultimo_acesso é DateTime sem timezone no banco. O helper agora()
+        # retorna um datetime com timezone, então normalizamos aqui antes da
+        # comparação para não misturar datetime aware e naive.
+        limite = _agora().replace(tzinfo=None) - timedelta(minutes=minutos)
         return (cls.query.filter(cls.ultimo_acesso.isnot(None), cls.ultimo_acesso >= limite)
                 .order_by(cls.ultimo_acesso.desc()).all())
 

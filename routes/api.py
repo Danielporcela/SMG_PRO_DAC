@@ -655,7 +655,9 @@ def painel_conectados():
     últimos 5 minutos.
     """
     minutos = request.args.get("minutos", default=5, type=int)
-    agora_ref = agora()
+    # ultimo_acesso vem do PostgreSQL como datetime sem timezone.
+    # Mantemos a comparação no mesmo formato para evitar TypeError.
+    agora_ref = agora().replace(tzinfo=None)
     usuarios = Usuario.conectados_agora(minutos=minutos)
     resultado = []
     for u in usuarios:

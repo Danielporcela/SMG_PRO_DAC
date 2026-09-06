@@ -167,7 +167,11 @@ def criar_app(config=Config):
 
         from models import Usuario
         from services.tempo import agora as _agora_marca
-        agora_marca = _agora_marca()
+        # ultimo_acesso é uma coluna DateTime sem timezone no banco
+        # (compatível com SQLite e com a migration atual do PostgreSQL).
+        # Normalizamos para datetime ingênuo para evitar a mistura de
+        # aware/naive, que causa TypeError no PostgreSQL ao consultar o painel.
+        agora_marca = _agora_marca().replace(tzinfo=None)
         limite = agora_marca - timedelta(seconds=60)
         (Usuario.query.filter(Usuario.id == usuario_id)
          .filter(or_(Usuario.ultimo_acesso.is_(None), Usuario.ultimo_acesso < limite))

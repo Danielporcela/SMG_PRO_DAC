@@ -224,9 +224,12 @@ def garantir_ultimo_acesso_usuario():
     with engine.begin() as conn:
         existentes = {c["name"] for c in inspect(engine).get_columns("usuarios")}
         if "ultimo_acesso" not in existentes:
-            dialeto = engine.dialect.name
-            tipo_coluna = "TIMESTAMP" if dialeto == "postgresql" else "DATETIME"
-            conn.execute(text(f'ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" {tipo_coluna}'))
+            # SQL bruto precisa respeitar o dialeto do banco. PostgreSQL não
+            # possui o tipo DATETIME (usado pelo SQLite).
+            tipo_coluna = "TIMESTAMP" if engine.dialect.name == "postgresql" else "DATETIME"
+            conn.execute(text(
+                f'ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" {tipo_coluna}'
+            ))
 
 
 def garantir_campos_execucao_os():
