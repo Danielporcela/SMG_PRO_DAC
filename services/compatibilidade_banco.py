@@ -224,7 +224,9 @@ def garantir_ultimo_acesso_usuario():
     with engine.begin() as conn:
         existentes = {c["name"] for c in inspect(engine).get_columns("usuarios")}
         if "ultimo_acesso" not in existentes:
-            conn.execute(text('ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" DATETIME'))
+            dialeto = engine.dialect.name
+            tipo_coluna = "TIMESTAMP" if dialeto == "postgresql" else "DATETIME"
+            conn.execute(text(f'ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" {tipo_coluna}'))
 
 
 def garantir_campos_execucao_os():
