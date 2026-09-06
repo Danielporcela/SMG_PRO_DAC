@@ -160,8 +160,21 @@ def _verificar_os_duplicada(obj):
             f"o mesmo veículo.")
 
 
+def _verificar_valor_os(obj):
+    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
+    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
+    de preenchimento, não um serviço legítimo de custo zero.
+    """
+    if obj.status == "Finalizada" and obj.custo_total <= 0:
+        raise ErroNegocio(
+            "Não é possível finalizar a OS com o custo total zerado. "
+            "Informe o valor da mão de obra, dos serviços e/ou das peças "
+            "aplicadas antes de finalizar.")
+
+
 def _antes_os(obj, dados, anterior):
     _verificar_os_duplicada(obj)
+    _verificar_valor_os(obj)
 
     # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
     # O preenchimento no navegador continua existindo, mas esta regra garante
