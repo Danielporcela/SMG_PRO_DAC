@@ -77,6 +77,11 @@ _tela("/motoristas", "motoristas.html", "motoristas")
 _tela("/fornecedores", "fornecedores.html", "fornecedores")
 _tela("/manutencao", "manutencao.html", "manutencao")
 
+@bp_paginas.get("/consulta-os")
+@exige_tela("manutencao")
+def consulta_os():
+    return render_template("consulta_os.html", pagina="consulta_os")
+
 
 @bp_paginas.get("/servicos-terceiros")
 @exige_tela("manutencao")

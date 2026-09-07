@@ -2,6 +2,7 @@
 from datetime import date
 
 from flask import Blueprint, current_app, jsonify, request, session
+from sqlalchemy import func
 
 from extensions import db
 from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
@@ -248,6 +249,47 @@ registrar_crud(
     # preencher os campos de execução — só visualizá-los.
     campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
                                    "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+
+
+@bp_api.get("/ordens/consulta-frota")
+@visualizar_tela("manutencao")
+def consultar_ordens_por_frota():
+    """Consulta o histórico de OS de uma frota, sem alterar registros."""
+    prefixo = (request.args.get("frota") or request.args.get("prefixo") or "").strip()
+    if not prefixo:
+        return jsonify({"erro": "Informe o número da frota."}), 400
+    if len(prefixo) > 20:
+        return jsonify({"erro": "Número da frota inválido."}), 400
+
+    veiculo = (Veiculo.query
+               .filter(func.lower(Veiculo.prefixo) == prefixo.lower())
+               .first())
+    if not veiculo:
+        # Também aceita busca parcial para facilitar consultas como "123".
+        veiculos = (Veiculo.query
+                    .filter(Veiculo.prefixo.ilike(f"%{prefixo}%"))
+                    .order_by(Veiculo.prefixo)
+                    .all())
+        if len(veiculos) != 1:
+            return jsonify({
+                "erro": "Frota não encontrada." if not veiculos
+                       else "Há mais de uma frota compatível. Informe o número completo.",
+                "veiculos": [{"id": v.id, "prefixo": v.prefixo, "placa": v.placa}
+                             for v in veiculos[:20]]
+            }), 404 if not veiculos else 409
+
+        veiculo = veiculos[0]
+
+    ordens = (OrdemServico.query
+              .filter(OrdemServico.veiculo_id == veiculo.id)
+              .order_by(OrdemServico.data_abertura.desc(), OrdemServico.id.desc())
+              .all())
+
+    return jsonify({
+        "veiculo": veiculo.to_dict(),
+        "total": len(ordens),
+        "ordens": [o.to_dict(com_itens=True) for o in ordens]
+    })
 
 
 @bp_api.get("/ordens/<int:os_id>/itens")
