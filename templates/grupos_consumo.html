@@ -35,8 +35,24 @@
         <select class="form-select" id="grupoConsumo"><option value="">Selecione</option></select>
       </div>
       <div class="col-md-4">
-        <label class="form-label" for="pecaConsumo">Peça ou material</label>
-        <select class="form-select" id="pecaConsumo"><option value="">Selecione</option></select>
+        <label class="form-label" for="buscaPecaConsumo">Peça ou material</label>
+        <div class="position-relative">
+          <div class="input-group">
+            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <input type="search" class="form-control" id="buscaPecaConsumo"
+                   autocomplete="off" placeholder="Digite o nome ou a referência — ex.: cuica">
+            <button type="button" class="btn btn-contorno" id="botaoPesquisarPecaConsumo"
+                    title="Abrir pesquisa detalhada">
+              <i class="fa-solid fa-list"></i>
+              <span class="d-none d-xl-inline ms-1">Pesquisa detalhada</span>
+            </button>
+          </div>
+          <div id="resultadoDigitacaoPecaConsumo" class="list-group position-absolute w-100 shadow-sm"
+               style="z-index:1080;display:none;max-height:280px;overflow:auto"></div>
+        </div>
+        <select class="form-select mt-2" id="pecaConsumo" aria-label="Peça selecionada">
+          <option value="">— selecione uma peça nos resultados —</option>
+        </select>
         <small class="text-muted" id="saldoPecaConsumo"></small>
       </div>
       <div class="col-md-2">
@@ -92,6 +108,37 @@
     <div class="modal-footer"><button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primario" id="salvarGrupoConsumo">Salvar</button></div>
   </div></div>
 </div>
+
+<!-- Pesquisa rápida de peças durante o lançamento de produtos no grupo de consumo -->
+<div class="modal fade" id="modalPesquisarPecaConsumo" tabindex="-1" aria-labelledby="tituloPesquisarPecaConsumo">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display" id="tituloPesquisarPecaConsumo">
+          <i class="fa-solid fa-magnifying-glass me-2"></i>Pesquisar peça
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group input-group-lg mb-2">
+          <input type="search" class="form-control" id="campoPesquisarPecaConsumo"
+                 autocomplete="off"
+                 placeholder="Digite o nome ou a referência da peça">
+          <button type="button" class="btn btn-primario" id="executarPesquisaPecaConsumo">
+            <i class="fa-solid fa-magnifying-glass me-1"></i> Pesquisar
+          </button>
+        </div>
+        <small class="text-muted">Ex.: "filtro de óleo", "pastilha" ou "REF-1023".</small>
+        <div id="resultadoPesquisaPecaConsumo" class="mt-3">
+          <div class="vazio">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            Digite o nome ou a referência e clique em Pesquisar.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -117,7 +164,7 @@ async function carregarCadastrosGrupos() {
   }
   const pecaSelect = document.getElementById('pecaConsumo');
   if (pecaSelect) {
-    pecaSelect.innerHTML = '<option value="">Selecione</option>' + pecasConsumo.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} · saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}</option>`).join('');
+    pecaSelect.innerHTML = '<option value="">— selecione uma peça nos resultados —</option>' + pecasConsumo.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} · saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}</option>`).join('');
   }
 }
 
@@ -205,6 +252,234 @@ async function salvarGrupo() {
     await carregarResumoGrupos();
   } catch (e) { SGMF.falha(e.message); }
 }
+
+/* ========================================= pesquisa de peça no grupo de consumo
+   Pesquisa somente para localizar a peça. A retirada continua sendo gravada
+   pelo endpoint de grupos de consumo já existente. Mesmo padrão usado na
+   pesquisa de peça da nota fiscal (templates/estoque.html). */
+let pesquisaPecaConsumo = { lista: [], termo: '' };
+
+function abrirPesquisaPecaConsumo() {
+  const modal = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalPesquisarPecaConsumo')
+  );
+  const campo = document.getElementById('campoPesquisarPecaConsumo');
+  campo.value = '';
+  document.getElementById('resultadoPesquisaPecaConsumo').innerHTML = `
+    <div class="vazio">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      Digite o nome ou a referência e clique em Pesquisar.
+    </div>`;
+  modal.show();
+  setTimeout(() => campo.focus(), 250);
+}
+
+function mostrarResultadosPesquisaPecaConsumo(dados) {
+  const area = document.getElementById('resultadoPesquisaPecaConsumo');
+  const lista = dados.pecas || [];
+  pesquisaPecaConsumo.lista = lista;
+
+  if (!lista.length) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-box-open"></i>
+        <strong>Nenhuma peça encontrada.</strong>
+        Confira o nome ou a referência informada.
+      </div>`;
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <strong>${dados.total} ${dados.total === 1 ? 'peça encontrada' : 'peças encontradas'}</strong>
+      ${dados.total > lista.length
+        ? `<small class="text-muted">Mostrando ${lista.length}. Digite mais para refinar.</small>`
+        : ''}
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Referência</th>
+            <th>Peça</th>
+            <th class="text-end">Saldo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.map(p => `
+            <tr>
+              <td class="num"><strong>${SGMF.esc(p.codigo)}</strong></td>
+              <td class="num">${SGMF.esc(p.referencia) || '—'}</td>
+              <td>${SGMF.esc(p.descricao)}</td>
+              <td class="text-end num">
+                ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')}
+              </td>
+              <td class="text-end">
+                <button type="button" class="btn btn-primario btn-sm"
+                        data-selecionar-peca-consumo="${p.id}">
+                  <i class="fa-solid fa-check me-1"></i> Selecionar
+                </button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function pesquisarPecaConsumo() {
+  const campo = document.getElementById('campoPesquisarPecaConsumo');
+  const termo = campo.value.trim();
+  const area = document.getElementById('resultadoPesquisaPecaConsumo');
+
+  if (!termo) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-circle-info"></i>
+        Informe o nome ou a referência da peça.
+      </div>`;
+    campo.focus();
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="vazio">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+      Pesquisando peças…
+    </div>`;
+
+  try {
+    const params = new URLSearchParams({
+      q: termo,
+      modo: 'tudo'
+    });
+    const resposta = await fetch('/api/busca-pecas?' + params.toString(), {
+      credentials: 'same-origin'
+    });
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível pesquisar as peças.');
+    pesquisaPecaConsumo.termo = termo;
+    mostrarResultadosPesquisaPecaConsumo(dados);
+  } catch (e) {
+    area.innerHTML = `
+      <div class="vazio">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        ${SGMF.esc(e.message)}
+      </div>`;
+  }
+}
+
+function selecionarPecaNoConsumo(id) {
+  const peca = pesquisaPecaConsumo.lista.find(p => Number(p.id) === Number(id));
+  if (!peca) return;
+
+  const select = document.getElementById('pecaConsumo');
+
+  /* O select normalmente já contém todas as peças. Se a lista ainda não
+     terminou de carregar, adicionamos a encontrada para garantir a seleção. */
+  if (!Array.from(select.options).some(o => String(o.value) === String(peca.id))) {
+    const opcao = document.createElement('option');
+    opcao.value = peca.id;
+    opcao.textContent = `${peca.codigo} · ${peca.descricao}`;
+    select.appendChild(opcao);
+  }
+
+  select.value = String(peca.id);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  document.getElementById('buscaPecaConsumo').value = `${peca.codigo || ''} · ${peca.descricao || ''}`;
+
+  bootstrap.Modal.getInstance(document.getElementById('modalPesquisarPecaConsumo'))?.hide();
+  document.getElementById('quantidadeConsumo').focus();
+}
+
+// Pesquisa direta no próprio formulário: digite "cuica", referência etc.
+let timerPesquisaDigitacaoPecaConsumo = null;
+let resultadosDigitacaoPecaConsumo = [];
+
+async function pesquisarDigitandoPecaConsumo() {
+  const campo = document.getElementById('buscaPecaConsumo');
+  const area = document.getElementById('resultadoDigitacaoPecaConsumo');
+  const termo = campo.value.trim();
+  clearTimeout(timerPesquisaDigitacaoPecaConsumo);
+  if (!termo) {
+    area.style.display = 'none';
+    area.innerHTML = '';
+    return;
+  }
+  timerPesquisaDigitacaoPecaConsumo = setTimeout(async () => {
+    try {
+      const resposta = await fetch('/api/busca-pecas?' + new URLSearchParams({q: termo, modo: 'tudo'}), {credentials:'same-origin'});
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || 'Erro na pesquisa.');
+      resultadosDigitacaoPecaConsumo = dados.pecas || [];
+      if (!resultadosDigitacaoPecaConsumo.length) {
+        area.innerHTML = '<div class="list-group-item text-muted">Nenhuma peça encontrada.</div>';
+      } else {
+        area.innerHTML = resultadosDigitacaoPecaConsumo.map(p => `
+          <button type="button" class="list-group-item list-group-item-action" data-escolher-digitacao-peca-consumo="${p.id}">
+            <strong>${SGMF.esc(p.descricao)}</strong>
+            <span class="text-muted ms-2">${SGMF.esc(p.referencia || p.codigo || '')}</span>
+            <small class="d-block text-muted">Código: ${SGMF.esc(p.codigo || '—')} · Saldo: ${SGMF.numero(p.quantidade,2)} ${SGMF.esc(p.unidade || '')}</small>
+          </button>`).join('');
+      }
+      area.style.display = 'block';
+    } catch (e) {
+      area.innerHTML = `<div class="list-group-item text-danger">${SGMF.esc(e.message)}</div>`;
+      area.style.display = 'block';
+    }
+  }, 250);
+}
+
+if (document.getElementById('buscaPecaConsumo')) {
+  document.getElementById('buscaPecaConsumo').addEventListener('input', pesquisarDigitandoPecaConsumo);
+  document.getElementById('buscaPecaConsumo').addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.getElementById('resultadoDigitacaoPecaConsumo').style.display = 'none';
+    }
+  });
+}
+if (document.getElementById('resultadoDigitacaoPecaConsumo')) {
+  document.getElementById('resultadoDigitacaoPecaConsumo').addEventListener('click', e => {
+    const botao = e.target.closest('[data-escolher-digitacao-peca-consumo]');
+    if (!botao) return;
+    const peca = resultadosDigitacaoPecaConsumo.find(p => Number(p.id) === Number(botao.dataset.escolherDigitacaoPecaConsumo));
+    if (!peca) return;
+    const select = document.getElementById('pecaConsumo');
+    if (!Array.from(select.options).some(o => String(o.value) === String(peca.id))) {
+      const op = document.createElement('option');
+      op.value = peca.id;
+      op.textContent = `${peca.codigo || ''} · ${peca.descricao || ''}`;
+      select.appendChild(op);
+    }
+    select.value = String(peca.id);
+    select.dispatchEvent(new Event('change', {bubbles:true}));
+    document.getElementById('buscaPecaConsumo').value = `${peca.codigo || ''} · ${peca.descricao || ''}`;
+    document.getElementById('resultadoDigitacaoPecaConsumo').style.display = 'none';
+    document.getElementById('quantidadeConsumo').focus();
+  });
+}
+
+document.addEventListener('click', e => {
+  const campo = document.getElementById('buscaPecaConsumo');
+  const area = document.getElementById('resultadoDigitacaoPecaConsumo');
+  if (campo && area && !e.target.closest('#buscaPecaConsumo') && !e.target.closest('#resultadoDigitacaoPecaConsumo')) area.style.display = 'none';
+});
+
+if (document.getElementById('botaoPesquisarPecaConsumo')) document.getElementById('botaoPesquisarPecaConsumo').addEventListener('click', abrirPesquisaPecaConsumo);
+if (document.getElementById('executarPesquisaPecaConsumo')) document.getElementById('executarPesquisaPecaConsumo').addEventListener('click', pesquisarPecaConsumo);
+
+if (document.getElementById('campoPesquisarPecaConsumo')) document.getElementById('campoPesquisarPecaConsumo').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    pesquisarPecaConsumo();
+  }
+});
+
+if (document.getElementById('resultadoPesquisaPecaConsumo')) document.getElementById('resultadoPesquisaPecaConsumo').addEventListener('click', (e) => {
+  const botao = e.target.closest('[data-selecionar-peca-consumo]');
+  if (botao) selecionarPecaNoConsumo(botao.dataset.selecionarPecaConsumo);
+});
 
 document.getElementById('atualizarGrupos').onclick = () => carregarResumoGrupos().catch(e => SGMF.falha(e.message));
 if (document.getElementById('pecaConsumo')) document.getElementById('pecaConsumo').onchange = atualizarSaldoPeca;

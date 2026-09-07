@@ -344,5 +344,8 @@ SGMF.tela = function (config) {
     SGMF.falha(e.message);
   });
 
-  return { carregar, abrir, dados: () => registros };
+  // `tabela()` expõe a instância do DataTable já montado para a própria
+  // tela poder aplicar filtros extras (ex.: busca por uma coluna
+  // específica) sem duplicar a lógica de montagem da tabela aqui.
+  return { carregar, abrir, dados: () => registros, tabela: () => tabela };
 };

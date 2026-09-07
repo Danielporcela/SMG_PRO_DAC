@@ -6,6 +6,11 @@
 {% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
 {% block acoes %}
   {% include "_filtro_periodo.html" %}
+  <div class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 d-none d-md-block" for="filtroFrota">Nº de frota</label>
+    <input type="text" class="form-control form-control-sm" id="filtroFrota" autocomplete="off"
+           style="width:170px" placeholder="Prefixo ou placa">
+  </div>
   <button class="btn btn-primario" id="botaoNovo"><i class="fa-solid fa-plus me-1"></i> Nova OS</button>
 {% endblock %}
 
@@ -232,8 +237,36 @@ const telaOS = SGMF.tela({
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
       () => telaOS.carregar());
+
+    aplicarFiltroFrota();
   }
 });
+
+/* ─── Pesquisar Ordem de Serviço por número de frota ────────────────────
+   Filtra a tabela pela coluna "Veículo" (que traz o prefixo · placa),
+   sem mexer na busca geral do DataTables ("Buscar:"). Localiza a coluna
+   pelo texto do cabeçalho, em vez de um índice fixo, para não quebrar
+   se a ordem das colunas mudar no futuro. Reaplicado a cada recarga da
+   tabela (troca de período, salvar/excluir OS etc.), já que o DataTables
+   é recriado do zero nesses casos. */
+function indiceColunaFrota() {
+  const cabecalhos = document.querySelectorAll('#tabelaDados thead th');
+  for (let i = 0; i < cabecalhos.length; i++) {
+    if (cabecalhos[i].textContent.trim() === 'Veículo') return i;
+  }
+  return -1;
+}
+
+function aplicarFiltroFrota() {
+  const campo = document.getElementById('filtroFrota');
+  const tabela = telaOS.tabela();
+  if (!campo || !tabela) return;
+  const indice = indiceColunaFrota();
+  if (indice === -1) return;
+  tabela.column(indice).search(campo.value).draw();
+}
+
+document.getElementById('filtroFrota').addEventListener('input', aplicarFiltroFrota);
 
 /* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
    Agrupa as OS do período (já carregadas pela tela) por mês e por
