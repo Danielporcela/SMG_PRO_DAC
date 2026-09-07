@@ -261,6 +261,11 @@ def listar_itens(os_id):
 @editar_tela("manutencao")
 def adicionar_item(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
+    # Uma OS em "Aguardando peça" continua aberta e deve aceitar o
+    # lançamento da peça quando ela chegar. O único status que bloqueia
+    # novos itens é "Finalizada".
+    if ordem.status == "Finalizada":
+        return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
     dados = request.get_json(silent=True) or {}
     item = ItemOS(ordem_servico_id=ordem.id)
     try:

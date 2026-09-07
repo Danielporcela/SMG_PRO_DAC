@@ -6,11 +6,6 @@
 {% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
 {% block acoes %}
   {% include "_filtro_periodo.html" %}
-  <div class="d-flex align-items-center gap-2">
-    <label class="form-label mb-0 d-none d-md-block" for="filtroFrota">Nº de frota</label>
-    <input type="text" class="form-control form-control-sm" id="filtroFrota" autocomplete="off"
-           style="width:170px" placeholder="Prefixo ou placa">
-  </div>
   <button class="btn btn-primario" id="botaoNovo"><i class="fa-solid fa-plus me-1"></i> Nova OS</button>
 {% endblock %}
 
@@ -237,36 +232,8 @@ const telaOS = SGMF.tela({
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
       () => telaOS.carregar());
-
-    aplicarFiltroFrota();
   }
 });
-
-/* ─── Pesquisar Ordem de Serviço por número de frota ────────────────────
-   Filtra a tabela pela coluna "Veículo" (que traz o prefixo · placa),
-   sem mexer na busca geral do DataTables ("Buscar:"). Localiza a coluna
-   pelo texto do cabeçalho, em vez de um índice fixo, para não quebrar
-   se a ordem das colunas mudar no futuro. Reaplicado a cada recarga da
-   tabela (troca de período, salvar/excluir OS etc.), já que o DataTables
-   é recriado do zero nesses casos. */
-function indiceColunaFrota() {
-  const cabecalhos = document.querySelectorAll('#tabelaDados thead th');
-  for (let i = 0; i < cabecalhos.length; i++) {
-    if (cabecalhos[i].textContent.trim() === 'Veículo') return i;
-  }
-  return -1;
-}
-
-function aplicarFiltroFrota() {
-  const campo = document.getElementById('filtroFrota');
-  const tabela = telaOS.tabela();
-  if (!campo || !tabela) return;
-  const indice = indiceColunaFrota();
-  if (indice === -1) return;
-  tabela.column(indice).search(campo.value).draw();
-}
-
-document.getElementById('filtroFrota').addEventListener('input', aplicarFiltroFrota);
 
 /* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
    Agrupa as OS do período (já carregadas pela tela) por mês e por
@@ -344,11 +311,16 @@ document.getElementById('filtroGraficoMecanico').addEventListener('change',
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
 
-SGMF.get('/api/pecas').then(lista => {
-  pecasDisponiveis = lista;
-  document.getElementById('itemPeca').innerHTML = '<option value="">— selecione uma peça —</option>' +
-    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
-});
+async function carregarPecasDisponiveis() {
+  const lista = await SGMF.get('/api/pecas');
+  pecasDisponiveis = Array.isArray(lista) ? lista : [];
+  const select = document.getElementById('itemPeca');
+  if (!select) return;
+  select.innerHTML = '<option value="">— selecione uma peça —</option>' +
+    pecasDisponiveis.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
+}
+
+carregarPecasDisponiveis().catch(e => SGMF.falha(e.message));
 
 function atualizarTipoItem() {
   const tipo = document.getElementById('itemTipo').value;
@@ -525,6 +497,22 @@ async function abrirPecas(os) {
   document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
   document.getElementById('pecasSubtitulo').textContent =
     `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+
+  // Reconsulta o estoque sempre que a janela é aberta. Assim, uma peça
+  // recebida depois que a OS entrou em "Aguardando peça" aparece imediatamente
+  // sem exigir sair da tela ou recarregar o navegador.
+  try {
+    await carregarPecasDisponiveis();
+  } catch (e) {
+    SGMF.falha(e.message);
+  }
+
+  const bloqueada = os.status === 'Finalizada';
+  document.getElementById('itemAdicionar').disabled = bloqueada;
+  document.getElementById('itemAjuda').textContent = bloqueada
+    ? 'Esta OS está finalizada e não aceita novos itens.'
+    : 'Peças do estoque ficam pendentes enquanto a OS está aberta e são baixadas somente na finalização.';
+
   document.getElementById('itemTipo').value = 'peca';
   document.getElementById('itemPrestador').value = '';
   atualizarTipoItem();
@@ -631,7 +619,7 @@ document.getElementById('itemAdicionar').onclick = async () => {
     SGMF.sucesso(qtdItens > 1 ? `${qtdItens} pneus adicionados` :
       (tipoItem === 'servico_terceiro' ? 'Serviço de terceiro lançado' : 'Item adicionado'));
     SGMF.limparCache('pecas');
-    pecasDisponiveis = await SGMF.get('/api/pecas');
+    await carregarPecasDisponiveis();
     await recarregarItens(osId);
     telaOS.carregar();
   } catch (e) { SGMF.falha(e.message); }
