@@ -7,7 +7,7 @@ SGMF.tela = function (config) {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
     aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
-    rotuloSalvar = null, aoSalvar = null
+    rotuloSalvar = null, parametrosExtra = null
   } = config;
 
   const idModal = `modal_${recurso}`;
@@ -138,19 +138,10 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
-      const perfilAtual = SGMF.perfil();
-      const ehCCO = (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
-      const podeEditarCampoSetor = perfilAtual === 'admin' || ehCCO;
-      // Login de CCO só abre/visualiza a OS depois de criada: os campos de
-      // classificação e execução do serviço (tipo, situação, prioridade,
-      // mecânico, conclusão e descrição do serviço executado) ficam
-      // travados para edição — o CCO enxerga o valor, mas não altera.
-      // Vale só ao EDITAR um registro existente; na abertura de uma OS
-      // nova o CCO continua preenchendo tudo normalmente.
-      const bloqueadoParaCCO = ehCCO && perfilAtual !== 'admin' && !!registro;
+      const podeEditarCampoSetor = SGMF.perfil() === 'admin' ||
+        (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
       el.disabled = !!(c.somenteNovo && registro) ||
-        !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
-        !!(c.travarParaCCO && bloqueadoParaCCO);
+        !!(c.travarParaOutroSetor && !podeEditarCampoSetor);
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
@@ -180,12 +171,11 @@ SGMF.tela = function (config) {
     const botao = document.getElementById(`${idModal}_salvar`);
     botao.disabled = true;
     try {
-      const resposta = id ? await SGMF.put(`/api/${recurso}/${id}`, dados)
-                          : await SGMF.post(`/api/${recurso}`, dados);
+      if (id) await SGMF.put(`/api/${recurso}/${id}`, dados);
+      else await SGMF.post(`/api/${recurso}`, dados);
       fechamentoLiberado = true;
       bootstrap.Modal.getInstance(document.getElementById(idModal)).hide();
       SGMF.sucesso(id ? `${titulo} atualizado` : `${titulo} cadastrado`);
-      if (aoSalvar) aoSalvar(resposta, id);
       SGMF.limparCache(recurso);
       /* Um registro NOVO some da lista se o período filtrado no topo da tela
          não cobrir a data de hoje (o registro fica salvo, só não aparece).
@@ -252,10 +242,22 @@ SGMF.tela = function (config) {
 
   async function carregar() {
     let url = `/api/${recurso}`;
+    const params = new URLSearchParams();
     if (filtroPeriodo) {
       const i = document.getElementById('filtroInicio'), f = document.getElementById('filtroFim');
-      if (i && f) url += `?inicio=${i.value}&fim=${f.value}`;
+      if (i && i.value) params.set('inicio', i.value);
+      if (f && f.value) params.set('fim', f.value);
     }
+    if (parametrosExtra) {
+      const extras = parametrosExtra() || {};
+      Object.entries(extras).forEach(([chave, valor]) => {
+        if (valor !== null && valor !== undefined && String(valor).trim() !== '') {
+          params.set(chave, String(valor).trim());
+        }
+      });
+    }
+    const consulta = params.toString();
+    if (consulta) url += `?${consulta}`;
     registros = await SGMF.get(url);
     if (tabela) { tabela.destroy(); }
     montarTabela();
@@ -344,8 +346,5 @@ SGMF.tela = function (config) {
     SGMF.falha(e.message);
   });
 
-  // `tabela()` expõe a instância do DataTable já montado para a própria
-  // tela poder aplicar filtros extras (ex.: busca por uma coluna
-  // específica) sem duplicar a lógica de montagem da tabela aqui.
-  return { carregar, abrir, dados: () => registros, tabela: () => tabela };
+  return { carregar, abrir, dados: () => registros };
 };

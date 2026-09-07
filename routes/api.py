@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from extensions import db
 from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
                     LogAuditoria, Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca,
-                    PecaSerial, Pneu, ServicoTerceiro, Usuario, Veiculo, proximo_codigo_peca)
+                    PecaSerial, Pneu, ServicoTerceiro, Veiculo, proximo_codigo_peca)
 from services import indicadores
 from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
@@ -137,45 +137,23 @@ registrar_crud(
 
 
 # ------------------------------------------------------ Módulo 3: manutenção
-def _verificar_os_duplicada(obj):
-    """Bloqueia a OS quando já existe outra OS aberta (não finalizada) para
-    a mesma frota (veículo). Evita duas ordens de serviço concorrentes para
-    o mesmo veículo — a segunda só pode ser aberta depois que a primeira
-    for finalizada.
-    """
-    if not obj.veiculo_id:
-        return
-    conflito = OrdemServico.query.filter(
-        OrdemServico.veiculo_id == obj.veiculo_id,
-        OrdemServico.status != "Finalizada")
-    if obj.id is not None:
-        conflito = conflito.filter(OrdemServico.id != obj.id)
-    conflito = conflito.first()
-    if conflito:
-        veiculo = db.session.get(Veiculo, obj.veiculo_id)
-        nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
-        raise ErroNegocio(
-            f"Já existe a OS {conflito.numero or conflito.id} aberta para {nome_veiculo} "
-            f"(status: {conflito.status}). Finalize-a antes de abrir uma nova OS para "
-            f"o mesmo veículo.")
+def _filtrar_ordens(q, args):
+    q = _filtro_periodo(OrdemServico.data_abertura)(q, args)
+    frota = (args.get("frota") or "").strip()
+    if frota:
+        q = q.join(OrdemServico.veiculo).filter(Veiculo.prefixo.ilike(f"%{frota}%"))
+    veiculo_id = args.get("veiculo_id", type=int)
+    if veiculo_id:
+        q = q.filter(OrdemServico.veiculo_id == veiculo_id)
+    return q
 
 
-def _verificar_valor_os(obj):
-    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
-    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
-    de preenchimento, não um serviço legítimo de custo zero.
-    """
-    if obj.status == "Finalizada" and obj.custo_total <= 0:
-        raise ErroNegocio(
-            "Não é possível finalizar a OS com o custo total zerado. "
-            "Informe o valor da mão de obra, dos serviços e/ou das peças "
-            "aplicadas antes de finalizar.")
+def _validar_os_aberta(ordem):
+    if ordem.status == "Finalizada":
+        raise ErroNegocio("Esta ordem de serviço está Finalizada e não aceita novos lançamentos de peças ou serviços.")
 
 
 def _antes_os(obj, dados, anterior):
-    _verificar_os_duplicada(obj)
-    _verificar_valor_os(obj)
-
     # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
     # O preenchimento no navegador continua existindo, mas esta regra garante
     # o valor mesmo que a requisição venha de outro navegador/computador.
@@ -209,45 +187,25 @@ def _antes_excluir_os(obj):
     desvincular_movimentos(obj.id)
 
 
-# Campos de execução/fechamento da OS: só o mecânico/chefe de oficina deve
-# preenchê-los. Quem abre a OS (cargo "CCO") ou acompanha segurança do
-# trabalho enxerga esses campos, mas só em modo leitura (ver também
-# `travarParaCargos` nos mesmos campos em templates/manutencao.html).
-# "descricao" (Serviços executados) entra aqui pelo mesmo motivo dos demais:
-# é preenchida durante a execução do serviço, não na abertura pelo CCO.
-CAMPOS_EXECUCAO_OS = {"status", "tipo", "prioridade", "mecanico", "data_fechamento",
-                     "hora_inicio_servico", "hora_fim", "assinatura_mecanico",
-                     "descricao"}
-
 registrar_crud(
     bp_api, "ordens", OrdemServico,
     campos={"numero": "str", "data_abertura": "date", "data_fechamento": "date",
             "veiculo_id": "int", "motorista_id": "int", "fornecedor_id": "int",
             "mecanico": "str", "tipo": "str", "prioridade": "str", "status": "str",
-            "grupo": "str", "hora_inicio": "time", "hora_inicio_servico": "time",
-            "hora_fim": "time",
+            "grupo": "str", "hora_inicio": "time", "hora_fim": "time",
             "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
             "local_execucao": "str", "km_veiculo": "float", "descricao": "str",
-            "assinatura_mecanico": "str",
             "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
     ordem=OrdemServico.data_abertura.desc(), obrigatorios=("veiculo_id",), tela="manutencao",
     antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,
-    filtrar=_filtro_periodo(OrdemServico.data_abertura),
+    filtrar=_filtrar_ordens,
     # A OS é aberta pelo CCO (perfil admin/operador). Quem entra depois só
     # para lançar peça/serviço (ex.: Almoxarifado) não pode alterar os
     # dados de abertura — só estes campos ficam liberados para edição.
     # "status" está incluído para permitir que o Almoxarifado (ou outro
     # perfil restrito com acesso de edição à tela) finalize a OS.
-    # "hora_inicio_servico" e "assinatura_mecanico" entram aqui pelo mesmo
-    # motivo de "hora_fim"/"descricao": são preenchidos durante a execução
-    # do serviço, não na abertura.
     campos_liberados_para_restrito={"prioridade", "mecanico", "status", "data_fechamento",
-                                    "hora_inicio_servico", "hora_fim", "descricao",
-                                    "assinatura_mecanico"},
-    # CCO e Segurança do trabalho abrem/acompanham a OS mas não devem
-    # preencher os campos de execução — só visualizá-los.
-    campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
-                                   "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+                                    "hora_fim", "descricao"})
 
 
 @bp_api.get("/ordens/<int:os_id>/itens")
@@ -261,14 +219,10 @@ def listar_itens(os_id):
 @editar_tela("manutencao")
 def adicionar_item(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
-    # Uma OS em "Aguardando peça" continua aberta e deve aceitar o
-    # lançamento da peça quando ela chegar. O único status que bloqueia
-    # novos itens é "Finalizada".
-    if ordem.status == "Finalizada":
-        return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
     dados = request.get_json(silent=True) or {}
     item = ItemOS(ordem_servico_id=ordem.id)
     try:
+        _validar_os_aberta(ordem)
         aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
                                      "quantidade": "float", "valor_unitario": "float"})
         if item.peca_id:
@@ -306,6 +260,7 @@ def vincular_serial_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     dados = request.get_json(silent=True) or {}
     try:
+        _validar_os_aberta(ordem)
         if item.ordem_servico_id != ordem.id:
             raise ErroNegocio("Este item não pertence a esta ordem de serviço.")
         if len(item.pecas_serial) >= (item.quantidade or 0):
@@ -328,6 +283,7 @@ def desvincular_serial_item(os_id, item_id, vinculo_id):
     ordem = db.get_or_404(OrdemServico, os_id)
     vinculo = db.get_or_404(ItemOSPecaSerial, vinculo_id)
     try:
+        _validar_os_aberta(ordem)
         if vinculo.item_os_id != item_id:
             raise ErroNegocio("Vínculo não encontrado neste item.")
         devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
@@ -406,6 +362,7 @@ def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
     try:
+        _validar_os_aberta(ordem)
         devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
         db.session.delete(item)
         db.session.commit()
@@ -448,46 +405,11 @@ registrar_crud(
 
 
 # -------------------------------------------------------- Módulo 11: estoque
-def _verificar_peca_duplicada(obj, anterior):
-    """Bloqueia o cadastro/edição quando já existe outra peça com o mesmo
-    nome (descrição) ou o mesmo código. A comparação de nome ignora
-    maiúsculas/minúsculas e espaços nas pontas, para pegar duplicidade real
-    ('Filtro de óleo' vs 'filtro de óleo ').
-    """
-    from sqlalchemy import func
-
-    descricao = (obj.descricao or "").strip()
-    if descricao:
-        conflito_desc = Peca.query.filter(func.lower(Peca.descricao) == descricao.lower())
-        if anterior is not None:
-            conflito_desc = conflito_desc.filter(Peca.id != obj.id)
-        conflito_desc = conflito_desc.first()
-        if conflito_desc:
-            raise ErroNegocio(
-                f"Já existe uma peça cadastrada com este nome: '{conflito_desc.descricao}' "
-                f"(código {conflito_desc.codigo}). Verifique antes de cadastrar novamente.")
-
-    codigo = (obj.codigo or "").strip()
-    if codigo:
-        conflito_cod = Peca.query.filter(Peca.codigo == codigo)
-        if anterior is not None:
-            conflito_cod = conflito_cod.filter(Peca.id != obj.id)
-        conflito_cod = conflito_cod.first()
-        if conflito_cod:
-            raise ErroNegocio(
-                f"Já existe uma peça cadastrada com o código '{codigo}' "
-                f"({conflito_cod.descricao}).")
-
-
 def _antes_peca(obj, dados, anterior):
     """Peça nova: o Código é sempre gerado pelo sistema (0001, 0002...),
     ignorando qualquer valor enviado pela tela — o campo fica travado lá.
     Em edição, o código não muda.
-
-    Antes de gerar/gravar, verifica duplicidade de nome ou código para não
-    deixar duas peças cadastradas como a mesma coisa.
     """
-    _verificar_peca_duplicada(obj, anterior)
     if anterior is None:
         obj.codigo = proximo_codigo_peca()
 
@@ -648,31 +570,6 @@ def painel_rankings():
 @login_obrigatorio
 def painel_alertas():
     return jsonify(indicadores.alertas())
-
-
-@bp_api.get("/painel/conectados")
-@perfil_obrigatorio("admin")
-def painel_conectados():
-    """Logins conectados agora, para o card do Painel (só administradores).
-
-    Não existe tabela de sessões: "conectado" é uma janela de atividade
-    recente (ultimo_acesso), atualizada a cada request em app.py. Padrão:
-    últimos 5 minutos.
-    """
-    minutos = request.args.get("minutos", default=5, type=int)
-    # ultimo_acesso vem do PostgreSQL como datetime sem timezone.
-    # Mantemos a comparação no mesmo formato para evitar TypeError.
-    agora_ref = agora().replace(tzinfo=None)
-    usuarios = Usuario.conectados_agora(minutos=minutos)
-    resultado = []
-    for u in usuarios:
-        minutos_atras = max(0, int((agora_ref - u.ultimo_acesso).total_seconds() // 60))
-        resultado.append({
-            "id": u.id, "nome": u.nome, "email": u.email, "cargo": u.cargo,
-            "perfil": u.perfil, "minutos_atras": minutos_atras,
-            "voce": u.id == session.get("usuario_id"),
-        })
-    return jsonify(resultado)
 
 
 # ------------------------------------------------------------- auditoria

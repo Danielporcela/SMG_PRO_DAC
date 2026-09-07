@@ -10,6 +10,38 @@
 {% endblock %}
 
 {% block antes_tabela %}
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <ul class="nav nav-tabs" role="tablist" id="abasConsultaOS">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" type="button" id="abaTodasOS">Todas as OS</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" type="button" id="abaConsultaFrota">Consultar por frota</button>
+      </li>
+    </ul>
+    <div class="pt-3 d-none" id="painelConsultaFrota">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label" for="consultaFrota">Número da frota</label>
+          <input class="form-control" id="consultaFrota" inputmode="numeric" autocomplete="off"
+                 placeholder="Ex.: 72">
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-primario" type="button" id="botaoConsultarFrota">
+            <i class="fa-solid fa-magnifying-glass me-1"></i> Consultar OS
+          </button>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-contorno" type="button" id="botaoLimparFrota">Limpar</button>
+        </div>
+        <div class="col-12">
+          <div class="form-text" id="ajudaConsultaFrota">A consulta respeita o período selecionado acima.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="instrumentos mb-3" id="resumoOS"></div>
 <div class="cartao mb-3">
   <div class="cartao-topo">
@@ -129,64 +161,44 @@ const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'G
   'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
   'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
 
+let frotaConsulta = '';
+
+function parametrosConsultaOS() {
+  return frotaConsulta ? { frota: frotaConsulta } : {};
+}
+
 const telaOS = SGMF.tela({
   recurso: 'ordens',
   tela: 'manutencao',
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
+  parametrosExtra: parametrosConsultaOS,
   autoSalvarAoFechar: true,
   ordem: [[1, 'desc']],
   campos: [
-    // ── Linha 1: identificação da abertura ─────────────────────────────
-    { nome: 'cco', rotulo: 'CCO', col: 3, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
-    { nome: 'veiculo_id', rotulo: 'Prefixo (veículo)', tipo: 'ref', recurso: 'veiculos', col: 6, obrigatorio: true },
-    { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 3, travarParaOutroSetor: true },
-
-    // ── Linha 2: quando e quem abriu a OS ───────────────────────────────
-    { nome: 'data_abertura', rotulo: 'Data da abertura da OS', tipo: 'date', col: 4, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 4, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
+    { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
+    { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
+    { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
+    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
-
-    // ── Linha 3: setor / tipo de serviço ────────────────────────────────
-    { nome: 'setor', rotulo: 'Setor', col: 6, travarParaOutroSetor: true },
-    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 6, travarParaOutroSetor: true,
+    { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
+    { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
+    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
+    { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
       opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },
-
-    // ── Linha 4 e 5: descrições (largura total) ─────────────────────────
-    { nome: 'problema', rotulo: 'Descrição detalhada dos defeitos', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
-    { nome: 'descricao', rotulo: 'Serviços executados', tipo: 'textarea', col: 12,
-      travarParaCargos: true },
-
-    // ── Linha 6: situação / classificação da manutenção ─────────────────
-    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 3, padrao: 'Aberta',
-      travarParaCargos: true,
+    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 3, padrao: 'Preventiva',
-      travarParaOutroSetor: true, travarParaCargos: true,
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true,
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
-    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 3, padrao: 'Média',
-      travarParaCargos: true,
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 3,
-      travarParaCargos: true,
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4,
       opcoes: MECANICOS },
-
-    // ── Linha 7: fechamento da OS ────────────────────────────────────────
-    { nome: 'data_fechamento', rotulo: 'Data da conclusão do serviço', tipo: 'date', col: 4,
-      travarParaCargos: true,
+    { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'hora_inicio_servico', rotulo: 'Horário inicial do serviço', tipo: 'time', col: 4,
-      travarParaCargos: true,
-      ajuda: 'Preenchido pelo mecânico ao começar a execução (diferente do horário de abertura).' },
-    { nome: 'hora_fim', rotulo: 'Horário final do serviço', tipo: 'time', col: 4,
-      travarParaCargos: true },
-
-    // ── Linha 8: confirmação do mecânico ─────────────────────────────────
-    { nome: 'assinatura_mecanico', rotulo: 'Assinatura do mecânico responsável', col: 12,
-      travarParaCargos: true,
-      exemplo: 'Digite o nome completo para confirmar o serviço executado',
-      ajuda: 'Digitar o nome completo do mecânico responsável confirma o serviço executado nesta OS.' }
+    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
+    { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12 }
   ],
   colunas: [
     { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
@@ -233,6 +245,48 @@ const telaOS = SGMF.tela({
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
       () => telaOS.carregar());
   }
+});
+
+/* --------------------------------------------------------- consulta por frota */
+function ativarAbaConsultaOS(consulta) {
+  const abaTodas = document.getElementById('abaTodasOS');
+  const abaFrota = document.getElementById('abaConsultaFrota');
+  const painel = document.getElementById('painelConsultaFrota');
+  abaTodas.classList.toggle('active', !consulta);
+  abaFrota.classList.toggle('active', consulta);
+  painel.classList.toggle('d-none', !consulta);
+}
+
+document.getElementById('abaTodasOS').addEventListener('click', async () => {
+  frotaConsulta = '';
+  ativarAbaConsultaOS(false);
+  await telaOS.carregar();
+});
+
+document.getElementById('abaConsultaFrota').addEventListener('click', () => {
+  ativarAbaConsultaOS(true);
+  document.getElementById('consultaFrota').focus();
+});
+
+document.getElementById('botaoConsultarFrota').addEventListener('click', async () => {
+  const valor = document.getElementById('consultaFrota').value.trim();
+  if (!valor) return SGMF.aviso('Informe o número da frota. Exemplo: 72.');
+  frotaConsulta = valor;
+  try {
+    await telaOS.carregar();
+  } catch (e) {
+    SGMF.falha(e.message);
+  }
+});
+
+document.getElementById('consultaFrota').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('botaoConsultarFrota').click();
+});
+
+document.getElementById('botaoLimparFrota').addEventListener('click', async () => {
+  frotaConsulta = '';
+  document.getElementById('consultaFrota').value = '';
+  await telaOS.carregar();
 });
 
 /* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
@@ -311,16 +365,11 @@ document.getElementById('filtroGraficoMecanico').addEventListener('change',
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
 
-async function carregarPecasDisponiveis() {
-  const lista = await SGMF.get('/api/pecas');
-  pecasDisponiveis = Array.isArray(lista) ? lista : [];
-  const select = document.getElementById('itemPeca');
-  if (!select) return;
-  select.innerHTML = '<option value="">— selecione uma peça —</option>' +
-    pecasDisponiveis.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
-}
-
-carregarPecasDisponiveis().catch(e => SGMF.falha(e.message));
+SGMF.get('/api/pecas').then(lista => {
+  pecasDisponiveis = lista;
+  document.getElementById('itemPeca').innerHTML = '<option value="">— selecione uma peça —</option>' +
+    lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
+});
 
 function atualizarTipoItem() {
   const tipo = document.getElementById('itemTipo').value;
@@ -493,40 +542,43 @@ document.addEventListener('click', (e) => {
 });
 
 async function abrirPecas(os) {
-  document.getElementById('pecasOsId').value = os.id;
-  document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
-  document.getElementById('pecasSubtitulo').textContent =
-    `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
-
-  // Reconsulta o estoque sempre que a janela é aberta. Assim, uma peça
-  // recebida depois que a OS entrou em "Aguardando peça" aparece imediatamente
-  // sem exigir sair da tela ou recarregar o navegador.
   try {
-    await carregarPecasDisponiveis();
+    // Busca novamente a OS para garantir o status atual, inclusive quando
+    // outro usuário/computador acabou de finalizar a ordem.
+    const osAtual = await SGMF.get(`/api/ordens/${os.id}`);
+    document.getElementById('pecasOsId').value = osAtual.id;
+    document.getElementById('pecasTitulo').textContent = `OS ${osAtual.numero}`;
+    document.getElementById('pecasSubtitulo').textContent =
+      `${osAtual.veiculo_nome} · ${osAtual.tipo} · ${osAtual.status}`;
+    document.getElementById('itemTipo').value = 'peca';
+    document.getElementById('itemPrestador').value = '';
+    atualizarTipoItem();
+    limparEscolhaPeca(false);
+    const finalizada = osAtual.status === 'Finalizada';
+    const controles = ['itemTipo', 'itemBuscaPeca', 'itemLimparPeca', 'itemPeca',
+      'itemDescricao', 'itemQtd', 'itemValor', 'itemAdicionar'];
+    controles.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = finalizada;
+    });
+    const ajuda = document.getElementById('itemAjuda');
+    ajuda.innerHTML = finalizada
+      ? '<strong style="color:#C62828">OS Finalizada:</strong> esta ordem está bloqueada para novos lançamentos de peças e serviços.'
+      : 'Peças do estoque ficam pendentes nesta etapa e o estoque é baixado quando a OS é Finalizada.';
+    await recarregarItens(osAtual.id, finalizada);
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
   } catch (e) {
     SGMF.falha(e.message);
   }
-
-  const bloqueada = os.status === 'Finalizada';
-  document.getElementById('itemAdicionar').disabled = bloqueada;
-  document.getElementById('itemAjuda').textContent = bloqueada
-    ? 'Esta OS está finalizada e não aceita novos itens.'
-    : 'Peças do estoque ficam pendentes enquanto a OS está aberta e são baixadas somente na finalização.';
-
-  document.getElementById('itemTipo').value = 'peca';
-  document.getElementById('itemPrestador').value = '';
-  atualizarTipoItem();
-  limparEscolhaPeca(false);
-  await recarregarItens(os.id);
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
 
-async function recarregarItens(osId) {
+async function recarregarItens(osId, finalizada = false) {
   const os = await SGMF.get(`/api/ordens/${osId}/itens`);
+  const bloqueada = finalizada || os.status === 'Finalizada';
   const area = document.getElementById('listaItens');
   if (!os.itens.length) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-screwdriver-wrench"></i>
-      <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
+      <strong>Nenhuma peça ou serviço lançado</strong>${bloqueada ? 'Esta OS está finalizada e não aceita novos lançamentos.' : 'Adicione os itens usados nesta ordem.'}</div>`;
   } else {
     area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
       <thead><tr><th>Item / serviço</th><th>Tipo / prestador</th><th class="text-end">Qtde</th>
@@ -541,8 +593,8 @@ async function recarregarItens(osId) {
         <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
         <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
         <td>${i.peca_id ? (i.baixado_estoque ? SGMF.etiqueta('baixado', 'azul') : SGMF.etiqueta('pendente', 'ambar')) : '—'}</td>
-        <td class="text-end"><button class="btn btn-contorno btn-icone" data-item="${i.id}">
-          <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+        <td class="text-end">${bloqueada ? '' : `<button class="btn btn-contorno btn-icone" data-item="${i.id}" title="Remover item">
+          <i class="fa-solid fa-trash"></i></button>`}</td></tr>`).join('')}</tbody></table>`;
   }
 
   document.querySelectorAll('[data-item]').forEach(b => b.onclick = async () => {
@@ -619,7 +671,7 @@ document.getElementById('itemAdicionar').onclick = async () => {
     SGMF.sucesso(qtdItens > 1 ? `${qtdItens} pneus adicionados` :
       (tipoItem === 'servico_terceiro' ? 'Serviço de terceiro lançado' : 'Item adicionado'));
     SGMF.limparCache('pecas');
-    await carregarPecasDisponiveis();
+    pecasDisponiveis = await SGMF.get('/api/pecas');
     await recarregarItens(osId);
     telaOS.carregar();
   } catch (e) { SGMF.falha(e.message); }
@@ -700,8 +752,7 @@ async function imprimirOS(os) {
       <tr><th>Situação</th><td colspan="3">${SGMF.esc(os.status) || '—'}</td></tr>
       <tr><th>Mecânico</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
       <tr><th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td>
-          <th>Horário inicial do serviço</th><td>${SGMF.esc(os.hora_inicio_servico) || '—'}</td></tr>
-      <tr><th>Horário final do serviço</th><td colspan="3">${SGMF.esc(os.hora_fim) || '—'}</td></tr>
+          <th>Horário final</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
     </table>
 
     <h3>Problema relatado</h3>
@@ -720,7 +771,7 @@ async function imprimirOS(os) {
       Total geral: <strong>${SGMF.moeda(detalhes.custo_total)}</strong></div>
 
     <div class="assinatura">
-      <div class="linha-assinatura">${SGMF.esc(os.assinatura_mecanico) || 'Assinatura do mecânico responsável'}</div>
+      <div class="linha-assinatura">Assinatura do mecânico</div>
       <div class="linha-assinatura">Assinatura do responsável</div>
     </div>
 
