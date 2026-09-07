@@ -237,7 +237,20 @@
     const area = document.getElementById('painelConectados');
     if (!area) return; // card só existe para admin (ver dashboard.html)
 
-    const lista = await SGMF.get('/api/painel/conectados');
+    let lista;
+    try {
+      lista = await SGMF.get('/api/painel/conectados');
+    } catch (erro) {
+      // Compatibilidade com deploys que ainda não possuem a rota principal.
+      // O novo backend disponibiliza as duas rotas; assim o card não quebra
+      // por cache/ordem de atualização entre frontend e backend.
+      if ((erro && /Endereço não encontrado/i.test(erro.message || '')) ||
+          (erro && /404/.test(erro.message || ''))) {
+        lista = await SGMF.get('/api/painel/logins-conectados');
+      } else {
+        throw erro;
+      }
+    }
     const etiquetaQtd = document.getElementById('etiquetaConectados');
     if (etiquetaQtd) etiquetaQtd.textContent = `${lista.length} conectado${lista.length === 1 ? '' : 's'}`;
 
