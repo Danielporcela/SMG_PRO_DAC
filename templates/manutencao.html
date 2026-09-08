@@ -58,6 +58,17 @@
     </div>
   </div>
 </div>
+<div class="cartao mb-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-clock me-2" style="color:var(--petroleo)"></i>Horas trabalhadas por mecânico</h3>
+  </div>
+  <div class="cartao-corpo">
+    <div id="horasMecanicos"></div>
+    <div class="form-text" style="font-size:11.5px">
+      Soma da duração (horário final − horário inicial de execução) das OS <strong>Finalizadas</strong> no período selecionado acima, por mecânico responsável.
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -227,6 +238,7 @@ const telaOS = SGMF.tela({
   aoRenderizar: (linhas) => {
     ultimasLinhasOS = linhas;
     desenharGraficoMecanicos(linhas);
+    desenharHorasMecanicos(linhas);
     const abertas = linhas.filter(o => o.status !== 'Finalizada');
     const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
     const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
@@ -317,6 +329,49 @@ let ultimasLinhasOS = [];
 document.getElementById('filtroGraficoMecanico').innerHTML =
   '<option value="">Todos (5 com mais OS)</option>' +
   MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
+
+/* Soma as horas trabalhadas por mecânico, considerando só OS Finalizadas
+   com duração calculável (duracao_minutos vem pronto do backend — ver
+   OrdemServico.duracao_minutos em models.py: horário final − horário de
+   início da execução, ou da abertura quando a OS é antiga e não tem
+   horário de início de execução preenchido). */
+function desenharHorasMecanicos(linhas) {
+  const area = document.getElementById('horasMecanicos');
+  const finalizadasComDuracao = linhas.filter(o =>
+    o.status === 'Finalizada' && o.mecanico && o.duracao_minutos != null);
+
+  if (!finalizadasComDuracao.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-clock"></i>
+      <strong>Sem horas para calcular no período</strong>
+      Nenhuma OS Finalizada no período tem mecânico e horário inicial/final preenchidos.</div>`;
+    return;
+  }
+
+  const porMecanico = {};
+  finalizadasComDuracao.forEach(o => {
+    const chave = o.mecanico;
+    porMecanico[chave] = porMecanico[chave] || { minutos: 0, os: 0 };
+    porMecanico[chave].minutos += o.duracao_minutos;
+    porMecanico[chave].os += 1;
+  });
+
+  const formatarHoras = (minutos) =>
+    `${Math.floor(minutos / 60)}h ${String(minutos % 60).padStart(2, '0')}m`;
+
+  const linhasTabela = Object.entries(porMecanico)
+    .sort((a, b) => b[1].minutos - a[1].minutos)
+    .map(([mecanico, dado]) => `<tr>
+      <td>${SGMF.esc(mecanico)}</td>
+      <td class="text-end num">${dado.os}</td>
+      <td class="text-end num"><strong>${formatarHoras(dado.minutos)}</strong></td>
+      <td class="text-end num">${formatarHoras(Math.round(dado.minutos / dado.os))}</td>
+    </tr>`).join('');
+
+  area.innerHTML = `<table class="table table-sm align-middle mb-0" style="font-size:13px">
+    <thead><tr><th>Mecânico</th><th class="text-end">OS finalizadas</th>
+    <th class="text-end">Horas trabalhadas</th><th class="text-end">Média por OS</th></tr></thead>
+    <tbody>${linhasTabela}</tbody></table>`;
+}
 
 function desenharGraficoMecanicos(linhas) {
   const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
