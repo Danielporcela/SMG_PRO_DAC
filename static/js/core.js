@@ -1,4 +1,22 @@
 /* SGMF Pro — utilitários compartilhados por todas as telas. */
+
+/* O Bootstrap 5 mantém um "focus trap" no modal aberto: sempre que algo
+   fora dele recebe foco, ele puxa o foco de volta para dentro do modal.
+   Isso conflita com os diálogos do SweetAlert2 (usados na confirmação
+   "Remover item?" e na senha do administrador), que são inseridos fora
+   do modal, no fim do <body>: ao abrir um Swal por cima de um modal do
+   Bootstrap já visível (ex.: dentro de "Peças e serviços" ou "Anexos"),
+   o Bootstrap fica puxando o foco de volta a cada clique/tecla no Swal,
+   e os botões (inclusive o campo de senha do administrador) parecem não
+   responder — o clique parece não "selecionar" nada. A correção é
+   interceptar esse evento de foco quando o alvo estiver dentro do Swal,
+   antes que o Bootstrap o capture. */
+document.addEventListener('focusin', (evento) => {
+  if (evento.target.closest('.swal2-container')) {
+    evento.stopImmediatePropagation();
+  }
+});
+
 const SGMF = (() => {
 
   /* ------------------------------------------------------------ requisições */
