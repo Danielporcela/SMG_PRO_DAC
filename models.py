@@ -1076,6 +1076,7 @@ class Anexo(db.Model):
     criado_em = db.Column(db.DateTime, default=_agora)
     ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"))
     abastecimento_id = db.Column(db.Integer, db.ForeignKey("abastecimentos.id"))
+    ordem_compra_id = db.Column(db.Integer, db.ForeignKey("ordens_compra.id"))
 
     def to_dict(self):
         return {"id": self.id, "nome": self.nome, "tipo_mime": self.tipo_mime,
@@ -1087,6 +1088,7 @@ class Anexo(db.Model):
                 "criado_em": self.criado_em.isoformat() if self.criado_em else None,
                 "ordem_servico_id": self.ordem_servico_id,
                 "abastecimento_id": self.abastecimento_id,
+                "ordem_compra_id": self.ordem_compra_id,
                 "imagem": (self.tipo_mime or "").startswith("image/")}
 
 
@@ -1521,6 +1523,7 @@ class OrdemCompra(db.Model):
     fornecedor = db.relationship("Fornecedor")
     itens = db.relationship("ItemOrdemCompra", backref="ordem_compra",
                             cascade="all, delete-orphan", lazy="selectin")
+    anexos = db.relationship("Anexo", cascade="all, delete-orphan", lazy="selectin")
 
     @property
     def valor_total(self):
@@ -1547,6 +1550,7 @@ class OrdemCompra(db.Model):
             "comprado_por": self.comprado_por,
             "data_compra": self.data_compra.isoformat() if self.data_compra else None,
             "valor_total": self.valor_total, "qtd_itens": len(self.itens),
+            "qtd_anexos": len(self.anexos),
             "editavel": self.editavel,
             "identificacao": f"OC {self.numero}" if self.numero else f"OC #{self.id}",
         }

@@ -156,7 +156,7 @@ const telaCompras = SGMF.tela({
   acoesLinha: (item) => `<button type="button" class="btn btn-contorno btn-icone" data-itens-oc="${item.id}"
                            title="Itens e aprovação"><i class="fa-solid fa-list"></i></button>
                          <button class="btn btn-contorno btn-icone" data-imprimir-oc="${item.id}"
-                           title="Imprimir"><i class="fa-solid fa-print"></i></button>`,
+                           title="Imprimir"><i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('compras', item),
   aoRenderizar: (linhas) => {
     ultimasLinhas = linhas;
     atualizarLinkExcel();
@@ -189,6 +189,10 @@ const telaCompras = SGMF.tela({
 
     document.querySelectorAll('[data-imprimir-oc]').forEach(b =>
       b.onclick = () => imprimirCompra(b.dataset.imprimirOc));
+
+    SGMF.anexos.ligarBotoes('compras', linhas,
+      (oc) => `${oc.identificacao} · ${oc.solicitante || 'sem solicitante'}`,
+      () => telaCompras.carregar());
   }
 });
 

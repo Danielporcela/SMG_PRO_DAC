@@ -17,6 +17,11 @@ backup/*
 .vscode/
 *.log
 
+# pasta de sincronização do OneDrive que acabou entrando no projeto e
+# trazia cópias antigas e duplicadas de models.py, app.py etc. (a causa
+# do AttributeError em 'ultimo_acesso') — nunca deve ir para o repositório
+OneDrive/
+
 # as migrações FAZEM parte do projeto e devem ir para o repositório
 !migrations/
 !migrations/versions/

@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
-                    NotaFiscal, OrdemServico, Peca)
+                    NotaFiscal, OrdemCompra, OrdemServico, Peca)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
@@ -15,9 +15,14 @@ from services.tempo import agora, hoje
 
 bp_extras = Blueprint("extras", __name__)
 
-# Anexos servem tanto ordens de serviço quanto abastecimentos; a tela que
-# vale para a permissão depende de qual dos dois o registro pertence.
-TELA_POR_TIPO_ANEXO = {"ordens": "manutencao", "abastecimentos": "combustivel"}
+# Anexos servem ordens de serviço, abastecimentos e ordens de compra; a tela
+# que vale para a permissão depende de qual dos três o registro pertence.
+TELA_POR_TIPO_ANEXO = {"ordens": "manutencao", "abastecimentos": "combustivel",
+                       "compras": "compras"}
+
+# Nome da coluna de dono em Anexo, por tipo — usado para filtrar/gravar.
+COLUNA_POR_TIPO_ANEXO = {"ordens": "ordem_servico_id", "abastecimentos": "abastecimento_id",
+                         "compras": "ordem_compra_id"}
 
 
 def _tela_do_anexo(tipo):
@@ -63,7 +68,17 @@ def _dono(tipo, registro_id):
         return db.get_or_404(OrdemServico, registro_id), {"ordem_servico_id": registro_id}
     if tipo == "abastecimentos":
         return db.get_or_404(Abastecimento, registro_id), {"abastecimento_id": registro_id}
-    raise ErroNegocio("Só é possível anexar em ordens de serviço e abastecimentos.")
+    if tipo == "compras":
+        return db.get_or_404(OrdemCompra, registro_id), {"ordem_compra_id": registro_id}
+    raise ErroNegocio("Só é possível anexar em ordens de serviço, abastecimentos e ordens de compra.")
+
+
+def _tipo_do_anexo(anexo):
+    if anexo.ordem_servico_id:
+        return "ordens"
+    if anexo.abastecimento_id:
+        return "abastecimentos"
+    return "compras"
 
 
 @bp_extras.get("/api/anexos/<tipo>/<int:registro_id>")
@@ -73,7 +88,7 @@ def listar_anexos(tipo, registro_id):
     if erro:
         return erro
     _dono(tipo, registro_id)
-    coluna = "ordem_servico_id" if tipo == "ordens" else "abastecimento_id"
+    coluna = COLUNA_POR_TIPO_ANEXO[tipo]
     anexos = Anexo.query.filter_by(**{coluna: registro_id}).order_by(Anexo.id.desc()).all()
     return jsonify([a.to_dict() for a in anexos])
 
@@ -103,7 +118,7 @@ def enviar_anexo(tipo, registro_id):
     if tipo_mime not in current_app.config["TIPOS_ANEXO"]:
         return jsonify({"erro": "Anexe uma foto (JPG, PNG, WEBP) ou um PDF."}), 400
 
-    coluna = "ordem_servico_id" if tipo == "ordens" else "abastecimento_id"
+    coluna = COLUNA_POR_TIPO_ANEXO[tipo]
     anexo = Anexo(nome=arquivo.filename[:200], tipo_mime=tipo_mime, tamanho=len(conteudo),
                   conteudo=conteudo, descricao=(request.form.get("descricao") or "")[:200] or None,
                   enviado_por=session.get("usuario_nome"), criado_em=agora(),
@@ -118,7 +133,7 @@ def enviar_anexo(tipo, registro_id):
 @login_obrigatorio
 def baixar_anexo(anexo_id):
     anexo = db.get_or_404(Anexo, anexo_id)
-    tipo = "ordens" if anexo.ordem_servico_id else "abastecimentos"
+    tipo = _tipo_do_anexo(anexo)
     erro = checar_tela(_tela_do_anexo(tipo) or tipo, "visualizar")
     if erro:
         return erro
@@ -131,7 +146,7 @@ def baixar_anexo(anexo_id):
 @login_obrigatorio
 def excluir_anexo(anexo_id):
     anexo = db.get_or_404(Anexo, anexo_id)
-    tipo = "ordens" if anexo.ordem_servico_id else "abastecimentos"
+    tipo = _tipo_do_anexo(anexo)
     erro = checar_tela(_tela_do_anexo(tipo) or tipo, "editar")
     if erro:
         return erro
