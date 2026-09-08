@@ -139,26 +139,54 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _verificar_os_duplicada(obj):
-    """Bloqueia a OS quando já existe outra OS aberta (não finalizada) para
-    a mesma frota (veículo). Evita duas ordens de serviço concorrentes para
-    o mesmo veículo — a segunda só pode ser aberta depois que a primeira
-    for finalizada.
+    """Controla OS concorrentes da mesma frota sem criar um bloqueio circular.
+
+    Regra para abertura/edição enquanto a OS continua aberta: ainda existe
+    apenas uma OS ativa por frota.
+
+    Regra especial para FINALIZAÇÃO: quando há mais de uma OS aberta para a
+    mesma frota, sempre pode ser finalizada a mais antiga. Uma OS mais nova
+    fica bloqueada até que a anterior seja finalizada. Isso evita o cenário
+    em que duas OS ficam presas uma à outra (ex.: OS 338 e OS 689).
     """
     if not obj.veiculo_id:
         return
-    conflito = OrdemServico.query.filter(
-        OrdemServico.veiculo_id == obj.veiculo_id,
-        OrdemServico.status != "Finalizada")
-    if obj.id is not None:
-        conflito = conflito.filter(OrdemServico.id != obj.id)
-    conflito = conflito.first()
-    if conflito:
-        veiculo = db.session.get(Veiculo, obj.veiculo_id)
-        nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
+
+    abertas = (OrdemServico.query
+               .filter(
+                   OrdemServico.veiculo_id == obj.veiculo_id,
+                   OrdemServico.status != "Finalizada")
+               .order_by(OrdemServico.data_abertura.asc(),
+                         OrdemServico.id.asc())
+               .all())
+
+    # A própria OS não deve ser considerada conflito durante uma edição.
+    outras_abertas = [o for o in abertas if o.id != obj.id]
+    if not outras_abertas:
+        return
+
+    veiculo = db.session.get(Veiculo, obj.veiculo_id)
+    nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
+
+    if obj.status == "Finalizada":
+        # A OS mais antiga da frota é sempre autorizada a finalizar.
+        # Somente uma OS mais nova deve receber o bloqueio.
+        mais_antiga = abertas[0]
+        if mais_antiga.id == obj.id:
+            return
         raise ErroNegocio(
-            f"Já existe a OS {conflito.numero or conflito.id} aberta para {nome_veiculo} "
-            f"(status: {conflito.status}). Finalize-a antes de abrir uma nova OS para "
-            f"o mesmo veículo.")
+            f"A OS {obj.numero or obj.id} é mais nova que a OS "
+            f"{mais_antiga.numero or mais_antiga.id}, que ainda está aberta para "
+            f"{nome_veiculo}. Finalize primeiro a OS {mais_antiga.numero or mais_antiga.id}. "
+            f"Depois disso, esta OS poderá ser finalizada.")
+
+    # Para manter a regra de não abrir duas OS concorrentes, qualquer outra
+    # OS aberta continua impedindo que esta OS permaneça/entre como aberta.
+    conflito = outras_abertas[0]
+    raise ErroNegocio(
+        f"Já existe a OS {conflito.numero or conflito.id} aberta para {nome_veiculo} "
+        f"(status: {conflito.status}). Finalize-a antes de abrir uma nova OS para "
+        f"o mesmo veículo.")
 
 
 def _verificar_valor_os(obj):
