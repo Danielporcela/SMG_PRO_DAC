@@ -158,11 +158,31 @@ SGMF.anexos = (function () {
             </button>`;
   }
 
+  /* Guarda os dados da ÚLTIMA listagem para o clique delegado abaixo
+     encontrar o registro certo (id -> linha completa). */
+  let contextoListagem = { tipo: null, linhas: [], rotulo: null, aoFechar: null };
+
   function ligarBotoes(tipo, linhas, rotulo, aoFechar) {
-    document.querySelectorAll('[data-anexos]').forEach(b => b.onclick = () => {
-      const item = linhas.find(i => i.id == b.dataset.anexos);
-      abrir(tipo, item.id, rotulo(item), aoFechar);
-    });
+    contextoListagem = { tipo, linhas, rotulo, aoFechar };
+
+    /* O botão de anexos (clipe) fica dentro da tabela do DataTables, que
+       redesenha as linhas do <tbody> a cada paginação, ordenação ou busca.
+       Ligar onclick direto no botão (feito antes) só funciona na página
+       exibida no momento da chamada: ao trocar de página o botão continua
+       na tela, mas sem ação nenhuma associada, e o clique não faz nada.
+       Por isso a ligação é feita uma única vez, por delegação de evento
+       no container da tabela, e continua funcionando depois de qualquer
+       redesenho — igual já é feito para Editar/Excluir em crud.js. */
+    const area = document.getElementById('areaTabela');
+    if (area && !area.dataset.anexosLigado) {
+      area.dataset.anexosLigado = '1';
+      area.addEventListener('click', (e) => {
+        const botao = e.target.closest('[data-anexos]');
+        if (!botao) return;
+        const item = contextoListagem.linhas.find(i => i.id == botao.dataset.anexos);
+        if (item) abrir(contextoListagem.tipo, item.id, contextoListagem.rotulo(item), contextoListagem.aoFechar);
+      });
+    }
   }
 
   return { abrir, botao, ligarBotoes };

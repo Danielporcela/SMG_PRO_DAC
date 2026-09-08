@@ -235,15 +235,31 @@ const telaOS = SGMF.tela({
       <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
       <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>`;
 
-    document.querySelectorAll('[data-pecas]').forEach(b =>
-      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
-
-    document.querySelectorAll('[data-imprimir]').forEach(b =>
-      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
-
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
       () => telaOS.carregar());
+  }
+});
+
+/* Os botões "Peças e serviços" (engrenagem) e "Imprimir" ficam dentro da
+   tabela do DataTables, que redesenha as linhas do <tbody> a cada
+   paginação, ordenação ou busca — inclusive as da própria página em que
+   o usuário está. Ligar onclick direto nos botões (como era feito antes,
+   dentro de aoRenderizar) só funciona na primeira renderização: assim que
+   o DataTables troca de página o botão continua na tela, mas sem nenhuma
+   ação associada, e o clique não faz nada. Por isso a ligação é feita uma
+   única vez aqui, por delegação de evento no container da tabela — igual
+   já é feito para Editar/Excluir em crud.js — e continua funcionando
+   depois de qualquer redesenho. */
+document.getElementById('areaTabela').addEventListener('click', (e) => {
+  const botaoPecas = e.target.closest('[data-pecas]');
+  if (botaoPecas) {
+    abrirPecas(ultimasLinhasOS.find(o => o.id == botaoPecas.dataset.pecas));
+    return;
+  }
+  const botaoImprimir = e.target.closest('[data-imprimir]');
+  if (botaoImprimir) {
+    imprimirOS(ultimasLinhasOS.find(o => o.id == botaoImprimir.dataset.imprimir));
   }
 });
 
