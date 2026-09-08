@@ -138,54 +138,66 @@ registrar_crud(
 
 
 # ------------------------------------------------------ Módulo 3: manutenção
-def _verificar_os_duplicada(obj):
-    """Controla OS concorrentes da mesma frota sem criar um bloqueio circular.
+def _verificar_os_duplicada(obj, anterior=None):
+    """Controla OS abertas da mesma frota sem criar um bloqueio circular.
 
-    Regra para abertura/edição enquanto a OS continua aberta: ainda existe
-    apenas uma OS ativa por frota.
-
-    Regra especial para FINALIZAÇÃO: quando há mais de uma OS aberta para a
-    mesma frota, sempre pode ser finalizada a mais antiga. Uma OS mais nova
-    fica bloqueada até que a anterior seja finalizada. Isso evita o cenário
-    em que duas OS ficam presas uma à outra (ex.: OS 338 e OS 689).
+    Regras:
+      1. Ao CRIAR uma OS, não permite outra OS aberta para a mesma frota.
+      2. Ao EDITAR uma OS aberta, não bloqueia a edição.
+      3. Ao FINALIZAR uma OS, permite somente a OS aberta mais antiga.
+         Assim, se 338 e 689 estiverem abertas, 338 pode ser finalizada
+         primeiro; depois 689 pode ser finalizada.
+      4. A exclusão não passa por esta validação e continua independente.
     """
     if not obj.veiculo_id:
+        return
+
+    # Quando é uma edição que não está finalizando a OS, não há motivo para
+    # bloquear a gravação por existir outra OS aberta.
+    finalizando = (
+        anterior is not None
+        and (anterior.get("status") or "") != "Finalizada"
+        and obj.status == "Finalizada"
+    )
+
+    # Para uma OS nova, a regra continua sendo: não abrir uma segunda OS
+    # enquanto houver outra aberta para a mesma frota.
+    criando = anterior is None
+
+    if not criando and not finalizando:
         return
 
     abertas = (OrdemServico.query
                .filter(
                    OrdemServico.veiculo_id == obj.veiculo_id,
-                   OrdemServico.status != "Finalizada")
+                   OrdemServico.status != "Finalizada"
+               )
                .order_by(OrdemServico.data_abertura.asc(),
                          OrdemServico.id.asc())
                .all())
 
-    # A própria OS não deve ser considerada conflito durante uma edição.
-    outras_abertas = [o for o in abertas if o.id != obj.id]
-    if not outras_abertas:
+    if obj.id is not None:
+        abertas = [o for o in abertas if o.id != obj.id]
+
+    if not abertas:
         return
 
+    mais_antiga = abertas[0]
     veiculo = db.session.get(Veiculo, obj.veiculo_id)
     nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
 
-    if obj.status == "Finalizada":
-        # A OS mais antiga da frota é sempre autorizada a finalizar.
-        # Somente uma OS mais nova deve receber o bloqueio.
-        mais_antiga = abertas[0]
-        if mais_antiga.id == obj.id:
-            return
+    if finalizando:
         raise ErroNegocio(
-            f"A OS {obj.numero or obj.id} é mais nova que a OS "
-            f"{mais_antiga.numero or mais_antiga.id}, que ainda está aberta para "
-            f"{nome_veiculo}. Finalize primeiro a OS {mais_antiga.numero or mais_antiga.id}. "
-            f"Depois disso, esta OS poderá ser finalizada.")
+            f"A OS {obj.numero or obj.id} não pode ser finalizada ainda. "
+            f"A OS {mais_antiga.numero or mais_antiga.id} é mais antiga e ainda está "
+            f"aberta para {nome_veiculo}. Finalize primeiro a OS "
+            f"{mais_antiga.numero or mais_antiga.id}. Depois disso, esta OS poderá ser finalizada.")
 
-    # Para manter a regra de não abrir duas OS concorrentes, qualquer outra
-    # OS aberta continua impedindo que esta OS permaneça/entre como aberta.
-    conflito = outras_abertas[0]
+    # Criação: informa qual é a OS que precisa ser finalizada antes de abrir
+    # outra para a mesma frota.
     raise ErroNegocio(
-        f"Já existe a OS {conflito.numero or conflito.id} aberta para {nome_veiculo} "
-        f"(status: {conflito.status}). Finalize-a antes de abrir uma nova OS para "
+        f"Já existe a OS {mais_antiga.numero or mais_antiga.id} aberta para {nome_veiculo} "
+        f"(status: {mais_antiga.status}). Finalize-a antes de abrir uma nova OS para "
         f"o mesmo veículo.")
 
 
@@ -202,7 +214,7 @@ def _verificar_valor_os(obj):
 
 
 def _antes_os(obj, dados, anterior):
-    _verificar_os_duplicada(obj)
+    _verificar_os_duplicada(obj, anterior)
     _verificar_valor_os(obj)
 
     # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
