@@ -11,6 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from extensions import db, migrate
+from models import CARGO_APROVACAO_COMPRAS
 from services.tempo import hoje
 
 
@@ -202,7 +203,13 @@ def criar_app(config=Config):
                 tela, PADRAO_POR_PERFIL.get(session.get("perfil"), "nenhum"))
             return pesos.get(nivel_atual, 0) >= pesos.get(nivel_minimo, 1)
 
-        return {"pode": pode}
+        def pode_decidir_compra():
+            """Aprovar/Reprovar Ordem de Compra: só o cargo Gerente
+            Financeira decide — sem exceção nem para admin. Ver
+            CARGO_APROVACAO_COMPRAS em models.py."""
+            return (session.get("cargo") or "").strip().upper() == CARGO_APROVACAO_COMPRAS
+
+        return {"pode": pode, "pode_decidir_compra": pode_decidir_compra}
 
     from services.crud import ErroNegocio
 
