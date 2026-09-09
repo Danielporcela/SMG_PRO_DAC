@@ -111,9 +111,14 @@
   .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
 </style>
 <script>
-/* Quem tem 'editar' nesta tela é quem aprova, reprova e compra. Para separar
-   quem pede de quem autoriza, deixe o solicitante com 'visualizar'. */
-const PODE_DECIDIR_COMPRA = {{ 'true' if pode('compras', 'editar') else 'false' }};
+/* Aprovar/Reprovar exigem cargo "Gerente Financeira", sem exceção nem
+   para admin — ver pode_decidir_compra() em app.py e
+   CARGO_APROVACAO_COMPRAS em models.py. Para outro login, os botões
+   ficam desabilitados (atributo HTML disabled: cinza, sem clique, sem
+   disparar o onclick) — quem tenta direto pela API também recebe 403
+   do backend. 'editar' na tela ainda é o que libera lançar/editar itens
+   e marcar como comprada. */
+const PODE_DECIDIR_COMPRA = {{ 'true' if (pode('compras', 'editar') and pode_decidir_compra()) else 'false' }};
 const CORES_STATUS_OC = { Pendente: 'ambar', Aprovada: 'verde', Reprovada: 'vermelha', Comprada: 'azul' };
 
 /* Guarda o que está na tela agora — é o que alimenta o relatório de

@@ -126,6 +126,11 @@ CARGOS_SUGERIDOS = {
     "Personalizado": {"perfil": "restrito", "permissoes": {}},
 }
 
+# Cargo (Usuario.cargo) exigido para aprovar/reprovar Ordem de Compra —
+# comparado em maiúsculas, mesmo padrão de CAMPOS_EXECUCAO_OS. Perfil
+# "admin" sempre pode, independente do cargo (nunca é restringido).
+CARGO_APROVACAO_COMPRAS = "GERENTE FINANCEIRA"
+
 
 class Usuario(db.Model):
     __tablename__ = "usuarios"

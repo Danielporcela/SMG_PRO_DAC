@@ -22,7 +22,8 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 
 from extensions import db
-from models import ItemOrdemCompra, OrdemCompra, Peca, proximo_numero_ordem_compra
+from models import (CARGO_APROVACAO_COMPRAS, ItemOrdemCompra, OrdemCompra, Peca,
+                    proximo_numero_ordem_compra)
 from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_log,
                            visualizar_tela)
 from services.tempo import hoje
@@ -253,9 +254,28 @@ def marcar_item_entregue(ordem_id, item_id):
 
 
 # ------------------------------------------------------------- fluxo/status
+def _pode_decidir_compra():
+    """Só o cargo Gerente Financeira decide — sem exceção nem para admin."""
+    return (session.get("cargo") or "").strip().upper() == CARGO_APROVACAO_COMPRAS
+
+
+def _exigir_gerente_financeira():
+    """Aprovar/reprovar é mais restrito que o nível 'editar' da tela: quem
+    só lança itens (ex.: Almoxarifado) não decide a compra — só quem
+    estiver logado com o cargo exato "Gerente Financeira", sem exceção
+    nem para admin."""
+    if not _pode_decidir_compra():
+        return jsonify({"erro": "Somente o(a) Gerente Financeira pode aprovar "
+                                "ou reprovar ordens de compra."}), 403
+    return None
+
+
 @bp_compras.post(f"/{ROTA}/<int:ordem_id>/aprovar")
 @editar_tela(TELA)
 def aprovar(ordem_id):
+    bloqueio = _exigir_gerente_financeira()
+    if bloqueio:
+        return bloqueio
     ordem = db.get_or_404(OrdemCompra, ordem_id)
     if ordem.status != "Pendente":
         return jsonify({"erro": f"Só uma ordem Pendente pode ser aprovada "
@@ -274,6 +294,9 @@ def aprovar(ordem_id):
 @bp_compras.post(f"/{ROTA}/<int:ordem_id>/reprovar")
 @editar_tela(TELA)
 def reprovar(ordem_id):
+    bloqueio = _exigir_gerente_financeira()
+    if bloqueio:
+        return bloqueio
     ordem = db.get_or_404(OrdemCompra, ordem_id)
     dados = request.get_json(silent=True) or {}
     motivo = (dados.get("motivo") or "").strip()
