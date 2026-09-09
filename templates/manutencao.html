@@ -10,38 +10,6 @@
 {% endblock %}
 
 {% block antes_tabela %}
-<div class="cartao mb-3">
-  <div class="cartao-corpo">
-    <ul class="nav nav-tabs" role="tablist" id="abasConsultaOS">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" type="button" id="abaTodasOS">Todas as OS</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" type="button" id="abaConsultaFrota">Consultar por frota</button>
-      </li>
-    </ul>
-    <div class="pt-3 d-none" id="painelConsultaFrota">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-5">
-          <label class="form-label" for="consultaFrota">Número da frota</label>
-          <input class="form-control" id="consultaFrota" inputmode="numeric" autocomplete="off"
-                 placeholder="Ex.: 72">
-        </div>
-        <div class="col-auto">
-          <button class="btn btn-primario" type="button" id="botaoConsultarFrota">
-            <i class="fa-solid fa-magnifying-glass me-1"></i> Consultar OS
-          </button>
-        </div>
-        <div class="col-auto">
-          <button class="btn btn-contorno" type="button" id="botaoLimparFrota">Limpar</button>
-        </div>
-        <div class="col-12">
-          <div class="form-text" id="ajudaConsultaFrota">A consulta respeita o período selecionado acima.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
 <div class="instrumentos mb-3" id="resumoOS"></div>
 <div class="cartao mb-3">
   <div class="cartao-topo">
@@ -55,17 +23,6 @@
     <div class="vazio d-none" id="graficoMecanicosVazio">
       <i class="fa-solid fa-chart-line"></i><strong>Sem OS com mecânico informado no período</strong>
       Selecione um mecânico responsável nas ordens de serviço para ver a evolução aqui.
-    </div>
-  </div>
-</div>
-<div class="cartao mb-3">
-  <div class="cartao-topo">
-    <h3><i class="fa-solid fa-clock me-2" style="color:var(--petroleo)"></i>Horas trabalhadas por mecânico</h3>
-  </div>
-  <div class="cartao-corpo">
-    <div id="horasMecanicos"></div>
-    <div class="form-text" style="font-size:11.5px">
-      Soma da duração (horário final − horário inicial de execução) das OS <strong>Finalizadas</strong> no período selecionado acima, por mecânico responsável.
     </div>
   </div>
 </div>
@@ -166,24 +123,197 @@
   .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
 </style>
 <script>
+/* Lista de tipos de problema (sugestões no campo "Problema relatado").
+   Ao digitar, o navegador filtra sozinho as opções que contêm o texto
+   digitado — ex.: digitar "f" já mostra "FALHA...", "FAROL...", etc.
+   O usuário pode escolher uma opção ou digitar um texto livre. */
+const PROBLEMAS_OS = [
+  '1° MOLA AUXILIAR TRASEIRA LADO DIREITO QUEBRADA', '1° MOLA AUXILIAR TRASEIRA LADO ESQUERDA QUEBRADA',
+  '1° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '1° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '1° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '1° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '2° MOLA AUXILIAR TRASEIRA LADO DIREITO QUEBRADA', '2° MOLA AUXILIAR TRASEIRA LADO ESQUERDO QUEBRADA',
+  '2° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '2° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '2° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '2° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '3° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '3° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '3° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '3° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '4° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '4° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '4° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '4° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '5° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '5° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '5° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '5° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '6° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '6° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '6° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '6° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '7° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '7° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '7° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '7° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '8° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '8° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  '8° MOLA DO FEIXE DIANTEIRO LADO DIREITO QUEBRADA', '8° MOLA DO FEIXE DIANTEIRO LADO ESQUERDO QUEBRADA',
+  '9° MOLA DO FEIXE DE MOLA LADO DIREITO QUEBRADA', '9° MOLA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADA',
+  'ACELERADOR AUTOMATICO NAO FUNCIONA', 'ADESIVO DO DMLU GRANDE LADO DIREITO', 'ADESIVO DO DMLU GRANDE LADO ESQUERDO',
+  'ADESIVO DO DMLU PEQUENO LADO DIREITO', 'ADESIVO DO DMLU PEQUENO LADO ESQUERDO', 'ALAVANCA DO COMANDO QUEBRADA',
+  'ALÇAPÃO', 'AMASSADO NA PORTA LADO DIRETO', 'AMASSADO NA PORTA LADO ESQUERDO', 'AMASSADO NA TAMPA DO LEME',
+  'AMASSADO NO EQUIPAMENTO LADO DIREITO', 'AMASSADO NO EQUIPAMENTO LADO ESQUERDO', 'AMASSADO NO LADO DIREITO EXTERNA DA TAMPA DO ESQUIPAMENTO',
+  'AMASSADO NO LADO ESQUERDO EXTERNA DA TAMPA DO ESQUIPAMENTO', 'AMORTECEDOR DA CABINE', 'AMORTECEDOR DIANTEIRO DIREITO QUEBRADO',
+  'APERTAR PARAFUSOS DO BAÚ', 'APERTAR RETROVISOR', 'AQUECENDO', 'AR CONDICIONADO NÃO FUNCIONA', 'ARRANQUE',
+  'ATRAVESSADO', 'BACIA  AMASSADA', 'BACIA NÃO ERGUE', 'BACIA RASGADA', 'BANCO QUEBRADO', 'BARRA DA DIREÇÃO',
+  'BARRA DE PROTEÇÃO LATERAL LADO DIREITO', 'BARRA DE PROTEÇÃO LATERAL LADO ESQUERDO', 'BARRA ESTABILISADORA',
+  'BARULHO DE FERRO SOLTO', 'BARULHO NA RODA TRASEIRA LADO ESQUERDO', 'BARULHO NAS RODAS', 'BARULHO NO DIFERENCIAL',
+  'BARULHO NO ROLAMENTO', 'BATENTE DE MOLAS LADO DIREITO', 'BATENTE DE MOLAS LADO ESQUERDO', 'BATERIA SOLTA',
+  'BAU SOLTO', 'BOMBA HIDRAULICA', 'BORRACHA DE PORTA', 'BORRACHA DE VEDAÇÃO DA BACIA', 'BOTÃO DO LEME',
+  'BOTÃO DO TRUCK', 'BRAÇADEIRA DO FEIXE DE MOLA LADO DIREITO QUEBRADO', 'BRAÇADEIRA DO FEIXE DE MOLA LADO ESQUERDO QUEBRADO',
+  'BUZINA', 'CAIXA DE CHORUME AMASSADA', 'CAIXA DE CHORUME AMASSADA LADO DIREITO', 'CAIXA DE CHORUME AMASSADA LADO ESQUERDO',
+  'CAIXA DE FUSIVEL', 'CAIXA DO CHORUME QUEBRADA', 'CALIBRAR PNEU DIANTEIRO LADO DIREITO', 'CALIBRAR PNEU DIANTEIRO LADO ESQUERDO',
+  'CALIBRAR PNEU TRASEIRO LADO DIREITO EXTERNO', 'CALIBRAR PNEU TRASEIRO LADO ESQUERDO EXTERNO', 'CALIBRAR PNEU TRASEIRO LADO ESQUERDO INTERNO',
+  'CALIBRAR PNEUS', 'CALÇO DA CABINE', 'CAMERA DE RE', 'CAMINHÃO FALHANDO', 'CHAPEÇÃO E PINTURA', 'CHAVE SETA',
+  'CILINDRO COMPACTADOR DIREITO VAZANDO', 'CILINDRO DIREITO ESTOURADO', 'CILINDRO DO BATCONTAINER', 'CILINDRO DO LEVANTE LADO ESQUERDO',
+  'CILINDRO LEVANTE LADO DIREITO COM VAZAMENTO', 'CILINDRO LEVANTE LADO ESQUERDO COM VAZAMENTO', 'CILINDRO SOLTO',
+  'CILINDRO SUPERIOR DA PLACA COMPACTADORA LADO DIREITO COM VAZAMENTO', 'CILINDRO SUPERIOR DA PLACA COMPACTADORA LADO ESQUERDO COM VAZAMENTO',
+  'COMPLETAR ADITIVO', 'COMPLETAR ARLA', 'COMPLETAR OLEO DE CAIXA', 'COMPLETAR OLEO DE MOTOR', 'COMPLETAR OLEO HIDRAULICO',
+  'COMPRESSOR DO AR CONDICIONADO', 'CONTA GIRO NAO FUNCIONA', 'CRUZETA DA TRAÇÃO DIANTEIRO LADO ESQUERDO',
+  'CUICA DO TRUCK LADO DIREITO', 'CUICA VAZANDO', 'DIREÇÃO HIDRAULICA', 'ELETRICA GERAL', 'EMBLEMA LADO DIREITO',
+  'EMBLEMA LADO ESQUERDO', 'EMBREAGEM PATINANDO', 'ENGRAXAR PATINHO', 'ENGRAXAR PINOS DA BACIA', 'ESCADA DIREITA QUEBRADA',
+  'ESCUDO', 'ESPELHO AUX QUEBRADO', 'ESPELHO AUX TRINCADO', 'ESPELHO QUEBRADO REFIL LADO DIREITO', 'ESPELHO RETROVISOR DIREITO CAINDO',
+  'ESPELHO RETROVISOR LADO DIREITO QUEBRADO', 'ESPELHO RETROVISOR LADO DIREITO TRINCADO', 'ESPELHO RETROVISOR LADO ESQUERDO CAINDO',
+  'ESPELHO RETROVISOR LADO ESQUERDO QUEBRADO', 'ESPELHO RETROVISOR LADO ESQUERDO TRINCADO', 'ESTRALO AO FREAR',
+  'ESTRIBO DANIFICADO', 'ESTRIBO NÃO SOBE', 'FAIXAS REFLETIVAS LADO DIREITO', 'FAIXAS REFLETIVAS LADO ESQUERDO',
+  'FAIXAS REFLETIVAS TRASEIRA', 'FALHA NA TRANSMISÃO', 'FALHA NO PAINEL', 'FAROL AUXILIAR LADO ESQUERDO',
+  'FAROL BAIXO QUEIMADO', 'FAROL QUEIMADO', 'FAROL QUEIMADO LADO D/E', 'FAROLETE NÃO LIGA', 'FECHADURA LADO ESQUERDO NAO FUNCIONA',
+  'FEIXE DE MOLA DIANTEIRO LADO DIREITO QUEBRADO', 'FEIXE DE MOLA DIANTEIRO LADO ESQUERDO QUEBRADO', 'FEIXE DE MOLA TRASEIRO LADO DIREITO QUEBRADO',
+  'FEIXE DE MOLA TRASEIRO LADO ESQUERDO QUEBRADO', 'FILTRO DO AR CONDICIONADO', 'FIO SOLTO ENCIMA DO CAMINHÃO',
+  'FITA DO TACOGRAFO', 'FIXAR MANGUEIRAS DO BAU', 'FREIO COM BARULHOS', 'FREIO ESTACIONARIO', 'FREIO MOTOR',
+  'GAS DO AR CONDICIONADO', 'GATILHO DA BOMBA DE ABASTECIMENTO', 'GIROFLEX DIANTEIRO', 'GIROFLEX QUEIMADO',
+  'GIROFLEX TRASEIRO', 'GRAMPO DE MOLA DIREITO', 'GRAMPO DE TRAVAMENTO DO PINO DA PLACA', 'GRAMPO DO BAU',
+  'GRAMPOS DE MOLA', 'INDICADOR DE DIREÇÃO ESQUERDO', 'JUMELO LADO DIREITO DANIFICADO', 'JUMELO LADO ESQUERDO DANIFICADO',
+  'LAMPADA DA PLACA DE TRÂNSITO QUEIMADA', 'LAMPADA DA TOMADA DO LEME QUEIMADA', 'LAMPADA DIANTEIRA LADO ESQUERDO QUEIMADO',
+  'LAMPADA DIREITA QUEIMADA', 'LAMPADA DO PISCA QUEIMADA', 'LAMPADA ESQUERDA QUEIMADA', 'LAMPADA ESQUERDA SUPERIOR QUEIMADA',
+  'LAMPADA INTERNA QUEIMADA', 'LAMPADA SUPERIOR DA GABINE ESQUERDA', 'LAMPADA TRASEIRA LADO DIREITO', 'LAMPADAS DA LATERAL DA PORTA QUEIMADAS',
+  'LAVAR RADIADOR', 'LEME DESLIGANDO', 'LEME FAZENDO BARULHO', 'LEME FRACO', 'LEME NAO ACIONA', 'LEME NAO DESLIGA',
+  'LEME PEGANDO NA BACIA', 'LENTE DA SINALEIRA DE RÉ QUEBRADA', 'LEVANTE DO TRUCK', 'LIMPADOR DE PARA-BRISA',
+  'LIMPAR FILTROS', 'LONA DE FREIO LADO DIREITO', 'LONA DE FREIO TRASEIRA LADO ESQUERDO', 'LUBRIFICAR',
+  'LUZ ACESSA NO PAINEL', 'LUZ ALTA NAO DESLIGA', 'LUZ DA BACIA', 'LUZ DA INJEÇÃO ELETRONICA', 'LUZ DE FREIO INFERIOR TRASEIRA LADO DIREITO',
+  'LUZ DE FREIO INFERIOR TRASEIRA LADO ESQUERDO', 'LUZ DE FREIO SUPERIOR TRASEIRA LADO DIREITO', 'LUZ DE FREIO SUPERIOR TRASEIRA LADO ESQUERDO',
+  'LUZ DE PLACA', 'LUZ DE R INFERIOR TRASEIRA LADO ESQUERDO', 'LUZ DE R SUPERIOR TRASEIRA LADO DIREITO',
+  'LUZ DE R SUPERIOR TRASEIRA LADO ESQUERDO', 'LUZ DE RE LADO ESQUERDO', 'LUZ DE RÉ', 'LUZ DE RÉ INFERIOR TRASEIRA LADO DIREITO',
+  'LUZ DO FILTRO', 'LUZ DO MOTOR ACESSA', 'LUZ DO RACOR ACESSA', 'LUZ INTERNA DA CABINE', 'MACRO', 'MANECO DO ESTACIONARIO',
+  'MANGUEIRA D\'ÀGUA', 'MANGUEIRA DA CAIXA FURADA', 'MANGUEIRA DA EGR', 'MANGUEIRA DE ALIMENTACAO DA BOMBA',
+  'MANGUEIRA DE PRESSÃO DA BOMBA HIDRULICA', 'MANGUEIRA DE RETORNO FURADA', 'MANGUEIRA DO CILINDRO DA PLACA COMPACTADORA LADO DIREITO',
+  'MANGUEIRA DO CILINDRO DA PLACA COMPACTADORA LADO ESQUERDO', 'MANGUEIRA DO CILINDRO LADO ESQUERDO', 'MANGUEIRA DO CILINDRO LEVANTE LADO ESQUERDO',
+  'MANGUEIRA DO CILINDRO SUPERIOR DA PLACA COMPACTADORA LADO DIREITO', 'MANGUEIRA DO CILINDRO SUPERIOR DA PLACA COMPACTADORA LADO ESQUERDO',
+  'MANGUEIRA DO CILINDRO TELESCÓPIO', 'MANGUEIRA DO RADIADOR', 'MANGUEIRA HIDRAULICA', 'MANGUEIRA PRESSAO DA BOMBA',
+  'MANGUEIRA UNIÃO DE TAMPA', 'MANGUERIA DO CILINDRO LEVANTE LADO DIRETO', 'MANIVELA LADO DIREITO DA PORTA SEM FIXADOR',
+  'MARCADOR DE AR DO PAINEL NÃO FUNCIONA', 'MARCADOR DE COMBUSTÍVEL NÃO FUNCIONA', 'MARCADOR DE TEMPERATURA',
+  'MAÇANETA LADO DIREITO QUEBRADO', 'MAÇANETA LADO ESQUERDO QUEBRADO', 'MECANICA GERAL', 'MOLA DO BATEDOR DE CONTAINER',
+  'MOLA DO ESTRIBO LADO ESQUERDO', 'MOLA MESTRA LADO DIREITO QUEBRADA', 'MOLA MESTRA LADO ESQUERDO QUEBRADA',
+  'MOLA QUEBRADA', 'MOLA TENSORA LADO DIREITO QUERBADA', 'MOLA TENSORA LADO ESQUERDO QUEBRADA', 'MOLA TRASEIRA LADO ESQUERDO QUEBRADA',
+  'MOLAS DIANTEIRAS LADO DIREITO DESALINHADAS', 'MOLAS DIANTERIAS LADO ESQUERDO DESALINHADAS', 'MOLAS TRASEIRAS LADO DIREITO DESALINHADAS',
+  'MOLAS TRASEIRAS LADO ESQUERDO DESALINHADAS', 'MOLEJO ESTOURADO', 'NAO ENGATA MARCHA', 'NIVEL DO OLEO BAIXO',
+  'NUMERO DIANTEIRO', 'NUMERO LADO DIREITO', 'NUMERO LADO ESQUERDO', 'NÃO PEGA', 'OLEO DE DIREÇAO HIDRAULICA',
+  'PAINEL APAGADO', 'PAINEL SOLTO', 'PALANCA DO BAU', 'PALANCA DO LEME', 'PANE ELETRICA', 'PARA-BRISA QUEBRADO',
+  'PARA-BRISA TRINCADO', 'PARA-CHOQUE DIANTEIRO', 'PARACHOQUE DIANTEIRO LADO ESQUERDO', 'PARACHOQUE TRASEIRO',
+  'PARAFUSO DA MOLA TENSORA LADO DIREITO TRASEIRO QUEBRADO', 'PARAFUSO DA MOLA TENSORA LADO ESQUERDO TRASEIRO QUEBRADO',
+  'PARAFUSO DA PLACA TRASEIRA', 'PARAFUSO DA SAPATA QUEBRADO', 'PARAFUSO DA TOMADA DE FORÇA', 'PARAFUSO DO BAU',
+  'PARAFUSO DO CHASSI', 'PARAFUSO DO LEME QUEBRADO', 'PARAFUSOS DA RODA DIANTEIRA LADO DIREITO', 'PARAFUSOS DA RODA DIANTEIRA LADO ESQUERDO',
+  'PARAFUSOS DA RODA TRASEIRA LADO DIREITO', 'PARAFUSOS DA TRASEIRA LADO ESQUERDO', 'PEGA MÃO AMASSADO',
+  'PERCA DE POTENCIA NO MOTOR', 'PINO DA BACIA DIREITA', 'PINO DA LAVANCA DO CAMANDO TRASEIRO', 'PINO DA PLACA',
+  'PINO DA PLACA INFERIOR COMPACTADORA LADO DIREITO', 'PINO DA PLACA INFERIOR COMPACTADORA LADO ESQUERDO',
+  'PINO DA PLACA SUPERIOR COMPACTADORA LADO DIREITO', 'PINO DA PLACA SUPERIOR COMPACTADORA LADO ESQUERDO',
+  'PINO DE CENTRO LADO DIREITO QUEBRADO', 'PINO DE CENTRO LADO ESQUERDO QUEBRADO', 'PINO DE ROSCA', 'PINO DE ROSCA LADO DIREITO',
+  'PINO DE ROSCA LADO ESQUERDO', 'PINO DIREITO CAIDO', 'PINO DO BAU', 'PINO DO CILINDRO', 'PINO DO CILINDRO DA PLACA LADO DIREITO INFERIOR',
+  'PINO DO CILINDRO DA PLACA LADO DIREITO SUPERIOR', 'PINO DO CILINDRO DA PLACA LADO ESQUERDO INFERIOR',
+  'PINO DO CILINDRO DA PLACA LADO ESQUERDO SUPERIOR', 'PINO DO CONTAINER SOLTO', 'PINO DO ESTRIBO', 'PINO DO HIDRAULICO SOLTO',
+  'PINO DO LEME', 'PINO DO REBOQUE QUEBRADO', 'PINO TORTO LADO DIREITO', 'PINTURA DA PLACA COMPACTADORA',
+  'PINTURA DAS RODAS DIANTERIAS', 'PINTURA DAS RODAS TRASEIRAS', 'PINTURA DO PARA-CHOQUE DIANTEIRO', 'PISCA ALERTA QUEIMADO',
+  'PISCA DIANTEIRO DIREITO QUEIMADO', 'PISCA DIANTEIRO ESQUERDO QUEIMADO', 'PISCA DIANTEIRO LATERAL LADO DIREITO',
+  'PISCA DIANTEIRO LATERAL LADO ESQUERDO', 'PISCA ESQUERDO QUEIMADO', 'PISCA LADO DIREITO QUEIMADO', 'PISCA LATERAL DIREITO',
+  'PISCA LATERAL ESQUERDO COM MAL CONTATO', 'PISCA LATERAL ESQUERDO QUEIMADO', 'PISCA LATERAL QUEIMADO',
+  'PISCA PARALAMA DIREITO QUEIMADO', 'PISCA PARALAMA ESQUERDO QUEIMADO', 'PISCA QUEIMADO', 'PISCA SUPERIOR DIREITO QUEIMADO',
+  'PISCA TRASEIRO DIREITO QUEIMADO', 'PISCA TRASEIRO ESQUERDO', 'PISCA TRASEIRO ESQUERDO DO BAU', 'PISCAL LATERAL DIANTEIRO LADO DIREITO QUEBRADO',
+  'PISTAO QUEBRADO', 'PISTOLA DE AR', 'PLACA AMASSADA', 'PLACA COMPACTADORA', 'PLACA ENCOSTANDO NA BACIA',
+  'PLACA QUEBRADA', 'PLACA TRANSPORTADORA ACIONANDO SOZINHA', 'PLACA TRANSPORTADORA QUEBRADA', 'PNEU DIANTEIRO ESQUERDO (TROCA)',
+  'PNEU DIANTEIRO LADO DIREITO', 'PNEU DIANTEIRO LADO DIREITO (TROCA)', 'PNEU DIANTEIRO LADO DIREITO CARECA',
+  'PNEU DIANTEIRO LADO DIREITO CORTADO', 'PNEU DIANTEIRO LADO DIREITO FURADO', 'PNEU DIANTEIRO LADO ESQUERDO',
+  'PNEU DIANTEIRO LADO ESQUERDO (TROCA)', 'PNEU DIANTEIRO LADO ESQUERDO CARECA', 'PNEU DIANTEIRO LADO ESQUERDO CORTADO',
+  'PNEU DIANTEIRO LADO ESQUERDO FURADO', 'PNEU DIANTEIRO LADO ESQUERDO SOLTANDO BANDAGEM', 'PNEU DINTEIRO LADO DIREITO COM DEFEITO',
+  'PNEU DINTEIRO LADO ESQUERO COM DEFEITO', 'PNEU FURADO', 'PNEU TRASEIRO DA TRAÇÃO LADO DIREITO INTERNO',
+  'PNEU TRASEIRO DIREITO COM BARULHO', 'PNEU TRASEIRO ESQUERDO FURADO', 'PNEU TRASEIRO ESQUERO EXTERNO (TROCA)',
+  'PNEU TRASEIRO LADO DIREITO EXTERNO CARECA', 'PNEU TRASEIRO LADO DIREITO EXTERNO COM DEFEITO', 'PNEU TRASEIRO LADO DIREITO EXTERNO COM PARAFUSO',
+  'PNEU TRASEIRO LADO DIREITO EXTERNO CORTADO', 'PNEU TRASEIRO LADO DIREITO EXTERNO FURADO', 'PNEU TRASEIRO LADO DIREITO EXTERNO FURADO TRUCK - (TROCA)',
+  'PNEU TRASEIRO LADO DIREITO INTERNO', 'PNEU TRASEIRO LADO DIREITO INTERNO ( EXTENSAO)', 'PNEU TRASEIRO LADO DIREITO INTERNO ( NUCLEO)',
+  'PNEU TRASEIRO LADO DIREITO INTERNO CARECA', 'PNEU TRASEIRO LADO DIREITO INTERNO COM DEFEITO', 'PNEU TRASEIRO LADO DIREITO INTERNO CORTADO',
+  'PNEU TRASEIRO LADO DIREITO INTERNO FURADO', 'PNEU TRASEIRO LADO DIREITO INTERNO FURADO TRUCK - (TROCA)',
+  'PNEU TRASEIRO LADO ESQUERDO EXTERNO', 'PNEU TRASEIRO LADO ESQUERDO EXTERNO CARECA', 'PNEU TRASEIRO LADO ESQUERDO EXTERNO COM DEFEITO',
+  'PNEU TRASEIRO LADO ESQUERDO EXTERNO CORTADO', 'PNEU TRASEIRO LADO ESQUERDO EXTERNO FURADO', 'PNEU TRASEIRO LADO ESQUERDO EXTERNO FURADO TRUCK - (TROCA)',
+  'PNEU TRASEIRO LADO ESQUERDO INTERNO CARECA', 'PNEU TRASEIRO LADO ESQUERDO INTERNO COM DEFEITO', 'PNEU TRASEIRO LADO ESQUERDO INTERNO CORTADO',
+  'PNEU TRASEIRO LADO ESQUERDO INTERNO FURADO', 'PNEU TRASEIRO LADO ESQUERDO INTERNO FURADO TRUCK - (TROCA)',
+  'PNEU TRASEIRO TRAÇÃO LADO ESQUERDO FURADO', 'PNEU TRASEIROS CARECA', 'PNEU TRUCK DIREITO INTERNO CARECA',
+  'PNEU TRUCK DIREITO INTERNO CORTADO', 'PNEU TRUCK DIREITO INTERNO FURADO', 'PNEU TRUCK ESQUERDO EXTERNO CARECA',
+  'PNEU TRUCK ESQUERDO EXTERNO CORTADO', 'PNEU TRUCK ESQUERDO EXTERNO FURADO', 'PNEU TRUCK ESQUERDO INTERNO CARECA',
+  'PNEU TRUCK ESQUERDO INTERNO CORTADO', 'PNEU TRUCK ESQUERDO INTERNO FURADO', 'PNEU TRUCK LADO DIREITO EXTERNO COM DEFEITO',
+  'PNEU TRUCK LADO DIREITO INTERNO COM DEFEITO', 'PNEU TRUCK LADO ESQUERDO EXTERNO COM DEFEITO', 'PNEU TRUCK LADO ESQUERDO INTERNO COM DEFEITO',
+  'PORCA DE RODA TRASEIRA LADO DIREITO', 'PORCA DE RODA TRASEIRA LADO ESQUERDO EXT.', 'PORTA DIREITA NÃO ABRE POR DENTRO',
+  'PORTA LADO DIREITO', 'PORTA LADO ESQUERDO', 'PORTA NAO ABRE', 'PORTA NAO FECHA', 'PRESSAO DO LEME',
+  'PREVENTIVA', 'PROBLEMA DE TRANSMISSÃO', 'PROBLEMA NA TURBINA', 'PROBLEMA NO ALTERNADOR', 'PROBLEMA NO CARDAM',
+  'PROBLEMA NO CUBO DE RODA', 'PROTECAO LATERAL DIREITO AMASSADO', 'PROTETOR DO RADIADOR', 'PROTEÇÃO LATERAL QUEBRADA',
+  'REAPERTAR PARAFUSOS DO BAU', 'REAPERTAR POCA DA RODA DIANTEIRA LADO ESQUERDO', 'REGISTRO DE CHORUME LADO DIREITO QUEBRADO',
+  'REGISTRO DE CHORUME LADO ESQUERDO QUEBRADO', 'REGULADOR DO VOLANTE', 'REGULAR FREIOS', 'RESERVATORIO DE AGUA',
+  'RETENTOR VAZANDO LADO ESQUERDO', 'REVISAO DE CAIXA', 'REVISAO DE MOTOR', 'REVISAO DO SISTEMA HIDRAULICO',
+  'REVISAR BAU', 'REVISAR CAIXA DE CHORUME', 'REVISAR ELETRICA', 'REVISAR EMBREAGEM', 'REVISAR EQUIPAMENTO HIDRÁULICO',
+  'REVISAR ESTRIBO', 'REVISAR LONA TRASEIRA', 'REVISAR MANGUEIRA DO EQUIPAMENTO', 'REVISAR MOLAS', 'REVISAR PARAFUSO DO ESTRIBO',
+  'REVISAR PARALAMA LATERAL LADO DIREITO', 'REVISAR PARALAMA LATERAL LADO ESQUERDO', 'REVISAR PLACA COMPACTADORA',
+  'REVISAR PNEU DIANTEIRO LADO DIREITO', 'REVISAR PNEU DIANTEIRO LADO ESQUERDO', 'REVISAR PNEU TRASEIRO LADO DIREITO EXTERNO',
+  'REVISAR PNEU TRASEIRO LADO DIREITO INTERNO', 'REVISAR PNEU TRASEIRO LADO ESQUERDO EXTERNO', 'REVISAR PNEU TRASEIRO LADO ESQUERDO INTERNO',
+  'REVISAR PNEUS', 'REVISAR RASTREADOR', 'REVISAR RODAS TRASEIRAS', 'REVISAR SINALIZACAO TRASEIRA', 'REVISAR SINALIZAÇÃO DIANTEIRA',
+  'REVISAR TAMPA DA CAÇAMBA', 'REVISÃO DO EQUIPAMENTO', 'RODA DIANTEIRA LADO DIREITO COM BARULHO (REVISAR)',
+  'RODA TORTA', 'RODA TRASEIRA ESQUERDA COM VAZAMENTO', 'RODA TRASEIRA RINGE AO DAR RÉ', 'RODIZIO DE PNEU',
+  'SAPATA LADO DIREITO', 'SAPATA LADO ESQUERDO', 'SEM ABRACADEIRA NO CANO HIDRAULICO', 'SEM BATERIA', 'SEM EMBREAGEM',
+  'SEM EXTINTOR', 'SEM FORÇA', 'SEM FREIO', 'SEM TAMPA DE CHORUME', 'SENSOR DA ÁGUA', 'SENSOR DE AR', 'SENSOR DO ABS',
+  'SENSOR DO LEME', 'SINAL DA CAMERA DE RE', 'SINALEIRA DE RE TRASEIRA LADO DIREITO', 'SINALEIRA DE RE TRASEIRA LADO ESQUERDO',
+  'SINALEIRA DIANTEIRA DO EQUIPAMENTO LADO DIREITO', 'SINALEIRA DIANTEIRA DO EQUIPAMENTO LADO ESQUERDO',
+  'SINALEIRA DIANTEIRA LADO DIREITO', 'SINALEIRA DIANTEIRA LADO ESQUERDO', 'SINALEIRA DIANTEIRA LATERAL LADO DIREITO',
+  'SINALEIRA DIANTEIRA LATERAL LADO ESQUERDO', 'SINALEIRA DIANTEIRA SUPERIOR ESQUERDA QUEIMADA', 'SINALEIRA INFERIOR TRASEIRA LADO DIREITO',
+  'SINALEIRA INFERIOR TRASEIRA LADO ESQUERDO', 'SINALEIRA LADO DIREITO DA CABINE QUEIMADA', 'SINALEIRA LADO ESQUERDO DA CABINE QUEIMADA',
+  'SINALEIRA LATERAL DIREITA QUEIMADA', 'SINALEIRA LATERAL ESQUERDA QUEIMADA', 'SINALEIRA SUPERIOR TRASEIRA LADO DIREITO',
+  'SINALEIRA SUPERIOR TRASEIRA LADO ESQUERDO', 'SINALEIRA TRASEIRA DIREITA QUEBRADA', 'SINALEIRA TRASEIRA DIREITA QUEIMADA',
+  'SINALEIRA TRASEIRA DO EQUIPAMENTO LADO DIREITO', 'SINALEIRA TRASEIRA DO EQUIPAMENTO LADO ESQUERDO',
+  'SINALEIRA TRASEIRA ESQUERDA QUEBRADA', 'SINALEIRA TRASEIRA LADO ESQUERDO', 'SINALEIRA TRASEIRA LADO ESQUERDO QUEIMADA',
+  'SINALEIRA TRASEIRA SUPERIOR LADO DIREITO QUEIMADA', 'SIRENE DE RE', 'SISTEMA DE GPS', 'SISTEMA DO LEME',
+  'SOLDA DO BAU LADO DIREITO SOLTO', 'SOLDA NO CANO HIDRAULICO', 'SOLDA NO RESERVATORIO DE OLEO HIDRAULICO',
+  'SOLDAR CAIXA DE CHORUME', 'SOLDAR TRAVA DA TAMPA', 'SOLENOIDE', 'SOS', 'SUPORTE DA MOLA', 'SUPORTE DA PLACA DE TRANSITO',
+  'SUPORTE DA TAMPA TRASEIRA QUEBRADO', 'SUPORTE DE CONE', 'SUPORTE DO BAU ESQUERDO QUEBRADO', 'SUPORTE DO BAU LADO DIREITO QUEBRADO',
+  'SUPORTE DO BAU LADO ESQUERDO DIANTEIRO QUEBRADO', 'SUPORTE DO BAU SEM PARAFUSO', 'SUPORTE DO BAÚ DIANTEIRO',
+  'SUPORTE DO CANO DE DESCARGA', 'SUPORTE DO ESPELHO LADO DIREITO', 'SUPORTE DO ESPELHO LADO ESQUERDO',
+  'SUPORTE DO FILTRO DE AR', 'SUPORTE DO PISCA DIANTEIRO DIREITO', 'SURDINA TORTA', 'SUSPENSÃO DIANTEIRA DIREITA',
+  'SUSPIRO DA CAIXA', 'TAMPA DA CAIXA DE CHORUME SEM ROSCA', 'TAMPA DA CLARABOIA', 'TAMPA DO FILTRO', 'TAMPA DO RESERVATORIO DE ARLA',
+  'TAMPA DO TANQUE DE ARLA', 'TAMPA PROTETORA DOS FUSIVEIS', 'TAMPA TRASEIRA AMASSADA', 'TELA DA CAMERA DE RE',
+  'TOMADA DE FORÇA', 'TRACAO DIANTEIRO LADO DIREITO', 'TRANCANDO MARCHAS', 'TRAVA DO CILINDRO', 'TRILHO LATERAL',
+  'TROCA DE PNEU', 'TROCA DE PNEU TRASEIRO LADO DIREITO EXTERNO', 'TROCA DE PNEU TRASEIRO LADO DIREITO INTERNO',
+  'TROCA DE PNEU TRASEIRO LADO ESQUERDO EXTERNO', 'TROCA DE PNEU TRASEIRO LADO ESQUERDO INTERNO', 'TROCA DE TODOS OS PNEUS',
+  'TROCAR A BATERIA', 'TROCAR ESPELHO RETROVISOR DIREITO', 'TROCAR ESPELHO RETROVISOR ESQUERDO', 'TROCAR FILTRO',
+  'TROCAR FILTRO DE COMBUSTIVEL', 'TROCAR PARA-BARRO', 'TROCAR ÓLEO DE MOTOR', 'TRUCK  LADO DIREITO NÃO BAIXA',
+  'TRUCK  LADO ESQUERDO NÃO BAIXA', 'VALVULA DE RODA LADO ESQUERDO INTERNO', 'VALVULA DO PEDAL DE FREIO',
+  'VARETA DO COMANDO DA BACIA', 'VAZAMENTO CUICA', 'VAZAMENTO DE AGUA', 'VAZAMENTO DE AGUA PELA CLARABOIA',
+  'VAZAMENTO DE AR', 'VAZAMENTO DE CHORUME', 'VAZAMENTO DE CILINDRO', 'VAZAMENTO DE CUICA LADO ESQUERDO',
+  'VAZAMENTO DE OLEO DE MOTOR', 'VAZAMENTO DE OLEO DIESEL', 'VAZAMENTO DE OLEO HIDRAULICO', 'VAZAMENTO NA BOMBA HIDRAULICA',
+  'VAZAMENTO NA MANGUEIRA DE LEME', 'VAZAMENTO NA RODA', 'VAZAMENTO NA TAMPA COMPACTADORA', 'VAZAMENTO NO CILINDRO DIREITO',
+  'VAZAMENTO NO CILINDRO ESQUERDO', 'VAZAMENTO NO CILINDRO TELESCOPIO', 'VAZAMENTO NO COMANDO DIANTEIRO',
+  'VAZAMENTO NO COMANDO TRASEIRO', 'VAZAMENTO NO MARCADOR DE NVEL DE OLEO HIDRULICO', 'VAZAMENTO NO PISTAO DO ESTRIBO',
+  'VAZAMENTO NO PISTAO TRASEIRO LADO DIREITO', 'VAZAMENTO NO RADIADOR', 'VAZAMENTO NO RESERVATRIO DE OLEO HIDRULICO',
+  'VAZAMENTO NO RETENTOR DO CUBO DE RODA', 'VEICULO PUXANDO PARA A DIREITA', 'VELOCIMETRO NAO FUNCIONA',
+  'VERIFICAR BATE CONTAINER', 'VERIFICAR BATENTES DE MOLA', 'VERIFICAR SURDINA', 'VIDRO DA PORTA LADO DIREITO QUEBRADO',
+  'VIDRO DA PORTA LADO DIREITO TRINCADO', 'VIDRO DA PORTA LADO ESQUERDO QUERBADO', 'VIDRO DA PORTA LADO ESQUERDO TRINCADO',
+  'VIDRO DIANTEIRO LADO DIREITO NAO FECHA POR COMPLETO', 'VIDRO DIANTEIRO LADO ESQUERDO NÃO FECHA', 'VIDRO LADO DIREITO',
+  'VISOR DO NIVEL DE OLEO', 'VOLANTE',
+];
+
 /* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
    (select) e no filtro do gráfico de evolução, em ordem alfabética. */
 const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
   'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
   'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
 
-let frotaConsulta = '';
-
-function parametrosConsultaOS() {
-  return frotaConsulta ? { frota: frotaConsulta } : {};
-}
-
 const telaOS = SGMF.tela({
   recurso: 'ordens',
   tela: 'manutencao',
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
-  parametrosExtra: parametrosConsultaOS,
   autoSalvarAoFechar: true,
   ordem: [[1, 'desc']],
   campos: [
@@ -194,7 +324,8 @@ const telaOS = SGMF.tela({
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
-    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
+    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'combo', col: 12, travarParaOutroSetor: true,
+      exemplo: 'Digite uma letra para ver sugestões (ex.: F → FALHA...)', opcoes: PROBLEMAS_OS },
     { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
       opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },
@@ -238,7 +369,6 @@ const telaOS = SGMF.tela({
   aoRenderizar: (linhas) => {
     ultimasLinhasOS = linhas;
     desenharGraficoMecanicos(linhas);
-    desenharHorasMecanicos(linhas);
     const abertas = linhas.filter(o => o.status !== 'Finalizada');
     const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
     const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
@@ -247,74 +377,16 @@ const telaOS = SGMF.tela({
       <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
       <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>`;
 
+    document.querySelectorAll('[data-pecas]').forEach(b =>
+      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
+
+    document.querySelectorAll('[data-imprimir]').forEach(b =>
+      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
+
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
       () => telaOS.carregar());
   }
-});
-
-/* Os botões "Peças e serviços" (engrenagem) e "Imprimir" ficam dentro da
-   tabela do DataTables, que redesenha as linhas do <tbody> a cada
-   paginação, ordenação ou busca — inclusive as da própria página em que
-   o usuário está. Ligar onclick direto nos botões (como era feito antes,
-   dentro de aoRenderizar) só funciona na primeira renderização: assim que
-   o DataTables troca de página o botão continua na tela, mas sem nenhuma
-   ação associada, e o clique não faz nada. Por isso a ligação é feita uma
-   única vez aqui, por delegação de evento no container da tabela — igual
-   já é feito para Editar/Excluir em crud.js — e continua funcionando
-   depois de qualquer redesenho. */
-document.getElementById('areaTabela').addEventListener('click', (e) => {
-  const botaoPecas = e.target.closest('[data-pecas]');
-  if (botaoPecas) {
-    abrirPecas(ultimasLinhasOS.find(o => o.id == botaoPecas.dataset.pecas));
-    return;
-  }
-  const botaoImprimir = e.target.closest('[data-imprimir]');
-  if (botaoImprimir) {
-    imprimirOS(ultimasLinhasOS.find(o => o.id == botaoImprimir.dataset.imprimir));
-  }
-});
-
-/* --------------------------------------------------------- consulta por frota */
-function ativarAbaConsultaOS(consulta) {
-  const abaTodas = document.getElementById('abaTodasOS');
-  const abaFrota = document.getElementById('abaConsultaFrota');
-  const painel = document.getElementById('painelConsultaFrota');
-  abaTodas.classList.toggle('active', !consulta);
-  abaFrota.classList.toggle('active', consulta);
-  painel.classList.toggle('d-none', !consulta);
-}
-
-document.getElementById('abaTodasOS').addEventListener('click', async () => {
-  frotaConsulta = '';
-  ativarAbaConsultaOS(false);
-  await telaOS.carregar();
-});
-
-document.getElementById('abaConsultaFrota').addEventListener('click', () => {
-  ativarAbaConsultaOS(true);
-  document.getElementById('consultaFrota').focus();
-});
-
-document.getElementById('botaoConsultarFrota').addEventListener('click', async () => {
-  const valor = document.getElementById('consultaFrota').value.trim();
-  if (!valor) return SGMF.aviso('Informe o número da frota. Exemplo: 72.');
-  frotaConsulta = valor;
-  try {
-    await telaOS.carregar();
-  } catch (e) {
-    SGMF.falha(e.message);
-  }
-});
-
-document.getElementById('consultaFrota').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('botaoConsultarFrota').click();
-});
-
-document.getElementById('botaoLimparFrota').addEventListener('click', async () => {
-  frotaConsulta = '';
-  document.getElementById('consultaFrota').value = '';
-  await telaOS.carregar();
 });
 
 /* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
@@ -329,49 +401,6 @@ let ultimasLinhasOS = [];
 document.getElementById('filtroGraficoMecanico').innerHTML =
   '<option value="">Todos (5 com mais OS)</option>' +
   MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
-
-/* Soma as horas trabalhadas por mecânico, considerando só OS Finalizadas
-   com duração calculável (duracao_minutos vem pronto do backend — ver
-   OrdemServico.duracao_minutos em models.py: horário final − horário de
-   início da execução, ou da abertura quando a OS é antiga e não tem
-   horário de início de execução preenchido). */
-function desenharHorasMecanicos(linhas) {
-  const area = document.getElementById('horasMecanicos');
-  const finalizadasComDuracao = linhas.filter(o =>
-    o.status === 'Finalizada' && o.mecanico && o.duracao_minutos != null);
-
-  if (!finalizadasComDuracao.length) {
-    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-clock"></i>
-      <strong>Sem horas para calcular no período</strong>
-      Nenhuma OS Finalizada no período tem mecânico e horário inicial/final preenchidos.</div>`;
-    return;
-  }
-
-  const porMecanico = {};
-  finalizadasComDuracao.forEach(o => {
-    const chave = o.mecanico;
-    porMecanico[chave] = porMecanico[chave] || { minutos: 0, os: 0 };
-    porMecanico[chave].minutos += o.duracao_minutos;
-    porMecanico[chave].os += 1;
-  });
-
-  const formatarHoras = (minutos) =>
-    `${Math.floor(minutos / 60)}h ${String(minutos % 60).padStart(2, '0')}m`;
-
-  const linhasTabela = Object.entries(porMecanico)
-    .sort((a, b) => b[1].minutos - a[1].minutos)
-    .map(([mecanico, dado]) => `<tr>
-      <td>${SGMF.esc(mecanico)}</td>
-      <td class="text-end num">${dado.os}</td>
-      <td class="text-end num"><strong>${formatarHoras(dado.minutos)}</strong></td>
-      <td class="text-end num">${formatarHoras(Math.round(dado.minutos / dado.os))}</td>
-    </tr>`).join('');
-
-  area.innerHTML = `<table class="table table-sm align-middle mb-0" style="font-size:13px">
-    <thead><tr><th>Mecânico</th><th class="text-end">OS finalizadas</th>
-    <th class="text-end">Horas trabalhadas</th><th class="text-end">Média por OS</th></tr></thead>
-    <tbody>${linhasTabela}</tbody></table>`;
-}
 
 function desenharGraficoMecanicos(linhas) {
   const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
@@ -613,43 +642,24 @@ document.addEventListener('click', (e) => {
 });
 
 async function abrirPecas(os) {
-  try {
-    // Busca novamente a OS para garantir o status atual, inclusive quando
-    // outro usuário/computador acabou de finalizar a ordem.
-    const osAtual = await SGMF.get(`/api/ordens/${os.id}`);
-    document.getElementById('pecasOsId').value = osAtual.id;
-    document.getElementById('pecasTitulo').textContent = `OS ${osAtual.numero}`;
-    document.getElementById('pecasSubtitulo').textContent =
-      `${osAtual.veiculo_nome} · ${osAtual.tipo} · ${osAtual.status}`;
-    document.getElementById('itemTipo').value = 'peca';
-    document.getElementById('itemPrestador').value = '';
-    atualizarTipoItem();
-    limparEscolhaPeca(false);
-    const finalizada = osAtual.status === 'Finalizada';
-    const controles = ['itemTipo', 'itemBuscaPeca', 'itemLimparPeca', 'itemPeca',
-      'itemDescricao', 'itemQtd', 'itemValor', 'itemAdicionar'];
-    controles.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.disabled = finalizada;
-    });
-    const ajuda = document.getElementById('itemAjuda');
-    ajuda.innerHTML = finalizada
-      ? '<strong style="color:#C62828">OS Finalizada:</strong> esta ordem está bloqueada para novos lançamentos de peças e serviços.'
-      : 'Peças do estoque ficam pendentes nesta etapa e o estoque é baixado quando a OS é Finalizada.';
-    await recarregarItens(osAtual.id, finalizada);
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
-  } catch (e) {
-    SGMF.falha(e.message);
-  }
+  document.getElementById('pecasOsId').value = os.id;
+  document.getElementById('pecasTitulo').textContent = `OS ${os.numero}`;
+  document.getElementById('pecasSubtitulo').textContent =
+    `${os.veiculo_nome} · ${os.tipo} · ${os.status}`;   // textContent não interpreta HTML
+  document.getElementById('itemTipo').value = 'peca';
+  document.getElementById('itemPrestador').value = '';
+  atualizarTipoItem();
+  limparEscolhaPeca(false);
+  await recarregarItens(os.id);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
 
-async function recarregarItens(osId, finalizada = false) {
+async function recarregarItens(osId) {
   const os = await SGMF.get(`/api/ordens/${osId}/itens`);
-  const bloqueada = finalizada || os.status === 'Finalizada';
   const area = document.getElementById('listaItens');
   if (!os.itens.length) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-screwdriver-wrench"></i>
-      <strong>Nenhuma peça ou serviço lançado</strong>${bloqueada ? 'Esta OS está finalizada e não aceita novos lançamentos.' : 'Adicione os itens usados nesta ordem.'}</div>`;
+      <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
   } else {
     area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
       <thead><tr><th>Item / serviço</th><th>Tipo / prestador</th><th class="text-end">Qtde</th>
@@ -664,8 +674,8 @@ async function recarregarItens(osId, finalizada = false) {
         <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
         <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
         <td>${i.peca_id ? (i.baixado_estoque ? SGMF.etiqueta('baixado', 'azul') : SGMF.etiqueta('pendente', 'ambar')) : '—'}</td>
-        <td class="text-end">${bloqueada ? '' : `<button class="btn btn-contorno btn-icone" data-item="${i.id}" title="Remover item">
-          <i class="fa-solid fa-trash"></i></button>`}</td></tr>`).join('')}</tbody></table>`;
+        <td class="text-end"><button class="btn btn-contorno btn-icone" data-item="${i.id}">
+          <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
   }
 
   document.querySelectorAll('[data-item]').forEach(b => b.onclick = async () => {

@@ -7,7 +7,7 @@ SGMF.tela = function (config) {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
     aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
-    rotuloSalvar = null, parametrosExtra = null
+    rotuloSalvar = null
   } = config;
 
   const idModal = `modal_${recurso}`;
@@ -35,6 +35,19 @@ SGMF.tela = function (config) {
                    data-campo="${c.nome}" placeholder="${c.exemplo || '0,00'}">`;
     } else if (c.tipo === 'textarea') {
       entrada = `<textarea class="form-control" id="${nome}" data-campo="${c.nome}" rows="${c.linhas || 3}"></textarea>`;
+    } else if (c.tipo === 'combo') {
+      /* Campo de texto com sugestões: digita e o próprio navegador já filtra,
+         na lista abaixo, as opções que contêm o que foi digitado (ex.: "f"
+         mostra "FALHA...", "FAROL...", etc.). O usuário também pode digitar
+         um texto que não esteja na lista — não é uma trava, é só atalho. */
+      const idLista = `${nome}_lista`;
+      entrada = `<input type="text" class="form-control" id="${nome}" data-campo="${c.nome}"
+                   list="${idLista}" autocomplete="off"
+                   ${c.maiuscula ? 'style="text-transform:uppercase"' : ''}
+                   placeholder="${c.exemplo || 'Comece a digitar para ver sugestões...'}">
+                 <datalist id="${idLista}">
+                   ${(c.opcoes || []).map(o => `<option value="${SGMF.esc(o)}"></option>`).join('')}
+                 </datalist>`;
     } else if (c.tipo === 'checkbox') {
       return `<div class="col-md-${col}"><div class="form-check mt-4 pt-1">
                 <input class="form-check-input" type="checkbox" id="${nome}" data-campo="${c.nome}">
@@ -242,22 +255,10 @@ SGMF.tela = function (config) {
 
   async function carregar() {
     let url = `/api/${recurso}`;
-    const params = new URLSearchParams();
     if (filtroPeriodo) {
       const i = document.getElementById('filtroInicio'), f = document.getElementById('filtroFim');
-      if (i && i.value) params.set('inicio', i.value);
-      if (f && f.value) params.set('fim', f.value);
+      if (i && f) url += `?inicio=${i.value}&fim=${f.value}`;
     }
-    if (parametrosExtra) {
-      const extras = parametrosExtra() || {};
-      Object.entries(extras).forEach(([chave, valor]) => {
-        if (valor !== null && valor !== undefined && String(valor).trim() !== '') {
-          params.set(chave, String(valor).trim());
-        }
-      });
-    }
-    const consulta = params.toString();
-    if (consulta) url += `?${consulta}`;
     registros = await SGMF.get(url);
     if (tabela) { tabela.destroy(); }
     montarTabela();
