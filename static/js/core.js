@@ -194,10 +194,12 @@ const SGMF = (() => {
 
   const GRUPOS = ['Motor', 'Suspensão', 'Freios', 'Elétrica', 'Hidráulica', 'Pneus',
     'Transmissão', 'Arrefecimento', 'Outros'];
-  const POSICOES = ['Dianteiro Esquerdo', 'Dianteiro Direito',
-    'Traseiro Esquerdo Externo', 'Traseiro Esquerdo Interno',
-    'Traseiro Direito Externo', 'Traseiro Direito Interno',
-    'Eixo 3 Esquerdo', 'Eixo 3 Direito', 'Estepe'];
+  const POSICOES = ['Dianteiro esquerdo', 'Dianteiro direito',
+    'Tração traseiro externo esquerdo', 'Tração traseiro interno esquerdo',
+    'Tração traseiro interno direito', 'Tração traseiro externo direito',
+    'Truck traseiro externo esquerdo', 'Truck traseiro interno esquerdo',
+    'Truck traseiro interno direito', 'Truck traseiro externo direito',
+    'Estepe'];
 
   /* -------------------------------------------------------------- gráficos */
   Chart.defaults.font.family = "Inter, system-ui, sans-serif";

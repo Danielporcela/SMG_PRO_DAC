@@ -193,7 +193,16 @@ document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
 
   // Carregar lista de mecânicos
   fetch('/relatorios/mecanicos.json', { credentials: 'same-origin' })
-    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(async r => {
+      if (r.ok) return r.json();
+      // Repassa o status para o catch conseguir distinguir o motivo real
+      let msg = `HTTP ${r.status}`;
+      try {
+        const corpo = await r.json();
+        if (corpo && corpo.erro) msg = corpo.erro;
+      } catch (_) { /* corpo não era JSON */ }
+      return Promise.reject({ status: r.status, msg });
+    })
     .then(lista => {
       const sel = document.getElementById('selectMecanico');
       if (!lista.length) {
@@ -203,9 +212,18 @@ document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
       sel.innerHTML = '<option value="">— selecione o mecânico —</option>' +
         lista.map(m => `<option value="${SGMF.esc(m)}">${SGMF.esc(m)}</option>`).join('');
     })
-    .catch(() => {
+    .catch(err => {
       const sel = document.getElementById('selectMecanico');
-      if (sel) sel.innerHTML = '<option value="">Erro ao carregar</option>';
+      let texto = 'Erro ao carregar';
+      if (err && err.status === 401) {
+        texto = 'Sessão expirada — atualize a página';
+      } else if (err && err.status === 403) {
+        texto = 'Sem permissão para ver relatórios';
+      } else if (err && err.msg) {
+        texto = err.msg;
+      }
+      if (sel) sel.innerHTML = `<option value="">${SGMF.esc(texto)}</option>`;
+      console.error('Falha ao carregar mecânicos.json:', err);
     });
 })();
 

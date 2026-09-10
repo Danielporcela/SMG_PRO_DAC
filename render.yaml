@@ -4,7 +4,7 @@ services:
   - type: web
     name: sgmf-pro
     runtime: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: flask db upgrade && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
     # Aplica as mudanças de estrutura do banco antes de publicar a nova versão.
@@ -50,4 +50,4 @@ services:
 databases:
   - name: sgmf-banco
     databaseName: sgmf
-    plan: free
+    plan: starter

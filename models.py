@@ -1005,6 +1005,42 @@ class Abastecimento(db.Model):
                 "custo_por_km": self.custo_por_km, "qtd_anexos": len(self.anexos)}
 
 
+class ConsumoDiario(db.Model):
+    """Fotografia diária do consumo de combustível da frota (visão geral).
+
+    Diferente do `Abastecimento` (um lançamento por veículo), esta tabela
+    guarda uma linha por DIA com o consumo médio da frota inteira até
+    aquele momento — para dar o histórico de evolução no painel. Não
+    depende de trigger/EVENT do banco (SQLite não tem isso): é recalculada
+    pela própria aplicação, tanto em tempo real (ao salvar um
+    abastecimento) quanto ao abrir o painel, sem precisar de ação manual.
+    """
+    __tablename__ = "consumo_diario"
+    id = db.Column(db.Integer, primary_key=True)
+    data_consumo = db.Column(db.Date, unique=True, nullable=False, index=True)
+    km_por_litro = db.Column(db.Float, default=0)
+    litros_por_dia = db.Column(db.Float, default=0)
+    total_km = db.Column(db.Float, default=0)
+    total_litros = db.Column(db.Float, default=0)
+    dias_monitorados = db.Column(db.Integer, default=0)
+    total_abastecimentos = db.Column(db.Integer, default=0)
+    eficiencia = db.Column(db.String(20), default="—")
+    atualizado_em = db.Column(db.DateTime, default=_agora, onupdate=_agora)
+
+    def to_dict(self):
+        return {
+            "data": self.data_consumo.isoformat() if self.data_consumo else None,
+            "km_por_litro": round(self.km_por_litro or 0, 2),
+            "litros_por_dia": round(self.litros_por_dia or 0, 2),
+            "total_km": round(self.total_km or 0),
+            "total_litros": round(self.total_litros or 0, 1),
+            "dias_monitorados": self.dias_monitorados,
+            "total_abastecimentos": self.total_abastecimentos,
+            "eficiencia": self.eficiencia,
+            "atualizado_em": self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else None,
+        }
+
+
 class Pneu(db.Model):
     """Módulo 7 — pneus."""
     __tablename__ = "pneus"

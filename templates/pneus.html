@@ -1,64 +1,165 @@
-{% extends "lista.html" %}
-{% block titulo %}Pneus{% endblock %}
-{% block cabecalho %}Controle de pneus{% endblock %}
-{% block descricao %}Módulo 7 — posição no veículo, sulco em milímetros e alerta automático abaixo de 4 mm.{% endblock %}
-{% block rotulo_novo %}Novo pneu{% endblock %}
+{% extends "base.html" %}
+{% block titulo %}Mapa de Pneus{% endblock %}
+{% block cabecalho %}Mapa de Pneus — Caminhão Truck{% endblock %}
+{% block descricao %}Clique diretamente em cada pneu para cadastrar, editar ou consultar a posição.{% endblock %}
 
-{% block antes_tabela %}
-<div class="instrumentos mb-3" id="resumoPneus"></div>
+{% block acoes %}
+<div class="pneus-toolbar">
+  <label for="pneuFrota">Frota</label>
+  <select id="pneuFrota" class="form-select"></select>
+  <button class="btn btn-primario" id="btnAtualizarPneus">
+    <i class="fa-solid fa-rotate"></i> Atualizar
+  </button>
+</div>
+{% endblock %}
+
+{% block conteudo %}
+<div class="mapa-pneus-page">
+  <div class="mapa-status" id="mapaStatus">Carregando frota…</div>
+
+  <div class="mapa-card">
+    <div class="mapa-titulo">
+      <i class="fa-solid fa-truck"></i> Mapa de pneus — caminhão truck
+    </div>
+
+    <div class="mapa-subtitulo">
+      Frente do caminhão à esquerda. Na imagem, a parte superior corresponde ao
+      lado direito e a parte inferior corresponde ao lado esquerdo.
+      Clique diretamente no pneu para abrir o cadastro.
+    </div>
+
+    <div class="mapa-stage" id="mapaStage">
+      <img
+        id="imagemMapaPneus"
+        src="{{ url_for('static', filename='img/mapa_pneus_truck.jpg') }}"
+        alt="Mapa técnico superior de caminhão truck com 10 posições de pneus"
+      >
+      <div
+        id="areasPneus"
+        class="areas-pneus"
+        aria-label="Posições clicáveis dos pneus"
+      ></div>
+    </div>
+  </div>
+
+  <div class="mapa-legenda">
+    <span><b class="bolinha verde"></b> Externo</span>
+    <span><b class="bolinha azul"></b> Interno</span>
+    <span><b class="bolinha vermelho"></b> Dianteiro</span>
+    <span><b class="bolinha cinza"></b> Sem cadastro</span>
+  </div>
+
+  <div class="mapa-info" id="pneuSelecionado">
+    <div><strong>Pneu selecionado:</strong> —</div>
+    <div><strong>Posição:</strong> —</div>
+    <div><strong>Nº de fogo:</strong> —</div>
+    <div><strong>Status:</strong> —</div>
+    <div><strong>Sulco:</strong> —</div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalMapaPneu" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header mapa-modal-header">
+        <div>
+          <h5 class="modal-title" id="modalMapaTitulo">Pneu</h5>
+          <small id="modalMapaPosicao"></small>
+        </div>
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          data-bs-dismiss="modal"
+          aria-label="Fechar"
+        ></button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="mapaPneuId">
+        <input type="hidden" id="mapaPneuPosicao">
+
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Número de fogo *</label>
+            <input id="mapaNumeroFogo" class="form-control" maxlength="30">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Marca</label>
+            <input id="mapaMarca" class="form-control">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Medida</label>
+            <input
+              id="mapaMedida"
+              class="form-control"
+              placeholder="275/80 R22.5"
+            >
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Sulco (mm)</label>
+            <input id="mapaSulco" type="number" step="0.1" class="form-control">
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Km instalação</label>
+            <input id="mapaKm" type="number" step="1" class="form-control">
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Data instalação</label>
+            <input id="mapaData" type="date" class="form-control">
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Vida</label>
+            <select id="mapaVida" class="form-select">
+              <option>Novo</option>
+              <option>1ª recapagem</option>
+              <option>2ª recapagem</option>
+              <option>3ª recapagem</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select id="mapaStatusPneu" class="form-select">
+              <option>Em uso</option>
+              <option>Estoque</option>
+              <option>Descartado</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Custo (R$)</label>
+            <input id="mapaCusto" type="number" step="0.01" class="form-control">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Última medição</label>
+            <input id="mapaMedicao" type="date" class="form-control">
+          </div>
+        </div>
+
+        <div class="alert alert-light border mt-4 mb-0" id="mapaAvisoPosicao"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">
+          Cancelar
+        </button>
+        <button class="btn btn-primario" id="btnSalvarMapaPneu">
+          Salvar pneu
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-SGMF.tela({
-  recurso: 'pneus',
-  titulo: 'pneu',
-  campos: [
-    { nome: 'numero_fogo', rotulo: 'Número de fogo', col: 3, obrigatorio: true, maiuscula: true,
-      ajuda: 'Identificação gravada no pneu.' },
-    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5 },
-    { nome: 'posicao', rotulo: 'Posição no veículo', tipo: 'select', col: 4, opcoes: SGMF.POSICOES },
-    { nome: 'marca', rotulo: 'Marca', col: 3 },
-    { nome: 'medida', rotulo: 'Medida', col: 3, exemplo: '275/80 R22.5' },
-    { nome: 'vida', rotulo: 'Vida', tipo: 'select', col: 3, padrao: 'Novo',
-      opcoes: ['Novo', '1ª recapagem', '2ª recapagem', '3ª recapagem'] },
-    { nome: 'sulco_mm', rotulo: 'Sulco (mm)', tipo: 'number', passo: '0.1', col: 3,
-      ajuda: 'Abaixo de 4 mm o sistema gera alerta de troca.' },
-    { nome: 'km_instalacao', rotulo: 'Km na instalação', tipo: 'number', col: 3 },
-    { nome: 'data_instalacao', rotulo: 'Data da instalação', tipo: 'date', col: 3, padrao: SGMF.hoje },
-    { nome: 'data_medicao', rotulo: 'Última medição', tipo: 'date', col: 3, padrao: SGMF.hoje },
-    { nome: 'custo', rotulo: 'Custo (R$)', tipo: 'moeda', col: 3 },
-    { nome: 'status', rotulo: 'Status', tipo: 'select', col: 4, padrao: 'Em uso',
-      opcoes: ['Em uso', 'Estoque', 'Descartado'] }
-  ],
-  colunas: [
-    { campo: 'numero_fogo', rotulo: 'Nº fogo', classe: 'num' },
-    { campo: 'veiculo_nome', rotulo: 'Veículo' },
-    { campo: 'posicao', rotulo: 'Posição' },
-    { campo: 'marca', rotulo: 'Marca' },
-    { campo: 'medida', rotulo: 'Medida', classe: 'num' },
-    { campo: 'vida', rotulo: 'Vida' },
-    { campo: 'sulco_mm', rotulo: 'Sulco', classe: 'num text-end',
-      render: (v, i) => {
-        const cor = i.trocar ? 'vermelha' : (v < 5 ? 'ambar' : 'verde');
-        return SGMF.etiqueta(SGMF.numero(v, 1) + ' mm', cor);
-      } },
-    { campo: 'km_rodados', rotulo: 'Km rodados', classe: 'num text-end', render: v => SGMF.numero(v) },
-    { campo: 'status', rotulo: 'Status', render: v => SGMF.status(v) },
-    { campo: 'trocar', rotulo: 'Ação', render: v => v
-        ? '<span class="etiqueta vermelha"><i class="fa-solid fa-triangle-exclamation me-1"></i>Trocar</span>'
-        : SGMF.etiqueta('Em ordem', 'verde') }
-  ],
-  aoRenderizar: (linhas) => {
-    const emUso = linhas.filter(p => p.status === 'Em uso');
-    const trocar = linhas.filter(p => p.trocar);
-    const media = emUso.length ? emUso.reduce((s, p) => s + (p.sulco_mm || 0), 0) / emUso.length : 0;
-    document.getElementById('resumoPneus').innerHTML = `
-      <div class="medidor"><div class="rotulo">Pneus cadastrados</div><div class="valor num">${linhas.length}</div></div>
-      <div class="medidor ok"><div class="rotulo">Em uso</div><div class="valor num">${emUso.length}</div></div>
-      <div class="medidor ${trocar.length ? 'critico' : 'ok'}"><div class="rotulo">Abaixo de 4 mm</div><div class="valor num">${trocar.length}</div><div class="nota">${trocar.length ? 'Programe a troca' : 'Nenhum pneu no limite'}</div></div>
-      <div class="medidor"><div class="rotulo">Sulco médio</div><div class="valor num">${SGMF.numero(media, 1)} <small>mm</small></div></div>`;
-  }
-});
-</script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pneus.css') }}">
+<script src="{{ url_for('static', filename='js/pneus.js') }}"></script>
 {% endblock %}

@@ -220,6 +220,52 @@
           <strong>Sem lançamentos no período</strong>Registre abastecimentos e ordens de serviço.</div>`;
   }
 
+  // Evolução diária do consumo da frota — série própria (não depende do
+  // filtro de período do painel; sempre mostra os últimos 30 dias e é
+  // recalculada no servidor a cada carregamento).
+  async function carregarConsumoDiario() {
+    const historico = await SGMF.get('/api/consumo-diario/historico?dias=30');
+    if (!historico.length) {
+      document.getElementById('resumoConsumoDiario').innerHTML = '';
+      document.getElementById('consumoAtualizadoEm').textContent = '';
+      return;
+    }
+    const ultimo = historico[historico.length - 1];
+    const classeEficiencia = { EXCELENTE: 'ok', BOM: 'ok', NORMAL: 'atencao', RUIM: 'atencao' };
+
+    document.getElementById('resumoConsumoDiario').innerHTML = [
+      medidor('Consumo médio', `${SGMF.numero(ultimo.km_por_litro, 2)} <small>km/L</small>`, { icone: 'fa-gas-pump' }),
+      medidor('Litros/dia', SGMF.numero(ultimo.litros_por_dia, 1), { icone: 'fa-droplet' }),
+      medidor('Eficiência', ultimo.eficiencia, {
+        classe: classeEficiencia[ultimo.eficiencia] || '', icone: 'fa-gauge-high' })
+    ].join('');
+    document.getElementById('consumoAtualizadoEm').textContent =
+      ultimo.atualizado_em ? `atualizado ${ultimo.atualizado_em}` : '';
+
+    SGMF.grafico('graficoConsumoDiario', {
+      type: 'line',
+      data: {
+        labels: historico.map(h => SGMF.data(h.data)),
+        datasets: [{
+          label: 'Consumo médio (km/L)', data: historico.map(h => h.km_por_litro),
+          borderColor: '#0F3D56', backgroundColor: 'rgba(15,61,86,.08)',
+          borderWidth: 2, pointRadius: 2, tension: .25, fill: true
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => `${SGMF.numero(c.parsed.y, 2)} km/L` } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { ticks: { callback: v => SGMF.numero(v, 1) }, grid: { color: '#EBEFF3' } }
+        }
+      }
+    });
+  }
+
   async function carregarAlertas() {
     const lista = await SGMF.carregarContadorAlertas();
     const icones = { critico: 'fa-circle-exclamation', atencao: 'fa-triangle-exclamation', info: 'fa-circle-info' };
@@ -440,7 +486,8 @@
 
   async function atualizar() {
     try {
-      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarAlertas(), carregarConectados()]);
+      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(),
+                         carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
   }
 

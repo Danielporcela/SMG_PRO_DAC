@@ -1,0 +1,169 @@
+/* Mapa de pneus do SGMF — caminhão truck, vista superior. */
+.mapa-pneus-page{width:100%}
+.pneus-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pneus-toolbar label{font-weight:700;margin:0}
+.pneus-toolbar select{min-width:260px;max-width:360px}
+
+.mapa-status{
+  background:#fff5cf;
+  border:1px solid #f0d67a;
+  border-radius:8px;
+  padding:11px 15px;
+  margin-bottom:14px;
+  color:#6c5500;
+  font-weight:600
+}
+
+.mapa-card{
+  background:#fff;
+  border:1px solid #d9e2e8;
+  border-radius:10px;
+  padding:12px;
+  box-shadow:0 2px 8px rgba(15,61,86,.07)
+}
+
+.mapa-titulo{
+  background:#0f3d56;
+  color:#fff;
+  font-weight:700;
+  padding:12px 15px;
+  border-radius:7px 7px 0 0;
+  font-size:16px
+}
+
+.mapa-subtitulo{
+  background:#f4f8fa;
+  color:#4e6370;
+  padding:9px 15px;
+  border-left:1px solid #e0e8ed;
+  border-right:1px solid #e0e8ed;
+  font-size:13px
+}
+
+.mapa-stage{
+  position:relative;
+  width:100%;
+  overflow:hidden;
+  background:#f7f8fa;
+  border:1px solid #d9e2e8;
+  border-radius:0 0 8px 8px;
+  line-height:0
+}
+
+.mapa-stage img{
+  display:block;
+  width:100%;
+  height:auto;
+  user-select:none
+}
+
+.areas-pneus{
+  position:absolute;
+  inset:0
+}
+
+.pneu-hotspot{
+  position:absolute;
+  transform:translate(-50%,-50%);
+  width:11.5%;
+  aspect-ratio:2.8/1;
+  border-radius:45%;
+  border:4px solid #fff;
+  box-shadow:0 0 0 3px currentColor,0 4px 12px rgba(0,0,0,.28);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#fff;
+  font-weight:800;
+  font-size:clamp(14px,2.2vw,27px);
+  line-height:1;
+  transition:transform .15s,filter .15s;
+  opacity:.88
+}
+
+.pneu-hotspot:hover{
+  transform:translate(-50%,-50%) scale(1.08);
+  filter:brightness(1.08);
+  opacity:1
+}
+
+.pneu-hotspot.verde{background:#16834c;color:#16834c}
+.pneu-hotspot.azul{background:#1769d1;color:#1769d1}
+.pneu-hotspot.vermelho{background:#d91f26;color:#d91f26}
+.pneu-hotspot.cinza{background:#6f7d87;color:#6f7d87}
+
+.pneu-hotspot span{
+  color:#fff;
+  text-shadow:0 1px 2px #000
+}
+
+.pneu-hotspot.cadastrado{
+  box-shadow:
+    0 0 0 3px currentColor,
+    0 0 0 6px rgba(255,255,255,.85),
+    0 4px 12px rgba(0,0,0,.28)
+}
+
+.mapa-legenda{
+  display:flex;
+  gap:22px;
+  flex-wrap:wrap;
+  padding:12px 2px;
+  color:#536875;
+  font-size:13px
+}
+
+.bolinha{
+  display:inline-block;
+  width:13px;
+  height:13px;
+  border-radius:50%;
+  margin-right:6px;
+  vertical-align:-2px
+}
+
+.bolinha.verde{background:#16834c}
+.bolinha.azul{background:#1769d1}
+.bolinha.vermelho{background:#d91f26}
+.bolinha.cinza{background:#6f7d87}
+
+.mapa-info{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:8px;
+  background:#fff;
+  border:1px solid #d9e2e8;
+  border-radius:8px;
+  padding:12px;
+  font-size:13px
+}
+
+.mapa-modal-header{
+  background:#0f3d56;
+  color:#fff
+}
+
+.mapa-modal-header h5{margin:0}
+.mapa-modal-header small{opacity:.9}
+
+@media(max-width:900px){
+  .mapa-info{grid-template-columns:repeat(2,1fr)}
+  .pneu-hotspot{width:12%;border-width:3px}
+}
+
+@media(max-width:600px){
+  .pneus-toolbar select{
+    min-width:0;
+    width:100%;
+    max-width:none
+  }
+
+  .mapa-info{grid-template-columns:1fr}
+
+  .pneu-hotspot{
+    width:14%;
+    font-size:14px;
+    border-width:2px
+  }
+}

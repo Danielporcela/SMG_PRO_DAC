@@ -5,11 +5,13 @@ from flask import Blueprint, current_app, jsonify, request, session
 from sqlalchemy import func
 
 from extensions import db
-from models import (Abastecimento, Fornecedor, GrupoConsumo, ItemOS, ItemOSPecaSerial, Lavagem,
-                    LogAuditoria, Motorista, MovimentoEstoque, Orcamento, OrdemServico, Peca,
-                    PecaSerial, Pneu, ServicoTerceiro, Usuario, Veiculo, proximo_codigo_peca)
+from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, ItemOS,
+                    ItemOSPecaSerial, Lavagem, LogAuditoria, Motorista, MovimentoEstoque,
+                    Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoTerceiro, Usuario,
+                    Veiculo, proximo_codigo_peca)
 from services import indicadores
-from services.calculos import (baixar_item_os, dar_entrada_serial, desvincular_movimentos,
+from services.calculos import (atualizar_consumo_diario_frota, baixar_item_os,
+                               dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
                                instalar_serial_no_item, movimentar_estoque,
                                proximo_numero_os, recalcular_abastecimento,
@@ -19,6 +21,8 @@ from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrig
                            perfil_obrigatorio, pode_escrever, registrar_crud,
                            registrar_log, visualizar_tela)
 from services.tempo import agora, hoje, ler_data
+from services.mapa_pneus import PneuHistorico, PneuMapaDados
+from services.posicoes_pneu import normalizar_posicao
 
 bp_api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -504,6 +508,7 @@ def _antes_abastecimento(obj, dados, anterior):
 
 def _depois_abastecimento(obj, dados, anterior):
     recalcular_abastecimento(obj)
+    atualizar_consumo_diario_frota()
 
 
 registrar_crud(
@@ -528,6 +533,254 @@ registrar_crud(
     ordem=Pneu.numero_fogo, obrigatorios=("numero_fogo",), tela="pneus",
     serializar=lambda o: o.to_dict(current_app.config["SULCO_MINIMO_MM"]))
 
+
+# ----------------------------------------------------- Mapa interativo de pneus
+# As 10 posições seguem a convenção do caminhão truck:
+# 1-2 dianteiro; 3-6 primeiro eixo traseiro; 7-10 segundo eixo traseiro.
+_MAPA_POSICOES = [
+    {"numero": 1, "valor": "Dianteiro esquerdo", "eixo": "Eixo dianteiro", "lado": "Esquerdo", "lado_curto": "DE"},
+    {"numero": 2, "valor": "Dianteiro direito", "eixo": "Eixo dianteiro", "lado": "Direito", "lado_curto": "DD"},
+    {"numero": 3, "valor": "Tração traseiro externo esquerdo", "eixo": "1º eixo traseiro", "lado": "Esquerdo externo", "lado_curto": "TE"},
+    {"numero": 4, "valor": "Tração traseiro interno esquerdo", "eixo": "1º eixo traseiro", "lado": "Esquerdo interno", "lado_curto": "TI"},
+    {"numero": 5, "valor": "Tração traseiro interno direito", "eixo": "1º eixo traseiro", "lado": "Direito interno", "lado_curto": "DI"},
+    {"numero": 6, "valor": "Tração traseiro externo direito", "eixo": "1º eixo traseiro", "lado": "Direito externo", "lado_curto": "DE"},
+    {"numero": 7, "valor": "Truck traseiro externo esquerdo", "eixo": "2º eixo traseiro", "lado": "Esquerdo externo", "lado_curto": "TE"},
+    {"numero": 8, "valor": "Truck traseiro interno esquerdo", "eixo": "2º eixo traseiro", "lado": "Esquerdo interno", "lado_curto": "TI"},
+    {"numero": 9, "valor": "Truck traseiro interno direito", "eixo": "2º eixo traseiro", "lado": "Direito interno", "lado_curto": "DI"},
+    {"numero": 10, "valor": "Truck traseiro externo direito", "eixo": "2º eixo traseiro", "lado": "Direito externo", "lado_curto": "DE"},
+]
+_MAPA_POR_POSICAO = {p["valor"]: p for p in _MAPA_POSICOES}
+
+
+def _pneus_em_uso_mapa(veiculo_id):
+    mapa = {}
+    for pneu in Pneu.query.filter_by(veiculo_id=veiculo_id).all():
+        if pneu.status != "Em uso":
+            continue
+        posicao = normalizar_posicao(pneu.posicao)
+        if posicao in _MAPA_POR_POSICAO:
+            mapa[posicao] = pneu
+    return mapa
+
+
+def _dados_pneu_mapa(pneu):
+    if pneu is None:
+        return None
+    extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+    return {
+        "id": pneu.id,
+        "numero_fogo": pneu.numero_fogo,
+        "veiculo_id": pneu.veiculo_id,
+        "posicao": normalizar_posicao(pneu.posicao) or pneu.posicao,
+        "marca": pneu.marca,
+        "medida": pneu.medida,
+        "vida": pneu.vida,
+        "sulco_mm": pneu.sulco_mm,
+        "km_instalacao": pneu.km_instalacao,
+        "data_instalacao": pneu.data_instalacao.isoformat() if pneu.data_instalacao else None,
+        "status": pneu.status,
+        "custo": pneu.custo,
+        "dot": extra.dot if extra else None,
+        "observacao": extra.observacao if extra else None,
+        "trocar": (pneu.sulco_mm or 0) < current_app.config["SULCO_MINIMO_MM"],
+    }
+
+
+def _registrar_historico_pneu(pneu, evento, detalhe=""):
+    extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+    veiculo = db.session.get(Veiculo, pneu.veiculo_id) if pneu.veiculo_id else None
+    km = veiculo.hodometro if veiculo else pneu.km_instalacao
+    db.session.add(PneuHistorico(
+        pneu_id=pneu.id,
+        numero_fogo=pneu.numero_fogo,
+        veiculo_id=pneu.veiculo_id,
+        posicao=normalizar_posicao(pneu.posicao) or pneu.posicao,
+        dot=extra.dot if extra else None,
+        sulco_mm=pneu.sulco_mm,
+        km=km,
+        status=pneu.status,
+        evento=evento,
+        detalhe=detalhe,
+        usuario=session.get("usuario_nome", "sistema"),
+    ))
+
+
+@bp_api.get("/mapa-pneus/posicoes")
+@visualizar_tela("pneus")
+def mapa_pneus_posicoes():
+    return jsonify(_MAPA_POSICOES)
+
+
+@bp_api.get("/mapa-pneus/<int:veiculo_id>")
+@visualizar_tela("pneus")
+def mapa_pneus_obter(veiculo_id):
+    veiculo = db.get_or_404(Veiculo, veiculo_id)
+    ocupadas = _pneus_em_uso_mapa(veiculo_id)
+    resposta = []
+    for pos in _MAPA_POSICOES:
+        pneu = ocupadas.get(pos["valor"])
+        item = dict(pos)
+        item["pneu"] = _dados_pneu_mapa(pneu)
+        resposta.append(item)
+    return jsonify({
+        "veiculo": {
+            "id": veiculo.id,
+            "prefixo": veiculo.prefixo,
+            "placa": veiculo.placa,
+            "hodometro": veiculo.hodometro or 0,
+        },
+        "posicoes": resposta,
+    })
+
+
+@bp_api.get("/mapa-pneus/<int:veiculo_id>/historico")
+@visualizar_tela("pneus")
+def mapa_pneus_historico(veiculo_id):
+    db.get_or_404(Veiculo, veiculo_id)
+    pneu_id = request.args.get("pneu_id", type=int)
+    q = PneuHistorico.query.filter(PneuHistorico.veiculo_id == veiculo_id)
+    if pneu_id:
+        q = q.filter(PneuHistorico.pneu_id == pneu_id)
+    q = q.order_by(PneuHistorico.criado_em.desc(), PneuHistorico.id.desc()).limit(200)
+    return jsonify([h.to_dict() for h in q.all()])
+
+
+@bp_api.post("/mapa-pneus/posicao")
+@editar_tela("pneus")
+def mapa_pneus_salvar():
+    dados = request.get_json(silent=True) or {}
+    veiculo_id = dados.get("veiculo_id")
+    try:
+        veiculo_id = int(veiculo_id)
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Selecione um veículo válido."}), 400
+
+    veiculo = db.session.get(Veiculo, veiculo_id)
+    if not veiculo:
+        return jsonify({"erro": "Veículo não encontrado."}), 404
+
+    posicao = normalizar_posicao(dados.get("posicao"))
+    if posicao not in _MAPA_POR_POSICAO:
+        return jsonify({"erro": "Selecione uma posição válida do mapa."}), 400
+
+    fogo = str(dados.get("numero_fogo") or "").strip()
+    if not fogo:
+        return jsonify({"erro": "Informe o número de fogo do pneu."}), 400
+
+    evento = str(dados.get("evento") or "Atualização").strip()
+    if evento not in ("Atualização", "Instalação/Troca", "Rodízio"):
+        evento = "Atualização"
+
+    try:
+        sulco = float(str(dados.get("sulco_mm") or "0").replace(",", "."))
+        km_instalacao = float(str(dados.get("km_instalacao") or veiculo.hodometro or 0).replace(",", "."))
+    except ValueError:
+        return jsonify({"erro": "Sulco e quilometragem devem ser numéricos."}), 400
+
+    data_instalacao = ler_data(dados.get("data_instalacao"), "data de instalação") or hoje()
+    marca = str(dados.get("marca") or "").strip()
+    medida = str(dados.get("medida") or "").strip()
+    vida = str(dados.get("vida") or "Novo").strip()
+    dot = str(dados.get("dot") or "").strip()
+    observacao = str(dados.get("observacao") or "").strip()
+
+    try:
+        ocupadas = _pneus_em_uso_mapa(veiculo_id)
+        alvo = ocupadas.get(posicao)
+        pneu = Pneu.query.filter(Pneu.numero_fogo == fogo).first()
+
+        if pneu is not None and pneu.status == "Em uso" and pneu.veiculo_id != veiculo_id:
+            raise ErroNegocio("Este pneu já está em uso em outra frota. Retire-o de lá antes do rodízio.")
+
+        # Rodízio: se o pneu informado já ocupa outra posição desta mesma frota,
+        # troca as posições dos dois pneus em uma única operação.
+        posicao_atual = normalizar_posicao(pneu.posicao) if pneu else None
+        if pneu is not None and pneu.status == "Em uso" and pneu.veiculo_id == veiculo_id \
+                and posicao_atual and posicao_atual != posicao:
+            if evento != "Rodízio":
+                raise ErroNegocio(
+                    f"O pneu {fogo} já está na posição {posicao_atual}. "
+                    "Selecione 'Rodízio' para movimentá-lo.")
+            if alvo is not None and alvo.id != pneu.id:
+                alvo.posicao = posicao_atual
+                _registrar_historico_pneu(
+                    alvo, "Rodízio",
+                    f"Troca de posição com o pneu {pneu.numero_fogo}.")
+            pneu.posicao = posicao
+            pneu.marca = marca or pneu.marca
+            pneu.medida = medida or pneu.medida
+            pneu.sulco_mm = sulco
+            pneu.km_instalacao = pneu.km_instalacao or km_instalacao
+            pneu.vida = vida or pneu.vida
+            pneu.data_medicao = hoje()
+            _registrar_historico_pneu(
+                pneu, "Rodízio",
+                f"Movido de {posicao_atual} para {posicao}.")
+        else:
+            if pneu is None:
+                pneu = Pneu(numero_fogo=fogo)
+                db.session.add(pneu)
+                db.session.flush()
+                evento_real = "Instalação"
+            else:
+                evento_real = evento
+
+            if alvo is not None and alvo.id != pneu.id:
+                if evento == "Rodízio":
+                    raise ErroNegocio(
+                        f"A posição {posicao} já está ocupada pelo pneu {alvo.numero_fogo}. "
+                        "Para rodízio, informe o pneu que será movimentado.")
+                alvo.status = "Descartado"
+                _registrar_historico_pneu(
+                    alvo, "Troca",
+                    f"Substituído na posição {posicao} pelo pneu {fogo}.")
+
+            pneu.veiculo_id = veiculo_id
+            pneu.posicao = posicao
+            pneu.marca = marca
+            pneu.medida = medida
+            pneu.sulco_mm = sulco
+            pneu.vida = vida
+            pneu.km_instalacao = km_instalacao
+            pneu.data_instalacao = data_instalacao
+            pneu.data_medicao = hoje()
+            pneu.status = "Em uso"
+
+            if evento == "Instalação/Troca":
+                evento_real = "Instalação" if evento_real == "Instalação" else "Troca"
+            elif evento_real != "Instalação":
+                evento_real = "Atualização"
+
+            db.session.flush()
+
+            extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+            if extra is None:
+                extra = PneuMapaDados(pneu_id=pneu.id)
+                db.session.add(extra)
+            extra.dot = dot
+            extra.observacao = observacao
+
+            _registrar_historico_pneu(pneu, evento_real, f"Posição {posicao}.")
+
+        # Em um rodízio também atualizamos os dados DOT/observação do pneu movido.
+        if evento == "Rodízio":
+            extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+            if extra is None:
+                extra = PneuMapaDados(pneu_id=pneu.id)
+                db.session.add(extra)
+            if dot:
+                extra.dot = dot
+            if observacao:
+                extra.observacao = observacao
+
+        db.session.commit()
+        return jsonify(_dados_pneu_mapa(pneu))
+    except (ValueError, ErroNegocio) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}."}), 400
 
 # -------------------------------------------------------- Módulo 11: estoque
 def _verificar_peca_duplicada(obj, anterior):
@@ -718,6 +971,26 @@ def painel_resumo():
 def painel_graficos():
     return jsonify(indicadores.series_graficos(request.args.get("inicio"),
                                                request.args.get("fim")))
+
+
+@bp_api.get("/consumo-diario/historico")
+@visualizar_tela("dashboard")
+def consumo_diario_historico():
+    """Evolução diária do consumo médio da frota (últimos N dias).
+
+    Recalcula a linha de hoje a cada leitura — assim o painel sempre
+    mostra o dado mais atual, mesmo que ninguém tenha lançado um
+    abastecimento agora há pouco (uma edição ou exclusão de um
+    abastecimento antigo também é refletida na próxima vez que essa
+    rota for lida, sem precisar de ação manual).
+    """
+    atualizar_consumo_diario_frota()
+    dias = request.args.get("dias", 30, type=int)
+    registros = (ConsumoDiario.query
+                 .order_by(ConsumoDiario.data_consumo.desc())
+                 .limit(dias).all())
+    registros.reverse()
+    return jsonify([r.to_dict() for r in registros])
 
 
 @bp_api.get("/painel/rankings")

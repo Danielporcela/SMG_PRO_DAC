@@ -2,12 +2,12 @@
 from datetime import date
 
 from flask import has_request_context, session
-from sqlalchemy import text
+from sqlalchemy import func, text
 
 from services.tempo import hoje
 
 from extensions import db
-from models import (Abastecimento, ItemOS, ItemOSPecaSerial, MovimentoEstoque,
+from models import (Abastecimento, ConsumoDiario, ItemOS, ItemOSPecaSerial, MovimentoEstoque,
                     MovimentoPecaSerial, OrdemServico, Peca, PecaSerial, Veiculo)
 from services.crud import ErroNegocio
 
@@ -44,6 +44,68 @@ def recalcular_abastecimento(abast):
     if veiculo and (abast.km_atual or 0) > (veiculo.hodometro or 0):
         veiculo.hodometro = abast.km_atual
     return abast
+
+
+def atualizar_consumo_diario_frota():
+    """Recalcula e grava a fotografia de consumo da frota para HOJE.
+
+    Substitui os TRIGGER/EVENT de MySQL (que o SQLite não tem) por uma
+    atualização feita pela própria aplicação:
+    - chamada em tempo real logo depois de salvar um abastecimento
+      (ver `_depois_abastecimento` em routes/api.py);
+    - chamada de novo sempre que a rota /api/consumo-diario/historico é
+      lida (ou seja, sempre que alguém abre o painel) — isso garante que
+      a linha de hoje também reflita edições/exclusões, sem precisar de
+      cron nem de acesso ao servidor.
+
+    Os limites de eficiência (3.5 / 3.0 / 2.5 km/L) são um ponto de
+    partida — ajuste para a realidade da sua frota (tipo de veículo,
+    combustível) se quiser classificações mais precisas.
+    """
+    total_litros, total_km, data_min, data_max, total_abast = (
+        db.session.query(
+            func.sum(Abastecimento.litros),
+            func.sum(Abastecimento.km_percorridos),
+            func.min(Abastecimento.data),
+            func.max(Abastecimento.data),
+            func.count(Abastecimento.id),
+        ).first()
+    )
+    total_litros = total_litros or 0
+    total_km = total_km or 0
+    total_abast = total_abast or 0
+
+    if not total_abast or not total_litros:
+        return None
+
+    dias = (data_max - data_min).days + 1 if data_min and data_max else 1
+    km_por_litro = round(total_km / total_litros, 2) if total_litros else 0
+    litros_por_dia = round(total_litros / dias, 2) if dias else 0
+
+    if km_por_litro >= 3.5:
+        eficiencia = "EXCELENTE"
+    elif km_por_litro >= 3.0:
+        eficiencia = "BOM"
+    elif km_por_litro >= 2.5:
+        eficiencia = "NORMAL"
+    else:
+        eficiencia = "RUIM"
+
+    hoje_data = hoje()
+    registro = ConsumoDiario.query.filter_by(data_consumo=hoje_data).first()
+    if not registro:
+        registro = ConsumoDiario(data_consumo=hoje_data)
+        db.session.add(registro)
+
+    registro.km_por_litro = km_por_litro
+    registro.litros_por_dia = litros_por_dia
+    registro.total_km = total_km
+    registro.total_litros = total_litros
+    registro.dias_monitorados = dias
+    registro.total_abastecimentos = total_abast
+    registro.eficiencia = eficiencia
+    db.session.commit()
+    return registro
 
 
 def validar_km(abast):

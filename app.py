@@ -11,7 +11,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from extensions import db, migrate
-from models import CARGO_APROVACAO_COMPRAS
 from services.tempo import hoje
 
 
@@ -49,6 +48,7 @@ def criar_app(config=Config):
     migrate.init_app(app, db, directory=os.path.join(os.path.dirname(__file__), "migrations"))
 
     from routes.api import bp_api
+    from services.mapa_pneus import garantir_tabelas_mapa_pneus
     from routes.auditoria_estoque import bp_auditoria_estoque
     from routes.auth import bp_auth, bp_usuarios
     from routes.busca_pecas import bp_busca_pecas
@@ -104,6 +104,7 @@ def criar_app(config=Config):
         garantir_grupos_consumo()
         garantir_campos_execucao_os()
         garantir_ultimo_acesso_usuario()
+        garantir_tabelas_mapa_pneus()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -203,13 +204,7 @@ def criar_app(config=Config):
                 tela, PADRAO_POR_PERFIL.get(session.get("perfil"), "nenhum"))
             return pesos.get(nivel_atual, 0) >= pesos.get(nivel_minimo, 1)
 
-        def pode_decidir_compra():
-            """Aprovar/Reprovar Ordem de Compra: só o cargo Gerente
-            Financeira decide — sem exceção nem para admin. Ver
-            CARGO_APROVACAO_COMPRAS em models.py."""
-            return (session.get("cargo") or "").strip().upper() == CARGO_APROVACAO_COMPRAS
-
-        return {"pode": pode, "pode_decidir_compra": pode_decidir_compra}
+        return {"pode": pode}
 
     from services.crud import ErroNegocio
 
