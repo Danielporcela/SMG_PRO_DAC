@@ -86,6 +86,7 @@ def criar_app(config=Config):
     # PostgreSQL ainda não recebeu as tabelas ou alguma coluna do módulo.
     with app.app_context():
         from services.compatibilidade_banco import (garantir_campos_execucao_os,
+                                                     garantir_consumo_diario,
                                                      garantir_itens_os_servicos_terceiros,
                                                      garantir_lavagens_financeiro,
                                                      garantir_ordens_compra,
@@ -95,6 +96,7 @@ def criar_app(config=Config):
                                                      garantir_usuario_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_campos_ordens_servico)
+        garantir_consumo_diario()
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()

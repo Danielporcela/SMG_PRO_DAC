@@ -298,6 +298,26 @@ def series_graficos(inicio=None, fim=None):
             p["peca"] = p["peca"][:57] + "…"
 
     ordens_periodo = _custo_os(inicio, fim)
+    # Horas trabalhadas por mecânico, calculadas diretamente das OS do período.
+    # Usa hora_inicio_servico quando preenchida; para OS antigas, o modelo
+    # faz fallback para hora_inicio. Somente OS com início e fim válidos entram.
+    horas_mecanicos = {}
+    for o in ordens_periodo:
+        nome = (o.mecanico or "").strip()
+        minutos = o.duracao_minutos
+        if not nome or minutos is None or minutos < 0:
+            continue
+        chave = nome.casefold()
+        reg = horas_mecanicos.setdefault(chave, {"mecanico": nome, "minutos": 0, "ordens": 0})
+        reg["minutos"] += minutos
+        reg["ordens"] += 1
+    horas_mecanicos = sorted(
+        [{"mecanico": v["mecanico"],
+          "minutos": v["minutos"],
+          "horas": round(v["minutos"] / 60, 2),
+          "ordens": v["ordens"]} for v in horas_mecanicos.values()],
+        key=lambda x: x["minutos"], reverse=True)
+
     tipos = {"Preventiva": 0, "Corretiva": 0, "Emergencial": 0}
     for o in ordens_periodo:
         tipos[o.tipo] = tipos.get(o.tipo, 0) + 1
@@ -313,6 +333,7 @@ def series_graficos(inicio=None, fim=None):
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
         "top_pecas": top_pecas,
+        "horas_mecanicos": horas_mecanicos,
         "consumo_veiculo": sorted(
             [{"veiculo": v["veiculo"], "consumo": v["consumo"]} for v in por_veiculo if v["consumo"]],
             key=lambda x: x["consumo"], reverse=True)[:10],

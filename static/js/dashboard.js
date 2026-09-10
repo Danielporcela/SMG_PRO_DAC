@@ -183,6 +183,46 @@
       }
     });
 
+    SGMF.grafico('graficoHorasMecanicos', {
+      type: 'bar',
+      data: {
+        labels: g.horas_mecanicos.map(m => m.mecanico),
+        datasets: [{
+          label: 'Horas trabalhadas',
+          data: g.horas_mecanicos.map(m => m.horas),
+          backgroundColor: '#16795D', borderRadius: 3
+        }]
+      },
+      options: {
+        indexAxis: 'y', maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            label: c => {
+              const m = g.horas_mecanicos[c.dataIndex];
+              return `${m.horas.toFixed(2)} h · ${m.ordens} OS`;
+            }
+          }}
+        },
+        scales: {
+          x: { beginAtZero: true, title: { display: true, text: 'Horas' },
+               ticks: { callback: v => `${v} h` } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+
+    document.getElementById('tabelaHorasMecanicos').innerHTML = g.horas_mecanicos.length
+      ? `<div class="table-responsive"><table class="table table-sm mb-0 align-middle" style="font-size:13px">
+          <thead><tr><th class="ps-3">Mecânico</th><th class="text-end">OS consideradas</th><th class="text-end pe-3">Horas trabalhadas</th></tr></thead>
+          <tbody>${g.horas_mecanicos.map(m => `<tr>
+            <td class="ps-3"><strong>${SGMF.esc(m.mecanico)}</strong></td>
+            <td class="text-end num">${m.ordens}</td>
+            <td class="text-end num pe-3"><strong>${m.horas.toFixed(2)} h</strong></td>
+          </tr>`).join('')}</tbody></table></div>`
+      : `<div class="vazio"><i class="fa-solid fa-clock"></i>
+          <strong>Sem horas registradas</strong>Preencha início e fim do serviço nas ordens de serviço.</div>`;
+
     SGMF.grafico('graficoTopPecas', {
       type: 'bar',
       data: {

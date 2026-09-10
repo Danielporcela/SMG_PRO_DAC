@@ -4,31 +4,6 @@ from sqlalchemy import inspect, text
 from extensions import db
 
 
-
-def garantir_consumo_diario():
-    """Garante a tabela do histórico diário de consumo.
-
-    Bancos antigos podem não possuir a tabela `consumo_diario`. Em banco
-    novo, `db.create_all()` a criará normalmente; aqui só criamos a tabela
-    antecipadamente quando as tabelas-base já existem.
-    """
-    from models import ConsumoDiario
-
-    engine = db.engine
-    insp = inspect(engine)
-    tabelas = set(insp.get_table_names())
-
-    if "consumo_diario" in tabelas:
-        return
-
-    # Em instalação nova, o create_all() será executado depois desta etapa.
-    # Não tentamos criar aqui porque as tabelas relacionadas/base ainda podem
-    # não existir.
-    if "abastecimentos" not in tabelas:
-        return
-
-    ConsumoDiario.__table__.create(engine, checkfirst=True)
-
 def garantir_ordens_compra():
     """Garante a estrutura mínima do módulo de ordens de compra.
 
