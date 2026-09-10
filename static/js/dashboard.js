@@ -4,6 +4,7 @@
   const fim = () => document.getElementById('filtroFim').value;
 
   let ultimosGraficos = null; // guarda o retorno de /api/painel/graficos para a impressão
+  let ultimoConsumoDiario = [];
 
   function medidor(rotulo, valor, opcoes = {}) {
     return `<div class="medidor ${opcoes.classe || ''}">
@@ -265,6 +266,7 @@
   // recalculada no servidor a cada carregamento).
   async function carregarConsumoDiario() {
     const historico = await SGMF.get('/api/consumo-diario/historico?dias=30');
+    ultimoConsumoDiario = historico || [];
     if (!historico.length) {
       document.getElementById('resumoConsumoDiario').innerHTML = '';
       document.getElementById('consumoAtualizadoEm').textContent = '';
@@ -519,9 +521,112 @@
     });
   }
 
+  function imprimirGraficoConsumoDiario() {
+    const g = precisaGraficos(); if (!g) return;
+    const serie = ultimoConsumoDiario || [];
+    if (!serie.length) return SGMF.aviso('Não há histórico de consumo diário para imprimir.');
+    abrirImpressaoRelatorio({
+      titulo: 'Evolução do consumo da frota',
+      canvasId: 'graficoConsumoDiario',
+      colunas: [
+        { rotulo: 'Data', render: l => SGMF.data(l.data_consumo || l.data) },
+        { rotulo: 'Km/L', classe: 'text-end num', render: l => SGMF.numero(l.km_por_litro ?? l.consumo, 2) },
+        { rotulo: 'Litros', classe: 'text-end num', render: l => SGMF.numero(l.litros_por_dia ?? l.litros, 2) }
+      ],
+      linhas: serie
+    });
+  }
+
+  function imprimirHorasMecanicos() {
+    const g = precisaGraficos(); if (!g) return;
+    const linhas = g.horas_mecanicos || [];
+    abrirImpressaoRelatorio({
+      titulo: 'Horas trabalhadas por mecânico', canvasId: 'graficoHorasMecanicos',
+      colunas: [
+        { rotulo: 'Mecânico', campo: 'mecanico' },
+        { rotulo: 'OS consideradas', classe: 'text-end num', campo: 'ordens' },
+        { rotulo: 'Horas trabalhadas', classe: 'text-end num', render: l => `${Number(l.horas || 0).toFixed(2)} h` }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirAlertas() {
+    const area = document.getElementById('painelAlertas');
+    if (!area) return SGMF.aviso('Área de alertas não encontrada.');
+    const itens = [...area.querySelectorAll('.alerta-item')];
+    if (!itens.length) return SGMF.aviso('Não há alertas ativos para imprimir.');
+    const linhas = itens.map(el => ({
+      titulo: el.querySelector('.titulo')?.innerText || '',
+      detalhe: el.querySelector('.detalhe')?.innerText || ''
+    }));
+    abrirImpressaoRelatorio({
+      titulo: 'Alertas ativos',
+      colunas: [
+        { rotulo: 'Alerta', campo: 'titulo' },
+        { rotulo: 'Detalhes', campo: 'detalhe' }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirConectados() {
+    const area = document.getElementById('painelConectados');
+    if (!area) return SGMF.aviso('Área de logins conectados não encontrada.');
+    const itens = [...area.querySelectorAll('.alerta-item')];
+    if (!itens.length) return SGMF.aviso('Não há logins conectados para imprimir.');
+    const linhas = itens.map(el => ({
+      nome: el.querySelector('.titulo')?.innerText || '',
+      detalhe: el.querySelector('.detalhe')?.innerText || ''
+    }));
+    abrirImpressaoRelatorio({
+      titulo: 'Logins conectados agora',
+      colunas: [
+        { rotulo: 'Usuário', campo: 'nome' },
+        { rotulo: 'Situação', campo: 'detalhe' }
+      ],
+      linhas
+    });
+  }
+
+  function imprimirPainelCompleto() {
+    const g = ultimosGraficos;
+    if (!g) return SGMF.aviso('Aguarde o painel terminar de carregar e tente novamente.');
+    const janela = window.open('', '_blank', 'width=1200,height=850');
+    if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+    const blocos = [];
+    const instrumentos = document.getElementById('instrumentos');
+    if (instrumentos && instrumentos.innerText.trim()) {
+      blocos.push(`<section><h2>Indicadores do período</h2>${instrumentos.outerHTML}</section>`);
+    }
+    const cards = [...document.querySelectorAll('.row > [class*="col-"] .cartao')];
+    cards.forEach(card => {
+      const titulo = card.querySelector('.cartao-topo h3')?.innerText?.trim();
+      if (!titulo) return;
+      const canvas = card.querySelector('canvas');
+      const tabela = card.querySelector('table');
+      const texto = card.querySelector('.vazio')?.innerText?.trim();
+      let html = `<section><h2>${SGMF.esc(titulo)}</h2>`;
+      if (canvas) html += `<img src="${canvas.toDataURL('image/png',1.0)}">`;
+      if (tabela) html += tabela.outerHTML;
+      else if (texto) html += `<p>${SGMF.esc(texto)}</p>`;
+      else if (!canvas) html += `<div>${SGMF.esc(card.querySelector('.cartao-corpo')?.innerText || '')}</div>`;
+      html += '</section>';
+      blocos.push(html);
+    });
+
+    janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>SGMF Pro · Painel completo</title><style>
+      *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#182530;padding:24px;margin:0}h1{color:#0F3D56;font-size:22px;margin:0 0 4px}.sub{font-size:12px;color:#666;margin-bottom:20px}section{break-inside:avoid;border:1px solid #D3DBE2;border-radius:6px;padding:14px;margin:0 0 16px}h2{font-size:15px;color:#0F3D56;margin:0 0 10px}img{width:100%;max-height:300px;object-fit:contain;margin-bottom:10px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #D3DBE2;padding:5px 7px}th{background:#0F3D56;color:#fff;text-align:left}tr:nth-child(even) td{background:#F5F7F9}.rodape{margin-top:18px;font-size:10px;color:#888}@media print{@page{size:A4 landscape;margin:10mm}}
+    </style></head><body><h1>SGMF Pro · Painel da frota</h1><div class="sub">${`Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())}`} · Gerado em ${new Date().toLocaleString('pt-BR')}</div>${blocos.join('')}<div class="rodape">Sistema de Gestão de Manutenção de Frotas</div></body></html>`);
+    janela.document.close();
+    janela.onload = () => { janela.focus(); janela.print(); };
+  }
+
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
-    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas
+    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoConsumoDiario, imprimirGraficoLavagem, imprimirTopPecas,
+    imprimirHorasMecanicos, imprimirAlertas, imprimirConectados, imprimirPainelCompleto
   });
 
   async function atualizar() {
