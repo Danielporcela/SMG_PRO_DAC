@@ -6,7 +6,7 @@ Execução no Render:  gunicorn app:app
 import os
 from datetime import timedelta
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
@@ -39,6 +39,14 @@ def criar_app(config=Config):
             resposta.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return resposta
+
+    @app.route("/favicon.ico")
+    def favicon():
+        """O ícone da aba já é servido via <link rel="icon"> (data URI) em
+        base.html, mas o navegador sempre tenta /favicon.ico direto por
+        padrão. Sem esta rota, isso aparecia como 404 no console em toda
+        tela do sistema."""
+        return Response(status=204)
 
     for pasta in (app.config["UPLOAD_FOLDER"], app.config["BACKUP_FOLDER"],
                   os.path.join(os.path.dirname(__file__), "database")):
