@@ -298,26 +298,6 @@ def series_graficos(inicio=None, fim=None):
             p["peca"] = p["peca"][:57] + "…"
 
     ordens_periodo = _custo_os(inicio, fim)
-    # Horas trabalhadas por mecânico, calculadas diretamente das OS do período.
-    # Usa hora_inicio_servico quando preenchida; para OS antigas, o modelo
-    # faz fallback para hora_inicio. Somente OS com início e fim válidos entram.
-    horas_mecanicos = {}
-    for o in ordens_periodo:
-        nome = (o.mecanico or "").strip()
-        minutos = o.duracao_minutos
-        if not nome or minutos is None or minutos < 0:
-            continue
-        chave = nome.casefold()
-        reg = horas_mecanicos.setdefault(chave, {"mecanico": nome, "minutos": 0, "ordens": 0})
-        reg["minutos"] += minutos
-        reg["ordens"] += 1
-    horas_mecanicos = sorted(
-        [{"mecanico": v["mecanico"],
-          "minutos": v["minutos"],
-          "horas": round(v["minutos"] / 60, 2),
-          "ordens": v["ordens"]} for v in horas_mecanicos.values()],
-        key=lambda x: x["minutos"], reverse=True)
-
     tipos = {"Preventiva": 0, "Corretiva": 0, "Emergencial": 0}
     for o in ordens_periodo:
         tipos[o.tipo] = tipos.get(o.tipo, 0) + 1
@@ -333,7 +313,6 @@ def series_graficos(inicio=None, fim=None):
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
         "top_pecas": top_pecas,
-        "horas_mecanicos": horas_mecanicos,
         "consumo_veiculo": sorted(
             [{"veiculo": v["veiculo"], "consumo": v["consumo"]} for v in por_veiculo if v["consumo"]],
             key=lambda x: x["consumo"], reverse=True)[:10],
@@ -391,9 +370,13 @@ def alertas():
     hoje = data_de_hoje()
     saida = []
 
-    def add(nivel, categoria, titulo, detalhe, referencia=None):
+    def add(nivel, categoria, titulo, detalhe, referencia=None, veiculo=None):
+        """veiculo: instância de Veiculo (ou None) ligada ao alerta, usada para
+        expor a identificação da frota (prefixo/placa) de forma estruturada."""
         saida.append({"nivel": nivel, "categoria": categoria, "titulo": titulo,
-                      "detalhe": detalhe, "referencia": referencia})
+                      "detalhe": detalhe, "referencia": referencia,
+                      "frota": veiculo.prefixo if veiculo else None,
+                      "placa": veiculo.placa if veiculo else None})
 
     for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
                                   Veiculo.grupo_consumo_legado.isnot(True)).all():
@@ -402,19 +385,21 @@ def alertas():
             faltam = v.km_proxima_troca_oleo - (v.hodometro or 0)
             if faltam <= 0:
                 add("critico", "Óleo", f"{v.prefixo} · troca de óleo vencida",
-                    f"{abs(faltam):,.0f} km além do intervalo previsto.".replace(",", "."), v.placa)
+                    f"{abs(faltam):,.0f} km além do intervalo previsto.".replace(",", "."), v.placa,
+                    veiculo=v)
             elif faltam <= cfg["KM_AVISO_TROCA_OLEO"]:
                 add("atencao", "Óleo", f"{v.prefixo} · troca de óleo próxima",
-                    f"Faltam {faltam:,.0f} km.".replace(",", "."), v.placa)
+                    f"Faltam {faltam:,.0f} km.".replace(",", "."), v.placa, veiculo=v)
         # preventiva atrasada
         if v.data_ultima_preventiva and v.intervalo_preventiva_dias:
             venc = v.data_ultima_preventiva + timedelta(days=v.intervalo_preventiva_dias)
             if venc < hoje:
                 add("critico", "Preventiva", f"{v.prefixo} · preventiva atrasada",
-                    f"Vencida em {venc.strftime('%d/%m/%Y')} ({(hoje - venc).days} dias).", v.placa)
+                    f"Vencida em {venc.strftime('%d/%m/%Y')} ({(hoje - venc).days} dias).", v.placa,
+                    veiculo=v)
             elif (venc - hoje).days <= 7:
                 add("atencao", "Preventiva", f"{v.prefixo} · preventiva a vencer",
-                    f"Programada para {venc.strftime('%d/%m/%Y')}.", v.placa)
+                    f"Programada para {venc.strftime('%d/%m/%Y')}.", v.placa, veiculo=v)
         # orçamento do mês
         if v.orcamento_mensal:
             ini = hoje.replace(day=1)
@@ -431,7 +416,7 @@ def alertas():
             if gasto > v.orcamento_mensal:
                 add("critico", "Orçamento", f"{v.prefixo} · acima do orçamento",
                     f"R$ {gasto:,.2f} gastos contra R$ {v.orcamento_mensal:,.2f} previstos."
-                    .replace(",", "X").replace(".", ",").replace("X", "."), v.placa)
+                    .replace(",", "X").replace(".", ",").replace("X", "."), v.placa, veiculo=v)
 
         # consumo pior que a média histórica
         media_hist = db.session.query(func.avg(Abastecimento.km_por_litro)).filter(
@@ -444,7 +429,7 @@ def alertas():
             if media_recente < media_hist * (1 - cfg["DESVIO_CONSUMO_ALERTA"]):
                 add("atencao", "Consumo", f"{v.prefixo} · consumo acima do normal",
                     f"Média recente {media_recente:.2f} km/L contra {media_hist:.2f} km/L histórica.",
-                    v.placa)
+                    v.placa, veiculo=v)
 
     # pneus no limite
     for p in Pneu.query.filter(Pneu.status == "Em uso").all():
@@ -452,10 +437,10 @@ def alertas():
             add("critico", "Pneus", f"Pneu {p.numero_fogo} abaixo do sulco mínimo",
                 f"{p.sulco_mm:.1f} mm em {p.posicao or 'posição não informada'} "
                 f"({p.veiculo.prefixo if p.veiculo else 'sem veículo'}). Limite: "
-                f"{cfg['SULCO_MINIMO_MM']:.0f} mm.", p.numero_fogo)
+                f"{cfg['SULCO_MINIMO_MM']:.0f} mm.", p.numero_fogo, veiculo=p.veiculo)
         elif (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"] + 1:
             add("atencao", "Pneus", f"Pneu {p.numero_fogo} próximo do limite",
-                f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo)
+                f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo, veiculo=p.veiculo)
 
     pendencias_estoque_os = contar_os_pendentes()
     if pendencias_estoque_os:
@@ -482,7 +467,7 @@ def alertas():
     for veiculo_id, grupo, qtd in recorrentes:
         v = db.session.get(Veiculo, veiculo_id)
         add("critico", "Recorrência", f"{v.prefixo if v else '—'} · falhas repetidas em {grupo or 'componente'}",
-            f"{qtd} corretivas nos últimos 90 dias. Avalie causa raiz.", v.placa if v else None)
+            f"{qtd} corretivas nos últimos 90 dias. Avalie causa raiz.", v.placa if v else None, veiculo=v)
 
     ordem = {"critico": 0, "atencao": 1, "info": 2}
     saida.sort(key=lambda a: ordem.get(a["nivel"], 3))

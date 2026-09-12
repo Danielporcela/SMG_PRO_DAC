@@ -45,7 +45,11 @@
         <div class="cartao-corpo p-0">
           ${itens.map(a => `<div class="alerta-item ${a.nivel}">
             <div class="icone"><i class="fa-solid ${icones[a.nivel]}"></i></div>
-            <div><div class="titulo">${SGMF.esc(a.titulo)}</div>
+            <div>
+                 <div class="titulo">
+                   ${a.frota ? `<span class="etiqueta ambar me-2">${SGMF.esc(a.frota)}${a.placa ? ' · ' + SGMF.esc(a.placa) : ''}</span>` : ''}
+                   ${SGMF.esc(a.titulo)}
+                 </div>
                  <div class="detalhe">${SGMF.esc(a.detalhe)}</div></div></div>`).join('')}
         </div>
       </div>
