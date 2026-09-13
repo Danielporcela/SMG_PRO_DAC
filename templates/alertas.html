@@ -3,12 +3,27 @@
 {% block cabecalho %}Alertas inteligentes{% endblock %}
 {% block descricao %}Avisos gerados automaticamente a partir dos lançamentos: óleo, preventiva, pneus, estoque, orçamento e consumo.{% endblock %}
 {% block acoes %}
+<button class="btn btn-contorno" id="botaoImprimirAlertas" title="Imprimir lista de alertas">
+  <i class="fa-solid fa-print me-1"></i> Imprimir
+</button>
 <button class="btn btn-contorno" onclick="location.reload()"><i class="fa-solid fa-rotate me-1"></i> Atualizar</button>
 {% endblock %}
 
 {% block conteudo %}
 <div class="instrumentos mb-3" id="resumoAlertas"></div>
 <div class="row g-3" id="grupos"></div>
+<!-- Tabela oculta para impressão -->
+<table id="tabelaAlertas" style="display:none" class="tabela-impressao">
+  <thead>
+    <tr>
+      <th>Categoria</th>
+      <th>Nível</th>
+      <th>Título</th>
+      <th>Detalhe</th>
+    </tr>
+  </thead>
+  <tbody id="corpoTabelaAlertas"></tbody>
+</table>
 {% endblock %}
 
 {% block scripts %}
@@ -26,8 +41,19 @@
     area.innerHTML = `<div class="col-12"><div class="cartao"><div class="vazio">
       <i class="fa-solid fa-circle-check" style="color:var(--ok)"></i>
       <strong>Tudo em ordem</strong>Nenhum alerta ativo para a frota neste momento.</div></div></div>`;
+    document.getElementById('botaoImprimirAlertas').disabled = true;
     return;
   }
+
+  // Preenche a tabela oculta para impressão
+  const corpoTabela = lista.map(a => `
+    <tr>
+      <td>${SGMF.esc(a.categoria)}</td>
+      <td>${SGMF.esc(a.nivel)}</td>
+      <td>${SGMF.esc(a.titulo)}</td>
+      <td>${SGMF.esc(a.detalhe)}</td>
+    </tr>`).join('');
+  document.getElementById('corpoTabelaAlertas').innerHTML = corpoTabela;
 
   const icones = { critico: 'fa-circle-exclamation', atencao: 'fa-triangle-exclamation', info: 'fa-circle-info' };
   const porCategoria = {};
@@ -45,15 +71,21 @@
         <div class="cartao-corpo p-0">
           ${itens.map(a => `<div class="alerta-item ${a.nivel}">
             <div class="icone"><i class="fa-solid ${icones[a.nivel]}"></i></div>
-            <div>
-                 <div class="titulo">
-                   ${a.frota ? `<span class="etiqueta ambar me-2">${SGMF.esc(a.frota)}${a.placa ? ' · ' + SGMF.esc(a.placa) : ''}</span>` : ''}
-                   ${SGMF.esc(a.titulo)}
-                 </div>
+            <div><div class="titulo">${SGMF.esc(a.titulo)}</div>
                  <div class="detalhe">${SGMF.esc(a.detalhe)}</div></div></div>`).join('')}
         </div>
       </div>
     </div>`).join('');
 })();
+
+// Imprimir alertas
+document.getElementById('botaoImprimirAlertas').addEventListener('click', () => {
+  const tabela = document.getElementById('tabelaAlertas');
+  if (!tabela.querySelector('tbody tr')) {
+    SGMF.aviso('Nenhum alerta para imprimir.');
+    return;
+  }
+  SGMF.imprimir('tabelaAlertas', 'Alertas inteligentes da frota');
+});
 </script>
 {% endblock %}
