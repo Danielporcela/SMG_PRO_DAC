@@ -4,6 +4,8 @@
   const fim = () => document.getElementById('filtroFim').value;
 
   let ultimosGraficos = null; // guarda o retorno de /api/painel/graficos para a impressão
+  let ultimoConsumoDiario = null; // guarda o histórico de /api/consumo-diario para a impressão
+  let ultimoHorasMecanicos = null; // guarda o retorno de /api/painel/horas-mecanicos para a impressão
 
   function medidor(rotulo, valor, opcoes = {}) {
     return `<div class="medidor ${opcoes.classe || ''}">
@@ -225,6 +227,7 @@
   // recalculada no servidor a cada carregamento).
   async function carregarConsumoDiario() {
     const historico = await SGMF.get('/api/consumo-diario/historico?dias=30');
+    ultimoConsumoDiario = historico;
     if (!historico.length) {
       document.getElementById('resumoConsumoDiario').innerHTML = '';
       document.getElementById('consumoAtualizadoEm').textContent = '';
@@ -264,6 +267,55 @@
         }
       }
     });
+  }
+
+  // Horas trabalhadas por mecânico no período selecionado do painel
+  // (mesmos filtros de data usados nos demais cards e gráficos).
+  async function carregarHorasMecanicos() {
+    const dados = await SGMF.get(`/api/painel/horas-mecanicos?inicio=${inicio()}&fim=${fim()}`);
+    ultimoHorasMecanicos = dados;
+
+    const canvasBox = document.getElementById('graficoHorasMecanicos').closest('.grafico-caixa');
+    const tabela = document.getElementById('tabelaHorasMecanicos');
+
+    if (!dados.length) {
+      if (canvasBox) canvasBox.style.display = 'none';
+      tabela.innerHTML = `<div class="vazio"><i class="fa-solid fa-user-clock"></i>
+        <strong>Sem OS com mecânico e horário registrados</strong>
+        Informe o mecânico e os horários de início/fim nas ordens de serviço.</div>`;
+      return;
+    }
+    if (canvasBox) canvasBox.style.display = '';
+
+    const top = dados.slice(0, 12);
+    SGMF.grafico('graficoHorasMecanicos', {
+      type: 'bar',
+      data: {
+        labels: top.map(m => m.mecanico),
+        datasets: [{ label: 'Horas trabalhadas', data: top.map(m => m.horas),
+                     backgroundColor: '#0F3D56', borderRadius: 2 }]
+      },
+      options: {
+        indexAxis: 'y', maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            label: c => `${top[c.dataIndex].horas_str} · ${top[c.dataIndex].os} OS`
+          } }
+        },
+        scales: { x: { ticks: { callback: v => SGMF.numero(v, 1) } }, y: { grid: { display: false } } }
+      }
+    });
+
+    tabela.innerHTML = `<table class="table table-sm mb-0 align-middle" style="font-size:13px">
+        <thead><tr><th class="ps-3">Mecânico</th><th class="text-end">OS</th>
+        <th class="text-end">Horas</th><th class="text-end pe-3">Custo das OS</th></tr></thead>
+        <tbody>${dados.map(m => `<tr>
+          <td class="ps-3">${SGMF.esc(m.mecanico)}</td>
+          <td class="text-end num">${m.os}</td>
+          <td class="text-end num">${m.horas_str}</td>
+          <td class="text-end num pe-3">${SGMF.moeda(m.custo)}</td>
+        </tr>`).join('')}</tbody></table>`;
   }
 
   async function carregarAlertas() {
@@ -482,15 +534,48 @@
     });
   }
 
+  function imprimirGraficoConsumoDiario() {
+    if (!ultimoConsumoDiario || !ultimoConsumoDiario.length) {
+      return SGMF.aviso('Aguarde o histórico de consumo carregar e tente novamente.');
+    }
+    abrirImpressaoRelatorio({
+      titulo: 'Evolução do consumo da frota (últimos 30 dias)', canvasId: 'graficoConsumoDiario', semPeriodo: true,
+      colunas: [
+        { rotulo: 'Data', render: l => SGMF.data(l.data) },
+        { rotulo: 'Consumo (km/L)', classe: 'text-end num', render: l => SGMF.numero(l.km_por_litro, 2) },
+        { rotulo: 'Litros/dia', classe: 'text-end num', render: l => SGMF.numero(l.litros_por_dia, 1) },
+        { rotulo: 'Eficiência', campo: 'eficiencia' }
+      ],
+      linhas: ultimoConsumoDiario
+    });
+  }
+
+  function imprimirHorasMecanicos() {
+    if (!ultimoHorasMecanicos || !ultimoHorasMecanicos.length) {
+      return SGMF.aviso('Não há dados para imprimir neste período.');
+    }
+    abrirImpressaoRelatorio({
+      titulo: 'Horas trabalhadas por mecânico', canvasId: 'graficoHorasMecanicos',
+      colunas: [
+        { rotulo: 'Mecânico', campo: 'mecanico' },
+        { rotulo: 'OS', classe: 'text-end num', campo: 'os' },
+        { rotulo: 'Horas', classe: 'text-end num', campo: 'horas_str' },
+        { rotulo: 'Custo das OS', classe: 'text-end num', render: l => SGMF.moeda(l.custo) }
+      ],
+      linhas: ultimoHorasMecanicos
+    });
+  }
+
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
-    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas
+    imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas,
+    imprimirGraficoConsumoDiario, imprimirHorasMecanicos
   });
 
   async function atualizar() {
     try {
       await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(),
-                         carregarAlertas(), carregarConectados()]);
+                         carregarHorasMecanicos(), carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
   }
 

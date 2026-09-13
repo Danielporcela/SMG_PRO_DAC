@@ -192,6 +192,44 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     }
 
 
+def horas_por_mecanico(inicio=None, fim=None):
+    """Horas trabalhadas por mecânico no período, a partir das OS com
+    início e fim registrados (usa OrdemServico.duracao_minutos, que já
+    prioriza hora_inicio_servico sobre hora_inicio quando disponível).
+
+    Nomes são normalizados (mesma lógica de /mecanicos-os) para que
+    "cleiton", "CLEITON" e "Cleiton" sejam somados como um único mecânico.
+    """
+    inicio, fim = periodo_padrao(inicio, fim)
+
+    ordens = (OrdemServico.query
+              .filter(OrdemServico.data_abertura.between(inicio, fim),
+                      OrdemServico.mecanico.isnot(None),
+                      OrdemServico.mecanico != "")
+              .all())
+
+    agregados = {}
+    for o in ordens:
+        chave = o.mecanico.strip().upper()
+        registro = agregados.setdefault(chave, {
+            "mecanico": o.mecanico.strip().title(), "os": 0, "minutos": 0, "custo": 0.0,
+        })
+        registro["os"] += 1
+        registro["minutos"] += o.duracao_minutos or 0
+        registro["custo"] += o.custo_total or 0
+
+    linhas = [{
+        "mecanico": v["mecanico"],
+        "os": v["os"],
+        "horas": round(v["minutos"] / 60, 2),
+        "horas_str": f"{v['minutos'] // 60}h{v['minutos'] % 60:02d}m",
+        "custo": round(v["custo"], 2),
+    } for v in agregados.values()]
+    linhas.sort(key=lambda x: x["horas"], reverse=True)
+
+    return linhas
+
+
 def series_graficos(inicio=None, fim=None):
     """Dados dos gráficos do dashboard (módulos 6, 8 e 9)."""
     inicio, fim = periodo_padrao(inicio, fim)

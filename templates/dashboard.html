@@ -35,7 +35,7 @@
       <div class="faixa-sinalizacao"></div>
       <div class="cartao-topo">
         <h3><i class="fa-solid fa-triangle-exclamation me-2" style="color:var(--hi-vis)"></i>Alertas ativos</h3>
-        <button type="button" class="btn btn-contorno btn-sm ms-auto me-2" title="Imprimir alertas" onclick="imprimirAlertas()"><i class="fa-solid fa-print"></i></button>
+        <button type="button" class="btn btn-contorno btn-sm ms-auto me-2" title="Imprimir alertas" onclick="SGMF.imprimir('painelAlertas', 'Alertas ativos')"><i class="fa-solid fa-print"></i></button>
         <a href="{{ url_for('paginas.alertas') }}" class="ms-auto" style="font-size:12px">ver todos</a>
       </div>
       <div class="cartao-corpo p-0" style="max-height:322px;overflow:auto" id="painelAlertas"></div>
@@ -162,7 +162,7 @@
     <div class="cartao h-100">
       <div class="cartao-topo">
         <h3><i class="fa-solid fa-users me-2" style="color:var(--petroleo)"></i>Logins conectados agora</h3>
-        <button type="button" class="btn btn-contorno btn-sm ms-auto me-2" title="Imprimir logins conectados" onclick="imprimirConectados()"><i class="fa-solid fa-print"></i></button>
+        <button type="button" class="btn btn-contorno btn-sm ms-auto me-2" title="Imprimir logins conectados" onclick="SGMF.imprimir('painelConectados', 'Logins conectados agora')"><i class="fa-solid fa-print"></i></button>
         <span class="etiqueta verde" id="etiquetaConectados" style="font-size:11px">—</span>
       </div>
       <div class="cartao-corpo p-0" style="max-height:322px;overflow:auto" id="painelConectados"></div>

@@ -993,6 +993,13 @@ def consumo_diario_historico():
     return jsonify([r.to_dict() for r in registros])
 
 
+@bp_api.get("/painel/horas-mecanicos")
+@visualizar_tela("dashboard")
+def painel_horas_mecanicos():
+    return jsonify(indicadores.horas_por_mecanico(request.args.get("inicio"),
+                                                   request.args.get("fim")))
+
+
 @bp_api.get("/painel/rankings")
 @visualizar_tela("ranking")
 def painel_rankings():
