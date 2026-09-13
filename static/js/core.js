@@ -242,6 +242,13 @@ const SGMF = (() => {
     const el = typeof idOuElemento === 'string' ? document.getElementById(idOuElemento) : idOuElemento;
     if (!el) return aviso('Não encontrei o conteúdo para imprimir.');
 
+    // Algumas telas (ex.: Alertas) mantêm uma tabela oculta (style="display:none")
+    // só para gerar a impressão. Clonamos o elemento e removemos esse
+    // display:none do clone, senão ele continua escondido também na janela
+    // de impressão e a página sai em branco.
+    const conteudo = el.cloneNode(true);
+    if (conteudo.style && conteudo.style.display === 'none') conteudo.style.display = '';
+
     const inicioEl = document.getElementById('filtroInicio') || document.getElementById('rInicio');
     const fimEl = document.getElementById('filtroFim') || document.getElementById('rFim');
     const periodo = (inicioEl && fimEl && inicioEl.value && fimEl.value)
@@ -271,7 +278,7 @@ const SGMF = (() => {
       </head><body>
       <h1>SGMF Pro · ${esc(titulo)}</h1>
       <div class="sub">${periodo}Gerado em ${geradoEm}</div>
-      ${el.outerHTML}
+      ${conteudo.outerHTML}
       <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
       </body></html>`);
     janela.document.close();
