@@ -16,12 +16,26 @@ branch_labels = None
 depends_on = None
 
 
+def _tem_coluna(tabela, coluna):
+    """Evita erro 'column already exists': esta migration e a
+    c4a1e9f2b736 (outro ramo do histórico, unido depois em d09ef6a77750)
+    adicionam a mesma coluna de forma independente. Sem essa checagem,
+    o `flask db upgrade` falha na segunda tentativa e trava todo o
+    restante das migrations pendentes."""
+    insp = sa.inspect(op.get_bind())
+    return coluna in [c["name"] for c in insp.get_columns(tabela)]
+
+
 def upgrade():
+    if _tem_coluna('usuarios', 'permissoes_versao'):
+        return
     with op.batch_alter_table('usuarios', schema=None) as batch_op:
         batch_op.add_column(sa.Column('permissoes_versao', sa.Integer(),
                                        nullable=False, server_default='0'))
 
 
 def downgrade():
+    if not _tem_coluna('usuarios', 'permissoes_versao'):
+        return
     with op.batch_alter_table('usuarios', schema=None) as batch_op:
         batch_op.drop_column('permissoes_versao')
