@@ -121,16 +121,7 @@
   .opcao-peca .codigo { font-weight: 700; margin-right: 6px; }
   .opcao-peca .detalhe { display: block; font-size: 11.5px; color: #6B7C8A; }
   .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
-  .sgmf-autocomplete { position: relative; }
-  .sgmf-autocomplete-list { position: absolute; z-index: 1085; left: 0; right: 0; top: calc(100% - 2px);
-    border: 1px solid #C7D2DA; border-radius: 6px; background: #fff; box-shadow: 0 8px 18px rgba(0,0,0,.10);
-    max-height: 280px; overflow-y: auto; }
-  .sgmf-autocomplete-item { display: block; width: 100%; text-align: left; border: 0;
-    border-bottom: 1px solid #EEF1F4; background: #fff; padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
-  .sgmf-autocomplete-item:last-child { border-bottom: 0; }
-  .sgmf-autocomplete-item:hover, .sgmf-autocomplete-item:focus { background: #EAF2F7; outline: 0; }
 </style>
-<script src="{{ url_for('static', filename='js/problemas_os.js') }}"></script>
 <script>
 /* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
    (select) e no filtro do gráfico de evolução, em ordem alfabética. */
@@ -150,29 +141,25 @@ const telaOS = SGMF.tela({
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
     { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
-    { nome: 'hora_inicio_servico', rotulo: 'Horário inicial do serviço', tipo: 'time', col: 3,
-      ajuda: 'Preenchido manualmente no momento em que o serviço começar.' },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
-    { nome: 'problema', rotulo: 'Descrição dos serviços / problema relatado', tipo: 'textarea', col: 12, linhas: 3,
-      exemplo: 'Digite a primeira letra para buscar o problema cadastrado ou descreva livremente...',
-      autocompletar: true, opcoes: PROBLEMAS_OS, travarParaOutroSetor: true },
+    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
     { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
       opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },
-    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta',
+    { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta', travarParaCargos: ['CCO'],
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true,
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true, travarParaCargos: ['CCO'],
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
-    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média',
+    { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média', travarParaCargos: ['CCO'],
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
-    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4,
+    { nome: 'mecanico', rotulo: 'Mecânico responsável', tipo: 'select', col: 4, travarParaCargos: ['CCO'],
       opcoes: MECANICOS },
-    { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3,
+    { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3, travarParaCargos: ['CCO'],
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3 },
-    { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12 }
+    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3, travarParaCargos: ['CCO'] },
+    { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   colunas: [
     { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
@@ -185,8 +172,7 @@ const telaOS = SGMF.tela({
 
     { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
     { campo: 'mecanico', rotulo: 'Mecânico', render: v => v || '—' },
-    { campo: 'hora_inicio', rotulo: 'Abertura', classe: 'num', render: v => v || '—' },
-    { campo: 'hora_inicio_servico', rotulo: 'Início serviço', classe: 'num', render: v => v || '—' },
+    { campo: 'hora_inicio', rotulo: 'Início', classe: 'num', render: v => v || '—' },
     { campo: 'hora_fim', rotulo: 'Fim', classe: 'num', render: v => v || '—' },
     { campo: 'duracao_minutos', rotulo: 'Horas', classe: 'num',
       render: v => v != null ? `${Math.floor(v/60)}h ${String(v%60).padStart(2,'0')}m` : '—' },
@@ -659,11 +645,10 @@ async function imprimirOS(os) {
           <th>Frota (veículo)</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td></tr>
       <tr><th>Data</th><td>${SGMF.data(os.data_abertura)}</td>
           <th>Solicitante</th><td>${SGMF.esc(os.solicitante) || '—'}</td></tr>
-      <tr><th>Horário de abertura</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
+      <tr><th>Horário inicial</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
           <th>Setor</th><td>${SGMF.esc(os.setor) || '—'}</td></tr>
-      <tr><th>Horário inicial do serviço</th><td>${SGMF.esc(os.hora_inicio_servico) || '—'}</td>
-          <th>Km</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td></tr>
-      <tr><th>Tipo de serviço</th><td colspan="3">${SGMF.esc(os.grupo) || '—'}</td></tr>
+      <tr><th>Km</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td>
+          <th>Tipo de serviço</th><td>${SGMF.esc(os.grupo) || '—'}</td></tr>
       <tr><th>Situação</th><td colspan="3">${SGMF.esc(os.status) || '—'}</td></tr>
       <tr><th>Mecânico</th><td colspan="3">${SGMF.esc(os.mecanico) || '—'}</td></tr>
       <tr><th>Data de conclusão</th><td>${SGMF.data(os.data_fechamento)}</td>

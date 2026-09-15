@@ -195,10 +195,12 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     protetor_escrita = editar_tela(tela) if tela else pode_escrever
 
     def _remover_campos_bloqueados_por_cargo(dados):
-        if not campos_bloqueados_para_cargos or session.get("perfil") == "admin":
+        if not campos_bloqueados_para_cargos:
             return dados
         cargo_atual = (session.get("cargo") or "").strip().upper()
         bloqueados = campos_bloqueados_para_cargos.get(cargo_atual)
+        # O cargo CCO sempre respeita o bloqueio definido para a OS,
+        # inclusive quando o usuário também possui perfil administrador.
         if not bloqueados:
             return dados
         return {k: v for k, v in dados.items() if k not in bloqueados}
