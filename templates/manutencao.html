@@ -121,7 +121,16 @@
   .opcao-peca .codigo { font-weight: 700; margin-right: 6px; }
   .opcao-peca .detalhe { display: block; font-size: 11.5px; color: #6B7C8A; }
   .resultado-pecas .sem-resultado { padding: 8px 10px; font-size: 12.5px; color: #6B7C8A; }
+  .sgmf-autocomplete { position: relative; }
+  .sgmf-autocomplete-list { position: absolute; z-index: 1085; left: 0; right: 0; top: calc(100% - 2px);
+    border: 1px solid #C7D2DA; border-radius: 6px; background: #fff; box-shadow: 0 8px 18px rgba(0,0,0,.10);
+    max-height: 280px; overflow-y: auto; }
+  .sgmf-autocomplete-item { display: block; width: 100%; text-align: left; border: 0;
+    border-bottom: 1px solid #EEF1F4; background: #fff; padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
+  .sgmf-autocomplete-item:last-child { border-bottom: 0; }
+  .sgmf-autocomplete-item:hover, .sgmf-autocomplete-item:focus { background: #EAF2F7; outline: 0; }
 </style>
+<script src="{{ url_for('static', filename='js/problemas_os.js') }}"></script>
 <script>
 /* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
    (select) e no filtro do gráfico de evolução, em ordem alfabética. */
@@ -140,11 +149,13 @@ const telaOS = SGMF.tela({
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário inicial', tipo: 'time', col: 3, padrao: SGMF.horaAtual, travarParaOutroSetor: true },
+    { nome: 'hora_inicio', rotulo: 'Horário inicial do serviço', tipo: 'time', col: 3, travarParaOutroSetor: true },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
-    { nome: 'problema', rotulo: 'Problema relatado', tipo: 'textarea', col: 12, linhas: 2, travarParaOutroSetor: true },
+    { nome: 'problema', rotulo: 'Descrição dos serviços / problema relatado', tipo: 'textarea', col: 12, linhas: 3,
+      exemplo: 'Digite a primeira letra para buscar o problema cadastrado ou descreva livremente...',
+      autocompletar: true, opcoes: PROBLEMAS_OS, travarParaOutroSetor: true },
     { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
       opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },

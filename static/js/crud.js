@@ -34,7 +34,15 @@ SGMF.tela = function (config) {
       entrada = `<input type="text" class="form-control text-end" id="${nome}"
                    data-campo="${c.nome}" placeholder="${c.exemplo || '0,00'}">`;
     } else if (c.tipo === 'textarea') {
-      entrada = `<textarea class="form-control" id="${nome}" data-campo="${c.nome}" rows="${c.linhas || 3}"></textarea>`;
+      if (c.autocompletar) {
+        const listaId = `${nome}_sugestoes`;
+        entrada = `<div class="sgmf-autocomplete" data-autocomplete-campo="${nome}">
+          <textarea class="form-control" id="${nome}" data-campo="${c.nome}" rows="${c.linhas || 3}" autocomplete="off" placeholder="${c.exemplo || ''}"></textarea>
+          <div class="sgmf-autocomplete-list d-none" id="${listaId}" role="listbox"></div>
+        </div>`;
+      } else {
+        entrada = `<textarea class="form-control" id="${nome}" data-campo="${c.nome}" rows="${c.linhas || 3}"></textarea>`;
+      }
     } else if (c.tipo === 'combo') {
       /* Campo de texto com sugestões: digita e o próprio navegador já filtra,
          na lista abaixo, as opções que contêm o que foi digitado (ex.: "f"
@@ -98,6 +106,37 @@ SGMF.tela = function (config) {
     document.getElementById(`${idModal}_salvar`).addEventListener('click', salvar);
     campos.filter(c => c.tipo === 'moeda').forEach(c => {
       SGMF.mascaraMoeda(document.getElementById(`campo_${c.nome}`));
+    });
+
+    campos.filter(c => c.tipo === 'textarea' && c.autocompletar).forEach(c => {
+      const el = document.getElementById(`campo_${c.nome}`);
+      const listaEl = document.getElementById(`campo_${c.nome}_sugestoes`);
+      const opcoes = Array.isArray(c.opcoes) ? c.opcoes : [];
+      const normalizar = valor => String(valor || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const fechar = () => { listaEl.classList.add('d-none'); listaEl.innerHTML = ''; };
+      const selecionar = valor => {
+        el.value = valor;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        fechar();
+        el.focus();
+      };
+      const mostrar = () => {
+        const termo = normalizar(el.value);
+        if (!termo) { fechar(); return; }
+        const achadas = opcoes.filter(o => normalizar(o).startsWith(termo)).slice(0, 20);
+        if (!achadas.length) { fechar(); return; }
+        listaEl.innerHTML = achadas.map((o, i) =>
+          `<button type="button" class="sgmf-autocomplete-item" data-i="${i}">${SGMF.esc(o)}</button>`
+        ).join('');
+        listaEl.classList.remove('d-none');
+        listaEl.querySelectorAll('.sgmf-autocomplete-item').forEach(btn => {
+          btn.addEventListener('mousedown', ev => { ev.preventDefault(); selecionar(achadas[Number(btn.dataset.i)]); });
+        });
+      };
+      el.addEventListener('input', mostrar);
+      el.addEventListener('focus', () => { if (el.value.trim()) mostrar(); });
+      el.addEventListener('blur', () => setTimeout(fechar, 150));
     });
 
     const elModal = document.getElementById(idModal);

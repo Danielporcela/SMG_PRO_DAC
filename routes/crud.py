@@ -95,20 +95,6 @@ def editar_tela(tela):
     return decorator
 
 
-def visualizar_qualquer_tela(*telas):
-    """Exige acesso de visualização a pelo menos uma das telas informadas."""
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            if not session.get("usuario_id"):
-                return jsonify({"erro": "Sessão expirada. Entre novamente."}), 401
-            if not any(nivel_permite(tela, "visualizar") for tela in telas):
-                return _resposta_sem_permissao()
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def checar_tela(tela, nivel_minimo="visualizar"):
     """Verificação avulsa para rotas cuja tela só é conhecida em tempo de
     execução (ex.: anexos, que atendem tanto 'ordens' quanto
@@ -120,6 +106,10 @@ def checar_tela(tela, nivel_minimo="visualizar"):
     if not nivel_permite(tela, nivel_minimo):
         return _resposta_sem_permissao()
     return None
+
+
+def _cargo_atual():
+    return (session.get("cargo") or "").strip().upper()
 
 
 def registrar_log(acao, entidade, registro_id, detalhe=""):
@@ -170,8 +160,9 @@ class ErroNegocio(Exception):
 # -------------------------------------------------------------- fábrica
 def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
                    antes_salvar=None, depois_salvar=None, antes_excluir=None,
-                   serializar=None, filtrar=None, tela=None, telas_leitura=None,
-                   campos_liberados_para_restrito=None):
+                   serializar=None, filtrar=None, tela=None,
+                   campos_liberados_para_restrito=None,
+                   campos_bloqueados_para_cargos=None):
     """`tela`, quando informado, liga as quatro rotas (listar/obter/criar/
     editar/excluir) à matriz de permissões: listar e obter exigem
     'visualizar'; criar, editar e excluir exigem 'editar'. Sem `tela`, cai
@@ -185,14 +176,34 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     ficam estáticos, ignorando silenciosamente qualquer valor enviado para
     eles. Ex.: uma OS aberta pelo CCO não pode ter seus dados de abertura
     mudados por quem só entra depois para lançar peça/serviço.
+
+    `campos_bloqueados_para_cargos`, quando informado, é um dict
+    {"CARGO": {"campo1", "campo2", ...}} (cargo em maiúsculas) que barra o
+    envio de valor para aqueles campos — na criação e na edição — por
+    quem estiver logado com aquele cargo (Usuario.cargo, texto livre).
+    Diferente de `campos_liberados_para_restrito`, que olha o *perfil*, este
+    olha o *cargo*: existe para telas com um espelho no formulário
+    (`travarParaCargos` em manutencao.html) onde certos cargos só podem
+    VISUALIZAR alguns campos — ex.: quem abre a OS (cargo "CCO") ou
+    acompanha segurança do trabalho não deve preencher os campos de
+    execução/fechamento, só o mecânico/chefe de oficina. Um administrador
+    (perfil "admin") nunca é restringido por esta regra.
     """
     nome = rota.strip("/")
     ser = serializar or (lambda o: o.to_dict())
-    if telas_leitura:
-        protetor_leitura = visualizar_qualquer_tela(*telas_leitura)
-    else:
-        protetor_leitura = visualizar_tela(tela) if tela else login_obrigatorio
+    protetor_leitura = visualizar_tela(tela) if tela else login_obrigatorio
     protetor_escrita = editar_tela(tela) if tela else pode_escrever
+
+    def _remover_campos_bloqueados_por_cargo(dados):
+        if not campos_bloqueados_para_cargos:
+            return dados
+        cargo_atual = (session.get("cargo") or "").strip().upper()
+        bloqueados = campos_bloqueados_para_cargos.get(cargo_atual)
+        # O cargo CCO sempre respeita o bloqueio definido para a OS,
+        # inclusive quando o usuário também possui perfil administrador.
+        if not bloqueados:
+            return dados
+        return {k: v for k, v in dados.items() if k not in bloqueados}
 
     @bp.get(f"/{nome}", endpoint=f"{nome}_listar")
     @protetor_leitura
@@ -216,7 +227,7 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     @protetor_escrita
     def _criar(Model=Model, campos=campos, ser=ser, obrigatorios=obrigatorios,
                antes_salvar=antes_salvar, depois_salvar=depois_salvar, nome=nome):
-        dados = request.get_json(silent=True) or {}
+        dados = _remover_campos_bloqueados_por_cargo(request.get_json(silent=True) or {})
         faltando = [c for c in obrigatorios if not dados.get(c)]
         if faltando:
             return jsonify({"erro": "Preencha: " + ", ".join(faltando)}), 400
@@ -252,6 +263,7 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
             # para "outro setor" mexer; o resto do registro fica estático,
             # não importa o que o cliente tenha enviado.
             dados = {k: v for k, v in dados.items() if k in campos_liberados_para_restrito}
+        dados = _remover_campos_bloqueados_por_cargo(dados)
         anterior = ser(obj)
         try:
             aplicar_campos(obj, dados, campos)
