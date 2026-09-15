@@ -254,15 +254,11 @@ def _antes_excluir_os(obj):
     desvincular_movimentos(obj.id)
 
 
-# Campos de execução/fechamento da OS: só o mecânico/chefe de oficina deve
-# preenchê-los. Quem abre a OS (cargo "CCO") ou acompanha segurança do
-# trabalho enxerga esses campos, mas só em modo leitura (ver também
-# `travarParaCargos` nos mesmos campos em templates/manutencao.html).
-# "descricao" (Serviços executados) entra aqui pelo mesmo motivo dos demais:
-# é preenchida durante a execução do serviço, não na abertura pelo CCO.
-CAMPOS_EXECUCAO_OS = {"status", "tipo", "prioridade", "mecanico", "data_fechamento",
-                     "hora_inicio_servico", "hora_fim", "assinatura_mecanico",
-                     "descricao"}
+# Campos da OS que o cargo CCO apenas visualiza. O bloqueio é aplicado
+# também no backend, para impedir alteração por requisição manual.
+# Data de conclusão e horário final continuam sendo preenchidos
+# automaticamente quando a OS passa para "Finalizada".
+CAMPOS_EXECUCAO_OS = {"grupo", "status", "tipo", "prioridade", "mecanico", "data_fechamento", "hora_fim"}
 
 registrar_crud(
     bp_api, "ordens", OrdemServico,
@@ -289,8 +285,8 @@ registrar_crud(
     campos_liberados_para_restrito={"prioridade", "mecanico", "status", "data_fechamento",
                                     "hora_inicio_servico", "hora_fim", "descricao",
                                     "assinatura_mecanico"},
-    # CCO e Segurança do trabalho abrem/acompanham a OS mas não devem
-    # preencher os campos de execução — só visualizá-los.
+    # CCO e Segurança do trabalho visualizam os campos definidos acima,
+    # mas não podem alterá-los pela API.
     campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
                                    "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
 
@@ -853,7 +849,6 @@ registrar_crud(
             "unidade": "str", "estoque_minimo": "float", "custo_unitario": "float",
             "localizacao": "str", "fornecedor_id": "int"},
     ordem=Peca.codigo, obrigatorios=("descricao",), tela="estoque",
-    telas_leitura=("estoque", "manutencao", "compras", "grupos_consumo"),
     antes_salvar=_antes_peca, depois_salvar=_depois_peca)
 
 

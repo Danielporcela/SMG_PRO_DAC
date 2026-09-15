@@ -151,10 +151,16 @@ SGMF.tela = function (config) {
       if (c.tipo === 'checkbox') el.checked = registro ? !!valor : (valor !== false);
       else if (c.tipo === 'moeda') SGMF.definirValorMoeda(el, valor);
       else el.value = (valor === null || valor === undefined) ? '' : valor;
-      const podeEditarCampoSetor = SGMF.perfil() === 'admin' ||
-        (SGMF.cargo() || '').trim().toUpperCase() === 'CCO';
+      const cargoAtual = (SGMF.cargo() || '').trim().toUpperCase();
+      const podeEditarCampoSetor = SGMF.perfil() === 'admin' || cargoAtual === 'CCO';
+      const bloqueadoParaCCO = cargoAtual === 'CCO' && !!c.bloquearParaCCO;
+      const cargosBloqueados = Array.isArray(c.bloquearParaCargos)
+        ? c.bloquearParaCargos.map(v => String(v).trim().toUpperCase())
+        : [];
+      const bloqueadoParaCargo = cargosBloqueados.includes(cargoAtual);
       el.disabled = !!(c.somenteNovo && registro) ||
-        !!(c.travarParaOutroSetor && !podeEditarCampoSetor);
+        !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
+        bloqueadoParaCCO || bloqueadoParaCargo;
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
