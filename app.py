@@ -144,7 +144,7 @@ def criar_app(config=Config):
         cada requisição; se ele mudou no banco, recarregamos o mapa na
         hora — sem exigir logout/login manual.
         """
-        if request.path.startswith("/static/"):
+        if request.path.startswith("/static/") or request.path == "/favicon.ico":
             return None
         usuario_id = session.get("usuario_id")
         if not usuario_id:
@@ -200,7 +200,7 @@ def criar_app(config=Config):
         mais de 60s (ou nunca foi gravada) — uma única query UPDATE, sem
         SELECT antes.
         """
-        if request.path.startswith("/static/"):
+        if request.path.startswith("/static/") or request.path == "/favicon.ico":
             return None
         usuario_id = session.get("usuario_id")
         if not usuario_id:
