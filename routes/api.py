@@ -853,6 +853,7 @@ registrar_crud(
             "unidade": "str", "estoque_minimo": "float", "custo_unitario": "float",
             "localizacao": "str", "fornecedor_id": "int"},
     ordem=Peca.codigo, obrigatorios=("descricao",), tela="estoque",
+    telas_leitura=("estoque", "manutencao", "compras", "grupos_consumo"),
     antes_salvar=_antes_peca, depois_salvar=_depois_peca)
 
 

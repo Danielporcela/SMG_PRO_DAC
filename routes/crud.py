@@ -95,6 +95,20 @@ def editar_tela(tela):
     return decorator
 
 
+def visualizar_qualquer_tela(*telas):
+    """Exige acesso de visualização a pelo menos uma das telas informadas."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if not session.get("usuario_id"):
+                return jsonify({"erro": "Sessão expirada. Entre novamente."}), 401
+            if not any(nivel_permite(tela, "visualizar") for tela in telas):
+                return _resposta_sem_permissao()
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def checar_tela(tela, nivel_minimo="visualizar"):
     """Verificação avulsa para rotas cuja tela só é conhecida em tempo de
     execução (ex.: anexos, que atendem tanto 'ordens' quanto
@@ -156,7 +170,7 @@ class ErroNegocio(Exception):
 # -------------------------------------------------------------- fábrica
 def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
                    antes_salvar=None, depois_salvar=None, antes_excluir=None,
-                   serializar=None, filtrar=None, tela=None,
+                   serializar=None, filtrar=None, tela=None, telas_leitura=None,
                    campos_liberados_para_restrito=None):
     """`tela`, quando informado, liga as quatro rotas (listar/obter/criar/
     editar/excluir) à matriz de permissões: listar e obter exigem
@@ -174,7 +188,10 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
     """
     nome = rota.strip("/")
     ser = serializar or (lambda o: o.to_dict())
-    protetor_leitura = visualizar_tela(tela) if tela else login_obrigatorio
+    if telas_leitura:
+        protetor_leitura = visualizar_qualquer_tela(*telas_leitura)
+    else:
+        protetor_leitura = visualizar_tela(tela) if tela else login_obrigatorio
     protetor_escrita = editar_tela(tela) if tela else pode_escrever
 
     @bp.get(f"/{nome}", endpoint=f"{nome}_listar")
