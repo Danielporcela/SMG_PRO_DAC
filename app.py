@@ -133,6 +133,35 @@ def criar_app(config=Config):
     # necessário, esse conflito desaparece nas demais telas.
 
     @app.before_request
+    def atualizar_permissoes_se_desatualizadas():
+        """Evita o 403 fantasma de quem já estava logado quando um admin
+        mudou seu perfil/telas.
+
+        session["permissoes"] é calculada uma vez no login (ver
+        routes.auth.login) por performance. Se um admin altera o cadastro
+        depois, essa sessão antiga ficaria presa no mapa velho até um novo
+        login. Aqui comparamos só um contador leve (permissoes_versao) a
+        cada requisição; se ele mudou no banco, recarregamos o mapa na
+        hora — sem exigir logout/login manual.
+        """
+        usuario_id = session.get("usuario_id")
+        if not usuario_id:
+            return None
+
+        from models import Usuario
+        versao_atual = db.session.query(Usuario.permissoes_versao) \
+            .filter_by(id=usuario_id).scalar()
+        if versao_atual is None:
+            return None  # usuário excluído/inativo: login_obrigatorio cuida disso
+
+        if versao_atual != session.get("permissoes_versao"):
+            usuario = db.session.get(Usuario, usuario_id)
+            session["perfil"] = usuario.perfil
+            session["cargo"] = usuario.cargo or ""
+            session["permissoes"] = usuario.permissoes_mapa()
+            session["permissoes_versao"] = versao_atual
+
+    @app.before_request
     def exigir_senha_admin_para_exclusao():
         """Toda exclusão exige a senha de um administrador ativo.
 

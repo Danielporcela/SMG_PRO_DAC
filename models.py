@@ -152,6 +152,15 @@ class Usuario(db.Model):
     token_reset = db.Column(db.String(64), unique=True, nullable=True, index=True)
     token_reset_expira = db.Column(db.DateTime, nullable=True)
 
+    # --- controle de sessão desatualizada --------------------------------
+    # Incrementado sempre que o perfil ou a matriz de permissões do usuário
+    # muda (ver routes.auth._depois_salvar_usuario). O login grava esse
+    # número na sessão; a cada requisição comparamos os dois e, se
+    # divergirem, recarregamos session["permissoes"] na hora — sem exigir
+    # que o usuário deslogue e entre de novo para um acesso liberado por um
+    # admin valer (ver app.atualizar_permissoes_se_desatualizadas).
+    permissoes_versao = db.Column(db.Integer, default=0, nullable=False)
+
     # --- controle de acesso por tela --------------------------------------
     def permissoes_mapa(self):
         """Devolve {tela: nivel} já resolvido: linha específica > padrão do perfil."""

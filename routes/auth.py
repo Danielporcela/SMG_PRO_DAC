@@ -44,6 +44,7 @@ def login():
     # Mapa {tela: nivel} calculado uma vez no login — evita ir ao banco a
     # cada clique só para saber se a tela está liberada.
     session["permissoes"] = usuario.permissoes_mapa()
+    session["permissoes_versao"] = usuario.permissoes_versao
     return jsonify({"ok": True, "usuario": usuario.to_dict()})
 
 
@@ -104,6 +105,13 @@ def _depois_salvar_usuario(obj, dados, anterior):
     """
     if "permissoes" in dados:
         obj.definir_permissoes(dados.get("permissoes") or [])
+    # Perfil e/ou matriz de telas podem ter mudado: soma 1 aqui para que
+    # qualquer sessão já aberta desse usuário perceba, na próxima
+    # requisição, que precisa recarregar as permissões (ver
+    # app.atualizar_permissoes_se_desatualizadas). Sempre incrementa,
+    # mesmo sem "permissoes" no payload, porque o campo "perfil" (que
+    # também define o acesso padrão) é aplicado antes deste hook rodar.
+    obj.permissoes_versao = (obj.permissoes_versao or 0) + 1
 
 
 def _serializar_usuario(obj):
