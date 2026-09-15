@@ -144,6 +144,8 @@ def criar_app(config=Config):
         cada requisição; se ele mudou no banco, recarregamos o mapa na
         hora — sem exigir logout/login manual.
         """
+        if request.path.startswith("/static/"):
+            return None
         usuario_id = session.get("usuario_id")
         if not usuario_id:
             return None
