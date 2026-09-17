@@ -119,6 +119,11 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
     litros = sum(a.litros or 0 for a in abastecimentos)
     km_rodados = sum(a.km_percorridos or 0 for a in abastecimentos)
+    # "média da média" da frota: média simples do km/L de cada abastecimento
+    # do período (em vez de soma_km / soma_litros) — fica ao lado de
+    # "consumo_medio" (soma/soma) só para comparação.
+    kml_validos = [a.km_por_litro for a in abastecimentos if a.km_por_litro]
+    consumo_medio_media_da_media = round(sum(kml_validos) / len(kml_validos), 2) if kml_validos else 0
 
     finalizadas = [o for o in ordens if o.status == "Finalizada" and o.data_fechamento]
     corretivas = [o for o in ordens if o.tipo in ("Corretiva", "Emergencial")]
@@ -169,6 +174,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_lavagem + gasto_compras, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
+        "consumo_medio_media_da_media": consumo_medio_media_da_media,
         "custo_por_km": round((gasto_comb + gasto_manut + gasto_lavagem) / km_rodados, 2) if km_rodados else 0,
         "disponibilidade": round(max(0, (horas_disponiveis - horas_paradas)) / horas_disponiveis * 100, 1)
         if horas_disponiveis else 100,
@@ -273,6 +279,15 @@ def series_graficos(inicio=None, fim=None):
         litros = db.session.query(func.sum(Abastecimento.litros)).filter(
             Abastecimento.veiculo_id == v.id,
             Abastecimento.data.between(inicio, fim)).scalar() or 0
+        # "média da média": média simples do km/L de cada abastecimento do
+        # veículo no período (em vez de soma_km / soma_litros). Cada
+        # abastecimento pesa igual, independente do volume abastecido -
+        # fica ao lado de "consumo" (soma/soma) só para comparação.
+        consumo_media_da_media = round(
+            db.session.query(func.avg(Abastecimento.km_por_litro)).filter(
+                Abastecimento.veiculo_id == v.id,
+                Abastecimento.data.between(inicio, fim),
+                Abastecimento.km_por_litro > 0).scalar() or 0, 2)
         gasto_terceiros = round(sum(s.valor or 0 for s in terceiros), 2)
         gasto_lavagem_v = round(sum(l.valor or 0 for l in lavagens_v), 2)
         manutencao = round(sum(o.custo_total for o in ordens) + gasto_terceiros, 2)
@@ -282,6 +297,7 @@ def series_graficos(inicio=None, fim=None):
             "servicos_terceiros": gasto_terceiros, "lavagem": gasto_lavagem_v,
             "combustivel": round(comb, 2), "total": total, "km": round(km),
             "consumo": round(km / litros, 2) if litros else 0,
+            "consumo_media_da_media": consumo_media_da_media,
             "custo_km": round(total / km, 2) if km else 0,
             "orcamento": v.orcamento_mensal or 0,
         })
@@ -352,7 +368,9 @@ def series_graficos(inicio=None, fim=None):
         "tipos_manutencao": tipos,
         "top_pecas": top_pecas,
         "consumo_veiculo": sorted(
-            [{"veiculo": v["veiculo"], "consumo": v["consumo"]} for v in por_veiculo if v["consumo"]],
+            [{"veiculo": v["veiculo"], "consumo": v["consumo"],
+              "consumo_media_da_media": v["consumo_media_da_media"]}
+             for v in por_veiculo if v["consumo"]],
             key=lambda x: x["consumo"], reverse=True)[:10],
     }
 
@@ -367,15 +385,22 @@ def rankings(inicio=None, fim=None):
             continue
         m = motoristas.setdefault(a.motorista_id, {
             "nome": a.motorista.nome if a.motorista else "—",
-            "litros": 0, "km": 0, "custo": 0, "abastecimentos": 0})
+            "litros": 0, "km": 0, "custo": 0, "abastecimentos": 0, "_kml": []})
         m["litros"] += a.litros or 0
         m["km"] += a.km_percorridos or 0
         m["custo"] += a.valor_total or 0
         m["abastecimentos"] += 1
+        if a.km_por_litro:
+            m["_kml"].append(a.km_por_litro)
     lista_mot = []
     for m in motoristas.values():
+        kml_lista = m.pop("_kml")
         lista_mot.append({**m,
                           "consumo": round(m["km"] / m["litros"], 2) if m["litros"] else 0,
+                          # "média da média": média simples do km/L de cada
+                          # abastecimento do motorista no período.
+                          "consumo_media_da_media": round(sum(kml_lista) / len(kml_lista), 2)
+                          if kml_lista else 0,
                           "custo_km": round(m["custo"] / m["km"], 2) if m["km"] else 0,
                           "km": round(m["km"]), "litros": round(m["litros"], 1),
                           "custo": round(m["custo"], 2)})

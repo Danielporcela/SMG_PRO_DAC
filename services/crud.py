@@ -258,10 +258,18 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
                 campos_liberados_para_restrito=campos_liberados_para_restrito):
         obj = db.get_or_404(Model, registro_id)
         dados = request.get_json(silent=True) or {}
-        if campos_liberados_para_restrito is not None and session.get("perfil") not in ("admin", "operador"):
-            # Perfil sem privilégio de operação: mantém só o que está liberado
-            # para "outro setor" mexer; o resto do registro fica estático,
-            # não importa o que o cliente tenha enviado.
+        # A tela libera os campos de abertura para quem tem perfil "admin"
+        # OU cargo "CCO" (ver podeEditarCampoSetor em crud.js). O backend
+        # precisa espelhar exatamente essa mesma regra — antes só olhava o
+        # perfil (admin/operador), então um usuário com cargo CCO mas perfil
+        # diferente via a tela liberada, mas o valor era descartado aqui.
+        cargo_atual = (session.get("cargo") or "").strip().upper()
+        if (campos_liberados_para_restrito is not None
+                and session.get("perfil") not in ("admin", "operador")
+                and cargo_atual != "CCO"):
+            # Perfil sem privilégio de operação (e sem cargo CCO): mantém só
+            # o que está liberado para "outro setor" mexer; o resto do
+            # registro fica estático, não importa o que o cliente enviou.
             dados = {k: v for k, v in dados.items() if k in campos_liberados_para_restrito}
         dados = _remover_campos_bloqueados_por_cargo(dados)
         anterior = ser(obj)

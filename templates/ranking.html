@@ -51,7 +51,9 @@ async function carregar() {
     bloco('tabelaMelhorConsumo', 'Motoristas · melhor consumo', 'fa-id-card', r.melhor_consumo, [
       { rotulo: 'Motorista', render: m => SGMF.esc(m.nome) },
       { rotulo: 'Km rodados', classe: 'text-end num', render: m => SGMF.numero(m.km) },
-      { rotulo: 'Km/L', classe: 'text-end num', render: m => `<strong>${SGMF.numero(m.consumo, 2)}</strong>` }
+      { rotulo: 'Km/L', classe: 'text-end num', render: m => `<strong>${SGMF.numero(m.consumo, 2)}</strong>` },
+      { rotulo: 'Km/L (média da média)', classe: 'text-end num',
+        render: m => SGMF.numero(m.consumo_media_da_media, 2) }
     ], 'Registre abastecimentos informando o motorista.'),
 
     bloco('tabelaMenorCustoKm', 'Motoristas · menor custo por km', 'fa-coins', r.menor_custo_km, [
@@ -63,7 +65,9 @@ async function carregar() {
     bloco('tabelaVeiculosEconomicos', 'Veículos mais econômicos', 'fa-leaf', r.veiculos_economicos, [
       { rotulo: 'Veículo', render: v => `<span class="prefixo">${SGMF.esc(v.veiculo)}</span> <span class="placa ms-1">${SGMF.esc(v.placa)}</span>` },
       { rotulo: 'Custo/km', classe: 'text-end num', render: v => SGMF.moeda(v.custo_km) },
-      { rotulo: 'Km/L', classe: 'text-end num', render: v => `<strong>${SGMF.numero(v.consumo, 2)}</strong>` }
+      { rotulo: 'Km/L', classe: 'text-end num', render: v => `<strong>${SGMF.numero(v.consumo, 2)}</strong>` },
+      { rotulo: 'Km/L (média da média)', classe: 'text-end num',
+        render: v => SGMF.numero(v.consumo_media_da_media, 2) }
     ], 'Registre abastecimentos para calcular o consumo.'),
 
     bloco('tabelaVeiculosCaros', 'Veículos de maior custo', 'fa-sack-dollar', r.veiculos_caros, [

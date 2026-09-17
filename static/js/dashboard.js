@@ -31,7 +31,8 @@
         classe: d.disponibilidade >= 90 ? 'ok' : 'atencao', icone: 'fa-circle-check' }),
       medidor('Km rodados', SGMF.numero(d.km_rodados), { icone: 'fa-road', nota: 'no período' }),
       medidor('Consumo médio', `${SGMF.numero(d.consumo_medio, 2)} <small>km/L</small>`, {
-        icone: 'fa-gas-pump', nota: `${SGMF.numero(d.litros, 1)} litros` }),
+        icone: 'fa-gas-pump',
+        nota: `${SGMF.numero(d.litros, 1)} litros · média da média: ${SGMF.numero(d.consumo_medio_media_da_media, 2)} km/L` }),
       medidor('Custo por km', SGMF.moeda(d.custo_por_km), {
         icone: 'fa-coins', estilo: 'font-size:21px' }),
       medidor('Combustível', SGMF.moeda(d.gasto_combustivel), {
@@ -208,13 +209,16 @@
     document.getElementById('tabelaTop').innerHTML = top.length
       ? `<table class="table table-sm mb-0 align-middle" style="font-size:13px">
           <thead><tr><th class="ps-3">Veículo</th><th class="text-end">Km</th>
-          <th class="text-end">Km/L</th><th class="text-end">Custo/km</th>
+          <th class="text-end">Km/L</th>
+          <th class="text-end" title="Média simples do km/L de cada abastecimento do período">Km/L (média da média)</th>
+          <th class="text-end">Custo/km</th>
           <th class="text-end pe-3">Total</th></tr></thead>
           <tbody>${top.map(v => `<tr>
             <td class="ps-3"><span class="prefixo">${SGMF.esc(v.veiculo)}</span>
               <span class="placa ms-1">${SGMF.esc(v.placa)}</span></td>
             <td class="text-end num">${SGMF.numero(v.km)}</td>
             <td class="text-end num">${v.consumo ? SGMF.numero(v.consumo, 2) : '—'}</td>
+            <td class="text-end num">${v.consumo_media_da_media ? SGMF.numero(v.consumo_media_da_media, 2) : '—'}</td>
             <td class="text-end num">${v.custo_km ? SGMF.moeda(v.custo_km) : '—'}</td>
             <td class="text-end num pe-3"><strong>${SGMF.moeda(v.total)}</strong></td>
           </tr>`).join('')}</tbody></table>`
@@ -462,6 +466,9 @@
         { rotulo: 'Veículo', render: l => `${SGMF.esc(l.veiculo)}${l.placa ? ' · ' + SGMF.esc(l.placa) : ''}` },
         { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
+        { rotulo: 'Km/L', classe: 'text-end num', render: l => l.consumo ? SGMF.numero(l.consumo, 2) : '—' },
+        { rotulo: 'Km/L (média da média)', classe: 'text-end num',
+          render: l => l.consumo_media_da_media ? SGMF.numero(l.consumo_media_da_media, 2) : '—' },
         { rotulo: 'Total', classe: 'text-end num', render: l => SGMF.moeda(l.total) }
       ],
       linhas: g.por_veiculo
@@ -500,7 +507,9 @@
       titulo: 'Consumo por veículo (km/L)', canvasId: 'graficoConsumo',
       colunas: [
         { rotulo: 'Veículo', campo: 'veiculo' },
-        { rotulo: 'Km/L', classe: 'text-end num', render: l => SGMF.numero(l.consumo, 2) }
+        { rotulo: 'Km/L', classe: 'text-end num', render: l => SGMF.numero(l.consumo, 2) },
+        { rotulo: 'Km/L (média da média)', classe: 'text-end num',
+          render: l => l.consumo_media_da_media ? SGMF.numero(l.consumo_media_da_media, 2) : '—' }
       ],
       linhas: g.consumo_veiculo
     });
