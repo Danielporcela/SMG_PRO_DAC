@@ -254,6 +254,20 @@ def _antes_excluir_os(obj):
     desvincular_movimentos(obj.id)
 
 
+def _cco_bloqueado_pecas():
+    """CCO não acessa, consulta, lança, vincula ou remove peças de estoque.
+    Continua podendo trabalhar com os demais dados/serviços da OS."""
+    return (session.get("cargo") or "").strip().upper() == "CCO"
+
+
+def _ordem_para_usuario(ordem):
+    """Serializa a OS respeitando a restrição de peças do CCO."""
+    dados = ordem.to_dict(com_itens=True)
+    if _cco_bloqueado_pecas():
+        dados["itens"] = [i for i in (dados.get("itens") or []) if not i.get("peca_id")]
+    return dados
+
+
 # Campos da OS que o cargo CCO apenas visualiza. O bloqueio é aplicado
 # também no backend, para impedir alteração por requisição manual.
 # Data de conclusão e horário final continuam sendo preenchidos
@@ -339,7 +353,7 @@ def consultar_ordens_por_frota():
 @visualizar_tela("manutencao")
 def listar_itens(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
-    return jsonify(ordem.to_dict(com_itens=True))
+    return jsonify(_ordem_para_usuario(ordem))
 
 
 @bp_api.post("/ordens/<int:os_id>/itens")
@@ -352,6 +366,8 @@ def adicionar_item(os_id):
     if ordem.status == "Finalizada":
         return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
     dados = request.get_json(silent=True) or {}
+    if _cco_bloqueado_pecas() and dados.get("peca_id"):
+        return jsonify({"erro": "O login CCO não tem acesso a peças do estoque."}), 403
     item = ItemOS(ordem_servico_id=ordem.id)
     try:
         aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
@@ -389,6 +405,8 @@ def vincular_serial_item(os_id, item_id):
     """
     ordem = db.get_or_404(OrdemServico, os_id)
     item = db.get_or_404(ItemOS, item_id)
+    if _cco_bloqueado_pecas():
+        return jsonify({"erro": "O login CCO não tem acesso a peças do estoque."}), 403
     dados = request.get_json(silent=True) or {}
     try:
         if item.ordem_servico_id != ordem.id:
@@ -490,6 +508,8 @@ def regularizar_peca(peca_id):
 def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
+    if _cco_bloqueado_pecas() and item.peca_id:
+        return jsonify({"erro": "O login CCO não pode remover peças da OS."}), 403
     try:
         devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
         db.session.delete(item)
@@ -497,7 +517,7 @@ def remover_item(os_id, item_id):
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
-    return jsonify(ordem.to_dict(com_itens=True))
+    return jsonify(_ordem_para_usuario(ordem))
 
 
 # ---------------------------------------------------- Módulo 5: combustível

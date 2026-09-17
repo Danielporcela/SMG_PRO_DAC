@@ -1,6 +1,7 @@
 {% extends "lista.html" %}
 {% block titulo %}Ordens de serviço{% endblock %}
 {% block cabecalho %}Ordens de serviço{% endblock %}
+{% set is_cco = (session.cargo or "")|trim|upper == "CCO" %}
 {% block descricao %}Módulo 3 — abertura, execução, peças, serviços de terceiros e custo total calculado automaticamente.{% endblock %}
 {% block rotulo_novo %}Nova OS{% endblock %}
 {% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
@@ -46,7 +47,7 @@
           <div class="col-md-4">
             <label class="form-label" for="itemTipo">Tipo de lançamento</label>
             <select class="form-select form-select-sm" id="itemTipo">
-              <option value="peca">Peça / material do estoque</option>
+              {% if not is_cco %}<option value="peca">Peça / material do estoque</option>{% endif %}
               <option value="servico_avulso">Serviço interno / avulso</option>
             </select>
           </div>
@@ -57,7 +58,7 @@
           </div>
         </div>
 
-        <div class="mb-2" id="areaPecaEstoque">
+        {% if not is_cco %}<div class="mb-2" id="areaPecaEstoque">
           <label class="form-label" for="itemBuscaPeca">Procurar peça no estoque</label>
           <div class="input-group input-group-sm">
             <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
@@ -68,15 +69,15 @@
           </div>
           <div id="itemResultadoPecas" class="resultado-pecas d-none"></div>
           <div id="itemPecaEscolhida" class="form-text mt-1"></div>
-        </div>
+        </div>{% endif %}
 
         <div class="row g-2 align-items-end mb-3">
-          <div class="col-md-4" id="colunaPecaEstoque">
+          {% if not is_cco %}<div class="col-md-4" id="colunaPecaEstoque">
             <label class="form-label" for="itemPeca">Peça do estoque (lista completa)</label>
             <select class="form-select form-select-sm" id="itemPeca">
               <option value="">— selecione uma peça —</option>
             </select>
-          </div>
+          </div>{% endif %}
           <div class="col-md-4">
             <label class="form-label" for="itemDescricao">Descrição do item / serviço</label>
             <input class="form-control form-control-sm" id="itemDescricao"
@@ -295,11 +296,13 @@ document.getElementById('filtroGraficoMecanico').addEventListener('change',
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
 
+{% if not is_cco %}
 SGMF.get('/api/pecas').then(lista => {
   pecasDisponiveis = lista;
   document.getElementById('itemPeca').innerHTML = '<option value="">— selecione uma peça —</option>' +
     lista.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)} (saldo ${SGMF.numero(p.quantidade, 2)})</option>`).join('');
 });
+{% endif %}
 
 function atualizarTipoItem() {
   const tipo = document.getElementById('itemTipo').value;
@@ -324,7 +327,7 @@ SGMF.mascaraMoeda(document.getElementById('itemValor'));
 document.getElementById('itemPeca').addEventListener('change', (e) => {
   const peca = pecasDisponiveis.find(p => p.id == e.target.value);
   if (peca) {
-    document.getElementById('itemTipo').value = 'peca';
+    document.getElementById('itemTipo').value = '{{ 'servico_avulso' if is_cco else 'peca' }}';
     atualizarTipoItem();
     document.getElementById('itemDescricao').value = peca.descricao;
     SGMF.definirValorMoeda(document.getElementById('itemValor'), peca.custo_unitario);
@@ -487,14 +490,15 @@ async function abrirPecas(os) {
 async function recarregarItens(osId) {
   const os = await SGMF.get(`/api/ordens/${osId}/itens`);
   const area = document.getElementById('listaItens');
-  if (!os.itens.length) {
+  const itensVisiveis = {% if is_cco %}((os.itens || []).filter(i => !i.peca_id)){% else %}(os.itens || []){% endif %};
+  if (!itensVisiveis.length) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-screwdriver-wrench"></i>
       <strong>Nenhuma peça ou serviço lançado</strong>Adicione os itens usados nesta ordem.</div>`;
   } else {
     area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
       <thead><tr><th>Item / serviço</th><th>Tipo / prestador</th><th class="text-end">Qtde</th>
       <th class="text-end">Valor unit.</th><th class="text-end">Total</th><th>Estoque</th><th></th></tr></thead>
-      <tbody>${os.itens.map(i => `<tr>
+      <tbody>${itensVisiveis.map(i => `<tr>
         <td>${SGMF.esc(i.descricao)}
         </td>
         <td>${i.tipo_item === 'servico_terceiro'
@@ -533,7 +537,7 @@ function ehItemPneu(descricao, peca) {
 document.getElementById('itemAdicionar').onclick = async () => {
   const osId = document.getElementById('pecasOsId').value;
   const tipoItem = document.getElementById('itemTipo').value;
-  const pecaId = tipoItem === 'peca' ? (Number(document.getElementById('itemPeca').value) || null) : null;
+  const pecaId = {% if is_cco %}null{% else %}(tipoItem === 'peca' ? (Number(document.getElementById('itemPeca').value) || null) : null){% endif %};
   const peca = pecaId ? pecasDisponiveis.find(p => p.id === pecaId) : null;
   const descricao = document.getElementById('itemDescricao').value.trim();
   const prestador = document.getElementById('itemPrestador').value.trim();
@@ -573,16 +577,16 @@ document.getElementById('itemAdicionar').onclick = async () => {
         valor_unitario: valorUnitario
       });
     }
-    document.getElementById('itemPeca').value = '';
-    limparEscolhaPeca(false);
+    {% if not is_cco %}document.getElementById('itemPeca').value = '';
+    limparEscolhaPeca(false);{% endif %}
     document.getElementById('itemDescricao').value = '';
     document.getElementById('itemPrestador').value = '';
     document.getElementById('itemQtd').value = 1;
     document.getElementById('itemValor').value = '';
     SGMF.sucesso(qtdItens > 1 ? `${qtdItens} pneus adicionados` :
       (tipoItem === 'servico_terceiro' ? 'Serviço de terceiro lançado' : 'Item adicionado'));
-    SGMF.limparCache('pecas');
-    pecasDisponiveis = await SGMF.get('/api/pecas');
+    {% if not is_cco %}SGMF.limparCache('pecas');
+    pecasDisponiveis = await SGMF.get('/api/pecas');{% endif %}
     await recarregarItens(osId);
     telaOS.carregar();
   } catch (e) { SGMF.falha(e.message); }
