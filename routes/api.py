@@ -143,78 +143,13 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _verificar_os_duplicada(obj, anterior=None):
-    """Controla OS abertas da mesma frota sem criar um bloqueio circular.
+    """Não bloqueia a abertura de múltiplas OS para o mesmo veículo.
 
-    Regras:
-      1. Ao CRIAR uma OS, não permite outra OS aberta para a mesma frota.
-      2. Ao EDITAR uma OS aberta, não bloqueia a edição.
-      3. Ao FINALIZAR uma OS, permite somente a OS aberta mais antiga.
-         Assim, se 338 e 689 estiverem abertas, 338 pode ser finalizada
-         primeiro; depois 689 pode ser finalizada.
-      4. A exclusão não passa por esta validação e continua independente.
+    É permitido manter mais de uma OS aberta para qualquer veículo/placa.
+    A existência de outra OS aberta não impede criar, editar ou finalizar
+    esta OS.
     """
-    if not obj.veiculo_id:
-        return
-
-    # Quando é uma edição que não está finalizando a OS, não há motivo para
-    # bloquear a gravação por existir outra OS aberta.
-    finalizando = (
-        anterior is not None
-        and (anterior.get("status") or "") != "Finalizada"
-        and obj.status == "Finalizada"
-    )
-
-    # Para uma OS nova, a regra continua sendo: não abrir uma segunda OS
-    # enquanto houver outra aberta para a mesma frota.
-    criando = anterior is None
-
-    if not criando and not finalizando:
-        return
-
-    abertas = (OrdemServico.query
-               .filter(
-                   OrdemServico.veiculo_id == obj.veiculo_id,
-                   OrdemServico.status != "Finalizada"
-               )
-               .order_by(OrdemServico.data_abertura.asc(),
-                         OrdemServico.id.asc())
-               .all())
-
-    if obj.id is not None:
-        abertas = [o for o in abertas if o.id != obj.id]
-
-    if not abertas:
-        return
-
-    mais_antiga = abertas[0]
-    veiculo = db.session.get(Veiculo, obj.veiculo_id)
-    nome_veiculo = f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else "este veículo"
-
-    if finalizando:
-        raise ErroNegocio(
-            f"A OS {obj.numero or obj.id} não pode ser finalizada ainda. "
-            f"A OS {mais_antiga.numero or mais_antiga.id} é mais antiga e ainda está "
-            f"aberta para {nome_veiculo}. Finalize primeiro a OS "
-            f"{mais_antiga.numero or mais_antiga.id}. Depois disso, esta OS poderá ser finalizada.")
-
-    # Criação: informa qual é a OS que precisa ser finalizada antes de abrir
-    # outra para a mesma frota.
-    raise ErroNegocio(
-        f"Já existe a OS {mais_antiga.numero or mais_antiga.id} aberta para {nome_veiculo} "
-        f"(status: {mais_antiga.status}). Finalize-a antes de abrir uma nova OS para "
-        f"o mesmo veículo.")
-
-
-def _verificar_valor_os(obj):
-    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
-    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
-    de preenchimento, não um serviço legítimo de custo zero.
-    """
-    if obj.status == "Finalizada" and obj.custo_total <= 0:
-        raise ErroNegocio(
-            "Não é possível finalizar a OS com o custo total zerado. "
-            "Informe o valor da mão de obra, dos serviços e/ou das peças "
-            "aplicadas antes de finalizar.")
+    return
 
 
 def _antes_os(obj, dados, anterior):
@@ -252,20 +187,6 @@ def _antes_excluir_os(obj):
     for item in obj.itens:
         devolver_item_os(item)
     desvincular_movimentos(obj.id)
-
-
-def _cco_bloqueado_pecas():
-    """CCO não acessa, consulta, lança, vincula ou remove peças de estoque.
-    Continua podendo trabalhar com os demais dados/serviços da OS."""
-    return (session.get("cargo") or "").strip().upper() == "CCO"
-
-
-def _ordem_para_usuario(ordem):
-    """Serializa a OS respeitando a restrição de peças do CCO."""
-    dados = ordem.to_dict(com_itens=True)
-    if _cco_bloqueado_pecas():
-        dados["itens"] = [i for i in (dados.get("itens") or []) if not i.get("peca_id")]
-    return dados
 
 
 # Campos da OS que o cargo CCO apenas visualiza. O bloqueio é aplicado
@@ -353,7 +274,7 @@ def consultar_ordens_por_frota():
 @visualizar_tela("manutencao")
 def listar_itens(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
-    return jsonify(_ordem_para_usuario(ordem))
+    return jsonify(ordem.to_dict(com_itens=True))
 
 
 @bp_api.post("/ordens/<int:os_id>/itens")
@@ -366,8 +287,6 @@ def adicionar_item(os_id):
     if ordem.status == "Finalizada":
         return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
     dados = request.get_json(silent=True) or {}
-    if _cco_bloqueado_pecas() and dados.get("peca_id"):
-        return jsonify({"erro": "O login CCO não tem acesso a peças do estoque."}), 403
     item = ItemOS(ordem_servico_id=ordem.id)
     try:
         aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
@@ -405,8 +324,6 @@ def vincular_serial_item(os_id, item_id):
     """
     ordem = db.get_or_404(OrdemServico, os_id)
     item = db.get_or_404(ItemOS, item_id)
-    if _cco_bloqueado_pecas():
-        return jsonify({"erro": "O login CCO não tem acesso a peças do estoque."}), 403
     dados = request.get_json(silent=True) or {}
     try:
         if item.ordem_servico_id != ordem.id:
@@ -508,8 +425,6 @@ def regularizar_peca(peca_id):
 def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
-    if _cco_bloqueado_pecas() and item.peca_id:
-        return jsonify({"erro": "O login CCO não pode remover peças da OS."}), 403
     try:
         devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
         db.session.delete(item)
@@ -517,7 +432,7 @@ def remover_item(os_id, item_id):
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
-    return jsonify(_ordem_para_usuario(ordem))
+    return jsonify(ordem.to_dict(com_itens=True))
 
 
 # ---------------------------------------------------- Módulo 5: combustível
