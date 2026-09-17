@@ -143,13 +143,23 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _verificar_os_duplicada(obj, anterior=None):
-    """Não bloqueia a abertura de múltiplas OS para o mesmo veículo.
+    """Permite múltiplas OS abertas para o mesmo veículo/placa.
 
-    É permitido manter mais de uma OS aberta para qualquer veículo/placa.
     A existência de outra OS aberta não impede criar, editar ou finalizar
     esta OS.
     """
     return
+
+def _verificar_valor_os(obj):
+    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
+    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
+    de preenchimento, não um serviço legítimo de custo zero.
+    """
+    if obj.status == "Finalizada" and obj.custo_total <= 0:
+        raise ErroNegocio(
+            "Não é possível finalizar a OS com o custo total zerado. "
+            "Informe o valor da mão de obra, dos serviços e/ou das peças "
+            "aplicadas antes de finalizar.")
 
 
 def _antes_os(obj, dados, anterior):
