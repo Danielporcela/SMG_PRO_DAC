@@ -6,6 +6,7 @@ SGMF.tela = function (config) {
   const {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
+    acoesLinhaLeitura = null,
     aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
     rotuloSalvar = null
   } = config;
@@ -266,8 +267,9 @@ SGMF.tela = function (config) {
 
   /* ---------------------------------------------------------------- tabela */
   function montarTabela() {
+    const temColunaAcoes = !bloqueado() || acoesLinhaLeitura;
     const cabecalho = colunas.map(c => `<th>${c.rotulo}</th>`).join('') +
-      (bloqueado() ? '<th></th>' : '<th style="width:96px">Ações</th>');
+      (temColunaAcoes ? '<th style="width:96px">Ações</th>' : '<th></th>');
     document.getElementById('areaTabela').innerHTML =
       `<table id="tabelaDados" class="table table-hover align-middle" style="width:100%">
          <thead><tr>${cabecalho}</tr></thead><tbody></tbody></table>`;
@@ -283,13 +285,19 @@ SGMF.tela = function (config) {
         : (bruto === null || bruto === undefined || bruto === '' ? '—' : bruto);
       return `<td class="${c.classe || ''}">${conteudo}</td>`;
     });
+    const extrasLeitura = acoesLinhaLeitura ? acoesLinhaLeitura(seguro) : '';
     if (bloqueado()) {
-      celulas.push('<td class="text-muted" style="font-size:11.5px">somente leitura</td>');
+      // Somente leitura para EDIÇÃO não deve esconder ações que são só de
+      // consulta (ex.: Imprimir OS) — só os botões de editar/excluir/lançar
+      // ficam de fora aqui. Ver `acoesLinhaLeitura` na config da tela.
+      celulas.push(extrasLeitura
+        ? `<td class="text-nowrap">${extrasLeitura}</td>`
+        : '<td class="text-muted" style="font-size:11.5px">somente leitura</td>');
       return `<tr>${celulas.join('')}</tr>`;
     }
     const extras = acoesLinha ? acoesLinha(seguro) : '';
     celulas.push(`<td class="text-nowrap">
-      ${extras}
+      ${extrasLeitura}${extras}
       <button class="btn btn-contorno btn-icone" data-editar="${item.id}" title="Editar"><i class="fa-solid fa-pen"></i></button>
       ${podeExcluir ? `<button class="btn btn-contorno btn-icone" data-excluir="${item.id}" title="Excluir"><i class="fa-solid fa-trash"></i></button>` : ''}
     </td>`);

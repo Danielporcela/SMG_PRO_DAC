@@ -192,10 +192,16 @@ const telaOS = SGMF.tela({
     { campo: 'custo_servicos_total', rotulo: 'Serviços', classe: 'num text-end', render: v => SGMF.moeda(v) },
     { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
+  // "Imprimir OS" é ação de CONSULTA (não altera a OS), por isso fica em
+  // acoesLinhaLeitura: assim ela continua aparecendo para cargos como CCO
+  // e Segurança do trabalho, mesmo quando o nível deles na tela é só
+  // "visualizar" — antes, esse botão ficava dentro de acoesLinha e
+  // desaparecia junto com Editar/Excluir para qualquer usuário somente
+  // leitura, o que impedia esses logins de imprimir a ordem de serviço.
+  acoesLinhaLeitura: (item) => `<button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print"></i></button>`,
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
-                           <i class="fa-solid fa-gears"></i></button>
-                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
-                           <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
+                           <i class="fa-solid fa-gears"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
     ultimasLinhasOS = linhas;
     desenharGraficoMecanicos(linhas);
