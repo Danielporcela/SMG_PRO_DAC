@@ -283,7 +283,16 @@ SGMF.tela = function (config) {
       const bruto = seguro[c.campo];
       const conteudo = c.render ? c.render(bruto, seguro)
         : (bruto === null || bruto === undefined || bruto === '' ? '—' : bruto);
-      return `<td class="${c.classe || ''}">${conteudo}</td>`;
+      // Colunas com valor formatado para exibição (data em dd/mm/aaaa,
+      // moeda em R$) não ordenam certo se o DataTables usar o texto da
+      // célula — "01/10" vem antes de "17/09" em ordem alfabética, mesmo
+      // sendo uma data posterior. `ordenarPor`, quando definido na coluna,
+      // dá ao DataTables um valor "cru" (ex.: a data ISO) só para ordenar,
+      // via atributo data-order, mantendo a célula com o texto formatado.
+      const valorOrdem = c.ordenarPor ? c.ordenarPor(bruto, seguro) : null;
+      const atributoOrdem = (valorOrdem !== null && valorOrdem !== undefined)
+        ? ` data-order="${String(valorOrdem).replace(/"/g, '&quot;')}"` : '';
+      return `<td class="${c.classe || ''}"${atributoOrdem}>${conteudo}</td>`;
     });
     const extrasLeitura = acoesLinhaLeitura ? acoesLinhaLeitura(seguro) : '';
     if (bloqueado()) {

@@ -3,7 +3,14 @@
 {% block cabecalho %}Abastecimentos{% endblock %}
 {% block descricao %}Módulo 5 — ao salvar, o sistema calcula km percorridos, km/L e custo por km.{% endblock %}
 {% block rotulo_novo %}Novo abastecimento{% endblock %}
-{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+{% block acoes_extra %}
+  {% if pode('combustivel', 'editar') %}
+  <input type="file" id="arquivoExcelAbastecimentos" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="d-none">
+  <button class="btn btn-contorno" id="botaoImportarExcel" type="button" title="Importar abastecimentos do Excel">
+    <i class="fa-solid fa-file-excel me-1"></i> Importar Excel
+  </button>
+  {% endif %}
+{% endblock %}
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoCombustivel"></div>
@@ -11,7 +18,70 @@
 
 {% block scripts %}
 <script>
-const telaCombustivel = SGMF.tela({
+(function configurarImportacaoExcelAbastecimentos() {
+  const botao = document.getElementById('botaoImportarExcel');
+  const arquivo = document.getElementById('arquivoExcelAbastecimentos');
+  if (!botao || !arquivo) return;
+
+  botao.addEventListener('click', () => arquivo.click());
+  arquivo.addEventListener('change', async () => {
+    const selecionado = arquivo.files && arquivo.files[0];
+    if (!selecionado) return;
+
+    const confirmado = await Swal.fire({
+      title: 'Importar abastecimentos?',
+      html: `O sistema vai ler a aba <strong>LANÇAM</strong>, localizar cada frota pela aba <strong>PLACA</strong> e inserir os lançamentos na tela Abastecimentos.<br><br><small>Registros já existentes (mesma frota, data e km) serão ignorados.</small>`,
+      icon: 'question', showCancelButton: true,
+      confirmButtonText: 'Importar arquivo', cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#0F3D56', cancelButtonColor: '#5F7080', reverseButtons: true
+    });
+    if (!confirmado.isConfirmed) { arquivo.value = ''; return; }
+
+    const form = new FormData();
+    form.append('arquivo', selecionado);
+    const textoOriginal = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Importando…';
+
+    try {
+      const resposta = await fetch('/api/abastecimentos/importar-excel', {
+        method: 'POST', credentials: 'same-origin', body: form
+      });
+      let dados = null;
+      try { dados = await resposta.json(); } catch (_) {}
+      if (!resposta.ok) throw new Error((dados && dados.erro) || 'Não foi possível importar o Excel.');
+
+      const r = dados.resumo || {};
+      const pendencias = [
+        r.sem_veiculo && r.sem_veiculo.length ? `Sem veículo cadastrado: ${r.sem_veiculo.map(x => `${x[0]} · ${x[1]}`).join(', ')}` : '',
+        r.sem_mapa && r.sem_mapa.length ? `Sem placa na planilha para as frotas: ${r.sem_mapa.join(', ')}` : ''
+      ].filter(Boolean);
+
+      await Swal.fire({
+        title: 'Importação concluída', icon: 'success',
+        html: `<div style="text-align:left">
+          <div><strong>${r.importados || 0}</strong> lançamento(s) importado(s)</div>
+          <div><strong>${r.duplicados || 0}</strong> duplicado(s) ignorado(s)</div>
+          <div><strong>${r.veiculos_importados || 0}</strong> frota(s) atualizada(s)</div>
+          ${pendencias.length ? `<hr><div style="font-size:12px"><strong>Conferir:</strong><br>${pendencias.join('<br>')}</div>` : ''}
+          </div>`,
+        confirmButtonText: 'OK', confirmButtonColor: '#0F3D56'
+      });
+      await telaCombustivel.carregar();
+      // Atualiza o Dashboard aberto em outra aba/janela.
+      localStorage.setItem('sgmf_abastecimentos_atualizados', String(Date.now()));
+    } catch (e) {
+      SGMF.falha(e.message);
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = textoOriginal;
+      arquivo.value = '';
+    }
+  });
+})();
+
+let telaCombustivel;
+telaCombustivel = SGMF.tela({
   recurso: 'abastecimentos',
   tela: 'combustivel',
   acoesLinha: (item) => SGMF.anexos.botao('abastecimentos', item),

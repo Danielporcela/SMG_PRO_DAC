@@ -173,8 +173,9 @@ const telaOS = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   colunas: [
-    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
-    { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
+    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>`,
+      ordenarPor: v => Number(v) || 0 },
+    { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v), ordenarPor: v => v || '' },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
     { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
     { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },

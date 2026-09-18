@@ -1,6 +1,8 @@
 """API REST dos módulos: frota, manutenção, combustível, pneus, estoque e orçamento."""
 from datetime import date
 
+from openpyxl import load_workbook
+
 from flask import Blueprint, current_app, jsonify, request, session
 from sqlalchemy import func
 
@@ -10,6 +12,7 @@ from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, Item
                     Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoTerceiro, Usuario,
                     Veiculo, proximo_codigo_peca)
 from services import indicadores
+from services.importacao import importar_abastecimentos_workbook
 from services.calculos import (atualizar_consumo_diario_frota, baixar_item_os,
                                dar_entrada_serial, desvincular_movimentos,
                                devolver_item_os, devolver_serial_ao_estoque,
@@ -154,12 +157,21 @@ def _verificar_valor_os(obj):
     """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
     custo de mão de obra, serviços e peças zerados costuma ser esquecimento
     de preenchimento, não um serviço legítimo de custo zero.
-    """
-    if obj.status == "Finalizada" and obj.custo_total <= 0:
-        raise ErroNegocio(
-            "Não é possível finalizar a OS com o custo total zerado. "
-            "Informe o valor da mão de obra, dos serviços e/ou das peças "
-            "aplicadas antes de finalizar.")
+
+    Exceção: login com cargo Almoxarifado pode finalizar uma OS que não
+    teve nenhuma peça/serviço lançado na aba "Peças e serviços" — nesse
+    caso não é esquecimento, é uma OS que realmente não precisou de peça
+    (ex.: mecânico resolveu só com mão de obra já contabilizada em outro
+    lugar, ou serviço que não gerou custo)."""
+    if obj.status != "Finalizada" or obj.custo_total > 0:
+        return
+    cargo_atual = (session.get("cargo") or "").strip().upper()
+    if cargo_atual == "ALMOXARIFADO" and not obj.itens:
+        return
+    raise ErroNegocio(
+        "Não é possível finalizar a OS com o custo total zerado. "
+        "Informe o valor da mão de obra, dos serviços e/ou das peças "
+        "aplicadas antes de finalizar.")
 
 
 def _antes_os(obj, dados, anterior):
@@ -465,6 +477,39 @@ registrar_crud(
     tela="combustivel",
     antes_salvar=_antes_abastecimento, depois_salvar=_depois_abastecimento,
     filtrar=_filtro_periodo(Abastecimento.data))
+
+
+@bp_api.post("/abastecimentos/importar-excel")
+@editar_tela("combustivel")
+def importar_abastecimentos_excel():
+    """Importa lançamentos da aba LANÇAM de um Excel para Abastecimentos.
+
+    O arquivo é processado em memória. A importação é atômica e ignora
+    duplicidades pelo conjunto veículo + data + km.
+    """
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        return jsonify({"erro": "Selecione um arquivo Excel (.xlsx)."}), 400
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"erro": "Formato inválido. Envie um arquivo Excel .xlsx."}), 400
+
+    try:
+        wb = load_workbook(arquivo.stream, data_only=True, read_only=True)
+        resumo = importar_abastecimentos_workbook(wb)
+        wb.close()
+        db.session.commit()
+        if resumo["importados"]:
+            atualizar_consumo_diario_frota()
+        registrar_log("importar_excel", "abastecimentos", None,
+                      f"{resumo['importados']} importado(s); {resumo['duplicados']} duplicado(s)")
+        db.session.commit()
+        return jsonify({"ok": True, "mensagem": "Importação concluída.", "resumo": resumo})
+    except (ErroNegocio, ValueError, TypeError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível importar a planilha ({e.__class__.__name__}). Confira o arquivo e tente novamente."}), 400
 
 
 # ---------------------------------------------------------- Módulo 7: pneus
