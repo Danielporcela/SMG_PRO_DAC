@@ -152,6 +152,29 @@ async function gravarAbastecimentos() {
   }
 }
 
+function montarCamposCalculados() {
+  const kmP = document.getElementById('campo_km_percorridos');
+  const kmL = document.getElementById('campo_km_por_litro');
+  if (kmP && !kmP.innerHTML.trim()) kmP.innerHTML = '<input class="form-control" id="valorKmPercExcel" readonly placeholder="Será calculado">';
+  if (kmL && !kmL.innerHTML.trim()) kmL.innerHTML = '<input class="form-control" id="valorKmLExcel" readonly placeholder="Será calculado">';
+  ['campo_veiculo_id','campo_km_atual','campo_litros'].forEach(id => {
+    const el=document.getElementById(id);
+    if(el && !el.dataset.calcExcel) { el.dataset.calcExcel='1'; el.addEventListener('input', atualizarCalculosExcel); el.addEventListener('change', atualizarCalculosExcel); }
+  });
+}
+function atualizarCalculosExcel() {
+  const veiculo = Number(document.getElementById('campo_veiculo_id')?.value || 0);
+  const km = Number(document.getElementById('campo_km_atual')?.value || 0);
+  const litros = Number(document.getElementById('campo_litros')?.value || 0);
+  const anteriores = telaCombustivel.dados().filter(x => Number(x.veiculo_id)===veiculo && Number(x.km_atual) < km).sort((a,b)=>Number(b.km_atual)-Number(a.km_atual));
+  const ultimo = anteriores[0];
+  const kmPerc = ultimo ? km-Number(ultimo.km_atual||0) : 0;
+  const kmL = kmPerc>0 && litros>0 ? kmPerc/litros : 0;
+  const a=document.getElementById('valorKmPercExcel'), b=document.getElementById('valorKmLExcel');
+  if(a) a.value = kmPerc>0 ? SGMF.numero(kmPerc,2) : '';
+  if(b) b.value = kmL>0 ? SGMF.numero(kmL,2) : '';
+}
+
 const telaCombustivel = SGMF.tela({
   recurso: 'abastecimentos',
   tela: 'combustivel',
@@ -187,29 +210,6 @@ const telaCombustivel = SGMF.tela({
     { campo: 'custo_por_km', rotulo: 'Custo/km', classe: 'num text-end', render: v => v ? SGMF.moeda(v) : '—' },
     { campo: 'valor_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
-  function montarCamposCalculados() {
-    const kmP = document.getElementById('campo_km_percorridos');
-    const kmL = document.getElementById('campo_km_por_litro');
-    if (kmP && !kmP.innerHTML.trim()) kmP.innerHTML = '<input class="form-control" id="valorKmPercExcel" readonly placeholder="Será calculado">';
-    if (kmL && !kmL.innerHTML.trim()) kmL.innerHTML = '<input class="form-control" id="valorKmLExcel" readonly placeholder="Será calculado">';
-    ['campo_veiculo_id','campo_km_atual','campo_litros'].forEach(id => {
-      const el=document.getElementById(id);
-      if(el && !el.dataset.calcExcel) { el.dataset.calcExcel='1'; el.addEventListener('input', atualizarCalculosExcel); el.addEventListener('change', atualizarCalculosExcel); }
-    });
-  }
-  function atualizarCalculosExcel() {
-    const veiculo = Number(document.getElementById('campo_veiculo_id')?.value || 0);
-    const km = Number(document.getElementById('campo_km_atual')?.value || 0);
-    const litros = Number(document.getElementById('campo_litros')?.value || 0);
-    const anteriores = telaCombustivel.dados().filter(x => Number(x.veiculo_id)===veiculo && Number(x.km_atual) < km).sort((a,b)=>Number(b.km_atual)-Number(a.km_atual));
-    const ultimo = anteriores[0];
-    const kmPerc = ultimo ? km-Number(ultimo.km_atual||0) : 0;
-    const kmL = kmPerc>0 && litros>0 ? kmPerc/litros : 0;
-    const a=document.getElementById('valorKmPercExcel'), b=document.getElementById('valorKmLExcel');
-    if(a) a.value = kmPerc>0 ? SGMF.numero(kmPerc,2) : '';
-    if(b) b.value = kmL>0 ? SGMF.numero(kmL,2) : '';
-  }
-
   aoAbrirFormulario: (registro) => {
     const modal = document.getElementById('modal_abastecimentos');
     const campos = document.getElementById('modal_abastecimentos_campos');
