@@ -95,6 +95,26 @@ def editar_tela(tela):
     return decorator
 
 
+def editar_tela_ou_cargo(tela, *cargos):
+    """Exige edição na tela ou permite a ação para os cargos informados.
+
+    Usado apenas em ações específicas que precisam ser liberadas para um
+    cargo sem conceder edição completa do módulo.
+    """
+    cargos_permitidos = {str(c).strip().upper() for c in cargos}
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if not session.get("usuario_id"):
+                return jsonify({"erro": "Sessão expirada. Entre novamente."}), 401
+            cargo = (session.get("cargo") or "").strip().upper()
+            if not nivel_permite(tela, "editar") and cargo not in cargos_permitidos:
+                return _resposta_sem_permissao()
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def checar_tela(tela, nivel_minimo="visualizar"):
     """Verificação avulsa para rotas cuja tela só é conhecida em tempo de
     execução (ex.: anexos, que atendem tanto 'ordens' quanto
@@ -258,18 +278,10 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
                 campos_liberados_para_restrito=campos_liberados_para_restrito):
         obj = db.get_or_404(Model, registro_id)
         dados = request.get_json(silent=True) or {}
-        # A tela libera os campos de abertura para quem tem perfil "admin"
-        # OU cargo "CCO" (ver podeEditarCampoSetor em crud.js). O backend
-        # precisa espelhar exatamente essa mesma regra — antes só olhava o
-        # perfil (admin/operador), então um usuário com cargo CCO mas perfil
-        # diferente via a tela liberada, mas o valor era descartado aqui.
-        cargo_atual = (session.get("cargo") or "").strip().upper()
-        if (campos_liberados_para_restrito is not None
-                and session.get("perfil") not in ("admin", "operador")
-                and cargo_atual != "CCO"):
-            # Perfil sem privilégio de operação (e sem cargo CCO): mantém só
-            # o que está liberado para "outro setor" mexer; o resto do
-            # registro fica estático, não importa o que o cliente enviou.
+        if campos_liberados_para_restrito is not None and session.get("perfil") not in ("admin", "operador"):
+            # Perfil sem privilégio de operação: mantém só o que está liberado
+            # para "outro setor" mexer; o resto do registro fica estático,
+            # não importa o que o cliente tenha enviado.
             dados = {k: v for k, v in dados.items() if k in campos_liberados_para_restrito}
         dados = _remover_campos_bloqueados_por_cargo(dados)
         anterior = ser(obj)

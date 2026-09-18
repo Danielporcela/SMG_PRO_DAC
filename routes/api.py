@@ -20,9 +20,9 @@ from services.calculos import (atualizar_consumo_diario_frota, baixar_item_os,
                                proximo_numero_os, recalcular_abastecimento,
                                regularizar_seriais_peca, sincronizar_status_veiculo,
                                validar_km)
-from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
-                           perfil_obrigatorio, pode_escrever, registrar_crud,
-                           registrar_log, visualizar_tela)
+from services.crud import (ErroNegocio, aplicar_campos, editar_tela, editar_tela_ou_cargo,
+                           login_obrigatorio, perfil_obrigatorio, pode_escrever,
+                           registrar_crud, registrar_log, visualizar_tela)
 from services.tempo import agora, hoje, ler_data
 from services.mapa_pneus import PneuHistorico, PneuMapaDados
 from services.posicoes_pneu import normalizar_posicao
@@ -304,7 +304,7 @@ def listar_itens(os_id):
 
 
 @bp_api.post("/ordens/<int:os_id>/itens")
-@editar_tela("manutencao")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
 def adicionar_item(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
     # Uma OS em "Aguardando peça" continua aberta e deve aceitar o
@@ -341,7 +341,7 @@ def adicionar_item(os_id):
 
 
 @bp_api.post("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial")
-@editar_tela("manutencao")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
 def vincular_serial_item(os_id, item_id):
     """Aplica UMA unidade específica (número de série) a um item da OS.
 
@@ -367,7 +367,7 @@ def vincular_serial_item(os_id, item_id):
 
 
 @bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial/<int:vinculo_id>")
-@editar_tela("manutencao")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
 def desvincular_serial_item(os_id, item_id, vinculo_id):
     """Remove uma unidade específica do item (sem excluir o item inteiro) —
     a peça volta para o estoque e pode ser reinstalada depois."""
@@ -447,7 +447,7 @@ def regularizar_peca(peca_id):
 
 
 @bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>")
-@editar_tela("manutencao")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
 def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
