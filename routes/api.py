@@ -222,7 +222,7 @@ def _antes_excluir_os(obj):
 # formulário, que já libera a edição justamente para CCO/admin; incluí-lo
 # aqui fazia o backend descartar o valor escolhido na abertura da OS,
 # mesmo com o campo habilitado e preenchido na tela.
-CAMPOS_EXECUCAO_OS = {"status", "prioridade", "mecanico", "data_fechamento", "hora_fim"}
+CAMPOS_EXECUCAO_OS = {"status", "mecanico", "data_fechamento", "hora_fim"}
 
 registrar_crud(
     bp_api, "ordens", OrdemServico,

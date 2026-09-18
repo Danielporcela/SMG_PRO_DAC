@@ -111,6 +111,15 @@
 
 {% block scripts %}
 <style>
+  /* Ações da OS ficam sempre acessíveis, sem rolagem horizontal para imprimir. */
+  #areaTabela { overflow-x: auto; }
+  #areaTabela th:last-child, #areaTabela td:last-child {
+    position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -5px 0 8px rgba(0,0,0,.06);
+    min-width: 150px;
+  }
+  #areaTabela th:last-child { z-index: 3; }
+  #areaTabela .descricao-problema { min-width: 280px; max-width: 420px; white-space: normal; }
+
   /* Lista que aparece embaixo da caixa "Procurar peça no estoque". */
   .resultado-pecas { border: 1px solid #D3DBE2; border-radius: 6px; background: #fff;
                      max-height: 240px; overflow-y: auto; margin-top: 4px; }
@@ -145,7 +154,9 @@ const telaOS = SGMF.tela({
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
   autoSalvarAoFechar: true,
-  ordem: [[1, 'desc']],
+  ordem: [[0, 'desc']],
+  pageLength: 10,
+  lengthMenu: [10],
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
@@ -163,7 +174,7 @@ const telaOS = SGMF.tela({
                'Serviço solda', 'Chapeação e pintura'] },
     { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta', travarParaCargos: ['CCO'],
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true, travarParaCargos: ['CCO'],
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true,
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
     { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média', travarParaCargos: ['CCO'],
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
@@ -175,9 +186,10 @@ const telaOS = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   colunas: [
-    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
+    { campo: 'numero', rotulo: 'OS', classe: 'num', ordenarPor: v => v || '', render: v => `<strong>${v || '—'}</strong>` },
     { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'problema', rotulo: 'Descrição do problema relatado', classe: 'descricao-problema', render: v => v || '—' },
     { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
     { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
@@ -195,10 +207,12 @@ const telaOS = SGMF.tela({
     { campo: 'custo_servicos_total', rotulo: 'Serviços', classe: 'num text-end', render: v => SGMF.moeda(v) },
     { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
-  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
-                           <i class="fa-solid fa-gears"></i></button>
-                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
-                           <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-sm" data-pecas="${item.id}" title="Peças e serviços">
+                           <i class="fa-solid fa-gears me-1"></i>Peças</button>
+                         <button class="btn btn-primario btn-sm" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print me-1"></i>Imprimir</button>` + SGMF.anexos.botao('ordens', item),
+  acoesLinhaLeitura: (item) => `<button class="btn btn-primario btn-sm" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print me-1"></i>Imprimir</button>`,
   aoRenderizar: (linhas) => {
     ultimasLinhasOS = linhas;
     desenharGraficoMecanicos(linhas);
