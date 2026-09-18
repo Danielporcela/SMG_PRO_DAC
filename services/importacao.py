@@ -134,22 +134,8 @@ def _config(tipo):
 
 
 def _converter(valor, tipo, cabecalho):
-    """Converte valores vindos do Excel sem destruir tipos nativos.
-
-    O openpyxl devolve células de data como datetime/date. Converter essas
-    células para str antes de chamar ler_data fazia a importação rejeitar
-    datas perfeitamente válidas do Excel.
-    """
     if valor is None or str(valor).strip() == "":
         return None
-    if tipo == "data":
-        try:
-            if isinstance(valor, (datetime, date)):
-                return valor.date() if isinstance(valor, datetime) else valor
-            return ler_data(str(valor).strip(), cabecalho)
-        except (ValueError, TypeError, ErroNegocio):
-            raise ValueError(f"'{cabecalho}' com valor inválido: {valor}")
-
     texto = str(valor).strip()
     try:
         if tipo == "inteiro":
@@ -157,6 +143,15 @@ def _converter(valor, tipo, cabecalho):
         if tipo == "numero":
             return float(texto.replace(" ", "").replace(".", "").replace(",", ".")) \
                 if texto.count(",") == 1 else float(texto.replace(" ", ""))
+        if tipo == "data":
+            # O openpyxl devolve datas do Excel como datetime/date.
+            # Preserve o objeto de data em vez de convertê-lo para
+            # "2026-09-17 00:00:00", que o parser antigo rejeitava.
+            if isinstance(valor, datetime):
+                return valor.date()
+            if isinstance(valor, date):
+                return valor
+            return ler_data(texto[:10], cabecalho)
         if tipo == "placa":
             return texto.upper().replace("-", "").replace(" ", "")
     except (ValueError, TypeError, ErroNegocio):
@@ -338,14 +333,22 @@ def ler_abastecimentos(arquivo):
         raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) +
                           ". Use o modelo de lançamento de diesel.")
 
-    # O campo VEÍCULO da planilha pode trazer: ID do cadastro, prefixo ou placa.
+    # A coluna VEÍCULO da planilha usa o número da frota (1, 2, 3...).
+    # No cadastro, esse número corresponde aos DOIS PRIMEIROS DÍGITOS
+    # do prefixo. Ex.: 2 -> "02 · JBF5F67", 3 -> "03 · RQY7H57",
+    # 58 -> "58 · RJG7B64".
     veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
-    por_id = {str(v.id).strip().upper(): v for v in veiculos}
+    por_frota = {}
     por_prefixo = {}
     for v in veiculos:
-        chave = str(v.prefixo or "").strip().upper()
-        if chave:
-            por_prefixo[chave] = v
+        prefixo = str(v.prefixo or "").strip().upper()
+        if prefixo:
+            por_prefixo[prefixo] = v
+            m = re.match(r"\s*(\d{1,2})", prefixo)
+            if m:
+                por_frota[m.group(1).zfill(2)] = v
+
+    # Também permite placa no campo VEÍCULO como tolerância.
     por_placa = {str(v.placa or "").strip().upper().replace("-", ""): v
                  for v in veiculos if v.placa}
 
@@ -361,13 +364,22 @@ def ler_abastecimentos(arquivo):
             continue
 
         bruto_veiculo = bruta[indices["VEÍCULO"]]
-        chave_veiculo = str(bruto_veiculo or "").strip().upper()
-        # A planilha de origem pode trazer uma linha de totalização no final.
-        # Ela não representa um abastecimento e deve ser ignorada.
-        if chave_veiculo in {"TOTAL", "TOTAIS", "TOTAL GERAL"}:
+        # A linha TOTAL é resumo da planilha, não é abastecimento.
+        if str(bruto_veiculo or "").strip().upper() == "TOTAL":
             continue
+        chave_veiculo = str(bruto_veiculo or "").strip().upper()
+        # Normaliza 1 -> 01, 2 -> 02, 58 -> 58. O Excel pode entregar
+        # o valor como inteiro, float (2.0) ou texto.
+        try:
+            numero_frota = str(int(float(chave_veiculo))).zfill(2)
+        except (ValueError, TypeError):
+            numero_frota = chave_veiculo[:2]
         chave_placa = chave_veiculo.replace("-", "")
-        veiculo = por_id.get(chave_veiculo) or por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
+        veiculo = (
+            por_frota.get(numero_frota)
+            or por_prefixo.get(chave_veiculo)
+            or por_placa.get(chave_placa)
+        )
         erros = []
         if not veiculo:
             erros.append(f"veículo '{chave_veiculo}' não encontrado no cadastro da frota")
