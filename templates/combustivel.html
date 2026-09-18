@@ -3,85 +3,156 @@
 {% block cabecalho %}Abastecimentos{% endblock %}
 {% block descricao %}Módulo 5 — ao salvar, o sistema calcula km percorridos, km/L e custo por km.{% endblock %}
 {% block rotulo_novo %}Novo abastecimento{% endblock %}
-{% block acoes_extra %}
-  {% if pode('combustivel', 'editar') %}
-  <input type="file" id="arquivoExcelAbastecimentos" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="d-none">
-  <button class="btn btn-contorno" id="botaoImportarExcel" type="button" title="Importar abastecimentos do Excel">
-    <i class="fa-solid fa-file-excel me-1"></i> Importar Excel
-  </button>
-  {% endif %}
-{% endblock %}
+{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
 
 {% block antes_tabela %}
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <button class="btn btn-primario" type="button" id="botaoImportarExcel">
+        <i class="fa-solid fa-file-excel me-1"></i> Importar Excel
+      </button>
+      <a class="btn btn-contorno" href="/abastecimentos/modelo.xlsx">
+        <i class="fa-solid fa-download me-1"></i> Baixar modelo
+      </a>
+      <input type="file" id="arquivoAbastecimentos" accept=".xlsx,.xlsm" hidden>
+      <span class="form-text ms-md-2">A planilha deve ter: VEÍCULO, DATA, LITROS e KM. KM PERC e KM/L são recalculados automaticamente.</span>
+    </div>
+  </div>
+</div>
+<div id="previaImportacaoAbastecimentos"></div>
 <div class="instrumentos mb-3" id="resumoCombustivel"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-(function configurarImportacaoExcelAbastecimentos() {
+let previaAbastecimentos = null;
+
+document.getElementById('botaoImportarExcel').onclick = () => {
+  document.getElementById('arquivoAbastecimentos').click();
+};
+
+document.getElementById('arquivoAbastecimentos').onchange = async (evento) => {
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+  const corpo = new FormData();
+  corpo.append('arquivo', arquivo);
+
   const botao = document.getElementById('botaoImportarExcel');
-  const arquivo = document.getElementById('arquivoExcelAbastecimentos');
-  if (!botao || !arquivo) return;
+  botao.disabled = true;
+  botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Conferindo…';
 
-  botao.addEventListener('click', () => arquivo.click());
-  arquivo.addEventListener('change', async () => {
-    const selecionado = arquivo.files && arquivo.files[0];
-    if (!selecionado) return;
-
-    const confirmado = await Swal.fire({
-      title: 'Importar abastecimentos?',
-      html: `O sistema vai ler a aba <strong>LANÇAM</strong>, localizar cada frota pela aba <strong>PLACA</strong> e inserir os lançamentos na tela Abastecimentos.<br><br><small>Registros já existentes (mesma frota, data e km) serão ignorados.</small>`,
-      icon: 'question', showCancelButton: true,
-      confirmButtonText: 'Importar arquivo', cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#0F3D56', cancelButtonColor: '#5F7080', reverseButtons: true
+  try {
+    const resposta = await fetch('/api/abastecimentos/importar/conferir', {
+      method: 'POST', body: corpo, credentials: 'same-origin'
     });
-    if (!confirmado.isConfirmed) { arquivo.value = ''; return; }
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não consegui ler a planilha.');
+    previaAbastecimentos = dados;
+    mostrarPreviaAbastecimentos(dados);
+  } catch (e) {
+    SGMF.falha(e.message);
+  } finally {
+    botao.disabled = false;
+    botao.innerHTML = '<i class="fa-solid fa-file-excel me-1"></i> Importar Excel';
+    evento.target.value = '';
+  }
+};
 
-    const form = new FormData();
-    form.append('arquivo', selecionado);
-    const textoOriginal = botao.innerHTML;
-    botao.disabled = true;
-    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Importando…';
+function mostrarPreviaAbastecimentos(d) {
+  const prontas = d.prontas.length, problemas = d.problemas.length;
+  const tabela = prontas ? `
+    <div class="cartao mt-3">
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-circle-check me-2" style="color:var(--ok)"></i>Prontas para importar</h3>
+        <span class="etiqueta verde ms-auto">${prontas}</span>
+      </div>
+      <div class="cartao-corpo p-0" style="max-height:360px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:12.5px">
+          <thead><tr><th class="ps-3">Linha</th><th>Veículo</th><th>Data</th><th>Litros</th><th>Km</th></tr></thead>
+          <tbody>${d.prontas.slice(0, 200).map(l => `<tr>
+            <td class="ps-3 num">${l.linha}</td>
+            <td>${SGMF.esc(l.dados.veiculo_nome || '')}</td>
+            <td>${SGMF.data(l.dados.data)}</td>
+            <td class="num">${SGMF.numero(l.dados.litros, 2)}</td>
+            <td class="num">${SGMF.numero(l.dados.km_atual)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        ${prontas > 200 ? `<div class="p-2 text-center text-muted">Mostrando 200 primeiras; todas as ${prontas} serão importadas.</div>` : ''}
+      </div>
+    </div>` : '';
 
-    try {
-      const resposta = await fetch('/api/abastecimentos/importar-excel', {
-        method: 'POST', credentials: 'same-origin', body: form
-      });
-      let dados = null;
-      try { dados = await resposta.json(); } catch (_) {}
-      if (!resposta.ok) throw new Error((dados && dados.erro) || 'Não foi possível importar o Excel.');
+  const erros = problemas ? `
+    <div class="cartao mt-3">
+      <div class="faixa-sinalizacao"></div>
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-triangle-exclamation me-2" style="color:var(--alerta)"></i>Linhas recusadas</h3>
+        <span class="etiqueta vermelha ms-auto">${problemas}</span>
+      </div>
+      <div class="cartao-corpo p-0" style="max-height:300px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:12.5px">
+          <thead><tr><th class="ps-3">Linha</th><th>Motivo</th></tr></thead>
+          <tbody>${d.problemas.map(p => `<tr><td class="ps-3 num">${p.linha}</td><td style="color:var(--alerta)">${SGMF.esc(p.erro)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>` : '';
 
-      const r = dados.resumo || {};
-      const pendencias = [
-        r.sem_veiculo && r.sem_veiculo.length ? `Sem veículo cadastrado: ${r.sem_veiculo.map(x => `${x[0]} · ${x[1]}`).join(', ')}` : '',
-        r.sem_mapa && r.sem_mapa.length ? `Sem placa na planilha para as frotas: ${r.sem_mapa.join(', ')}` : ''
-      ].filter(Boolean);
+  document.getElementById('previaImportacaoAbastecimentos').innerHTML = `
+    <div class="instrumentos">
+      <div class="medidor"><div class="rotulo">Linhas na planilha</div><div class="valor num">${d.total}</div></div>
+      <div class="medidor ok"><div class="rotulo">Prontas</div><div class="valor num">${prontas}</div></div>
+      <div class="medidor ${problemas ? 'critico' : ''}"><div class="rotulo">Recusadas</div><div class="valor num">${problemas}</div></div>
+    </div>
+    ${tabela}${erros}
+    <div class="mt-3 mb-3 d-flex gap-2">
+      <button class="btn btn-primario" id="botaoGravarAbastecimentos" ${prontas ? '' : 'disabled'}>
+        <i class="fa-solid fa-database me-1"></i> Gravar ${prontas} abastecimento${prontas === 1 ? '' : 's'}
+      </button>
+      <button class="btn btn-contorno" id="cancelarImportacaoAbastecimentos">Cancelar</button>
+    </div>`;
 
-      await Swal.fire({
-        title: 'Importação concluída', icon: 'success',
-        html: `<div style="text-align:left">
-          <div><strong>${r.importados || 0}</strong> lançamento(s) importado(s)</div>
-          <div><strong>${r.duplicados || 0}</strong> duplicado(s) ignorado(s)</div>
-          <div><strong>${r.veiculos_importados || 0}</strong> frota(s) atualizada(s)</div>
-          ${pendencias.length ? `<hr><div style="font-size:12px"><strong>Conferir:</strong><br>${pendencias.join('<br>')}</div>` : ''}
-          </div>`,
-        confirmButtonText: 'OK', confirmButtonColor: '#0F3D56'
-      });
-      await telaCombustivel.carregar();
-      // Atualiza o Dashboard aberto em outra aba/janela.
-      localStorage.setItem('sgmf_abastecimentos_atualizados', String(Date.now()));
-    } catch (e) {
-      SGMF.falha(e.message);
-    } finally {
-      botao.disabled = false;
-      botao.innerHTML = textoOriginal;
-      arquivo.value = '';
-    }
-  });
-})();
+  const gravar = document.getElementById('botaoGravarAbastecimentos');
+  if (gravar) gravar.onclick = gravarAbastecimentos;
+  document.getElementById('cancelarImportacaoAbastecimentos').onclick = () => {
+    document.getElementById('previaImportacaoAbastecimentos').innerHTML = '';
+    previaAbastecimentos = null;
+  };
+}
 
-let telaCombustivel;
-telaCombustivel = SGMF.tela({
+async function gravarAbastecimentos() {
+  const ok = await SGMF.confirmar(
+    'Gravar abastecimentos?',
+    `${previaAbastecimentos.prontas.length} registro(s) serão inseridos na aba Abastecimentos e recalculados para o Dashboard.`,
+    'Gravar'
+  );
+  if (!ok) return;
+
+  const botao = document.getElementById('botaoGravarAbastecimentos');
+  botao.disabled = true;
+  botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Gravando…';
+
+  try {
+    const r = await SGMF.post('/api/abastecimentos/importar/gravar', {
+      linhas: previaAbastecimentos.prontas
+    });
+    await Swal.fire({
+      icon: 'success',
+      title: 'Importação concluída',
+      text: `${r.gravadas} abastecimento(s) foram inseridos. O consumo por frota foi recalculado.`,
+      confirmButtonColor: '#0F3D56'
+    });
+    document.getElementById('previaImportacaoAbastecimentos').innerHTML = '';
+    previaAbastecimentos = null;
+    SGMF.limparCache();
+    telaCombustivel.carregar();
+  } catch (e) {
+    SGMF.falha(e.message);
+    botao.disabled = false;
+    botao.innerHTML = '<i class="fa-solid fa-database me-1"></i> Gravar';
+  }
+}
+
+const telaCombustivel = SGMF.tela({
   recurso: 'abastecimentos',
   tela: 'combustivel',
   acoesLinha: (item) => SGMF.anexos.botao('abastecimentos', item),

@@ -30,6 +30,59 @@ def _tela_do_anexo(tipo):
 
 
 # ============================================================== importação
+
+@bp_extras.get("/abastecimentos/modelo.xlsx")
+@editar_tela("combustivel")
+def baixar_modelo_abastecimentos():
+    """Modelo da planilha aceita pela aba Abastecimentos."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "LANÇAMENTO"
+    ws.append(["VEÍCULO", "DATA", "LITROS", "KM", "KM PERC", "KM/L"])
+    ws.append([1, "2026-09-17", 90, 146889, 123, 1.37])
+    ws.append([])
+    ws.append(["Informe VEÍCULO como prefixo cadastrado. KM PERC e KM/L são recalculados pelo sistema."])
+    fundo = PatternFill("solid", fgColor="0F3D56")
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = fundo
+        c.alignment = Alignment(horizontal="center")
+    for col, width in zip("ABCDEF", [14, 14, 12, 14, 14, 12]):
+        ws.column_dimensions[col].width = width
+    saida = io.BytesIO()
+    wb.save(saida)
+    saida.seek(0)
+    return send_file(saida, as_attachment=True, download_name="modelo_abastecimentos.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@bp_extras.post("/api/abastecimentos/importar/conferir")
+@editar_tela("combustivel")
+def conferir_abastecimentos():
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        return jsonify({"erro": "Selecione a planilha de abastecimentos."}), 400
+    if not arquivo.filename.lower().endswith((".xlsx", ".xlsm")):
+        return jsonify({"erro": "Envie um arquivo .xlsx ou .xlsm."}), 400
+    conteudo = arquivo.read()
+    return jsonify(importacao.ler_abastecimentos(io.BytesIO(conteudo)))
+
+
+@bp_extras.post("/api/abastecimentos/importar/gravar")
+@editar_tela("combustivel")
+def gravar_abastecimentos():
+    dados = request.get_json(silent=True) or {}
+    linhas = dados.get("linhas") or []
+    gravadas = importacao.gravar_abastecimentos(linhas)
+    registrar_log("importar", "abastecimentos", 0,
+                  f"{gravadas} abastecimentos por planilha")
+    db.session.commit()
+    return jsonify({"ok": True, "gravadas": gravadas})
+
+
 @bp_extras.get("/importacao/modelo/<tipo>.xlsx")
 @editar_tela("importacao")
 def baixar_modelo(tipo):
@@ -48,7 +101,8 @@ def conferir_planilha(tipo):
         return jsonify({"erro": "Selecione a planilha preenchida."}), 400
     if not arquivo.filename.lower().endswith((".xlsx", ".xlsm")):
         return jsonify({"erro": "Envie a planilha em .xlsx (o modelo que você baixou)."}), 400
-    return jsonify(importacao.ler_planilha(tipo, arquivo.stream))
+    conteudo = arquivo.read()
+    return jsonify(importacao.ler_planilha(tipo, io.BytesIO(conteudo)))
 
 
 @bp_extras.post("/api/importacao/<tipo>/gravar")

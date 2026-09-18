@@ -17,7 +17,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from extensions import db
-from models import Fornecedor, Motorista, Peca, Veiculo
+from models import Abastecimento, Fornecedor, Motorista, Peca, Veiculo
 from services.calculos import movimentar_estoque
 from services.crud import ErroNegocio
 from services.tempo import ler_data
@@ -291,167 +291,182 @@ def gravar(tipo, linhas):
     return gravadas
 
 
-# ---------------------------------------------------------------------------
-# Importação de abastecimentos Excel
-ABA_LANCAMENTOS_ABAST = "LANÇAM"
-ABA_PLACAS_ABAST = "PLACA"
+# -------------------------------------------------------- Abastecimentos
+# Importação específica do módulo de combustível. O arquivo do usuário usa
+# "VEÍCULO" como prefixo da frota e traz os campos calculados "KM PERC" e
+# "KM/L". Esses dois últimos não são confiados: o SGMF recalcula a partir do
+# histórico real do veículo, evitando divergências no Dashboard.
+COLUNAS_ABASTECIMENTOS = [
+    ("VEÍCULO", "veiculo", "texto", True),
+    ("DATA", "data", "data", True),
+    ("LITROS", "litros", "numero", True),
+    ("KM", "km_atual", "numero", True),
+]
+
+LIMITE_ABASTECIMENTOS = 5000
 
 
-def _normalizar_cabecalho_abastecimento(valor):
-    """Normaliza cabeçalhos do Excel (acentos, espaços e variações)."""
-    import unicodedata
-    texto = "" if valor is None else str(valor).strip().upper()
-    texto = "".join(c for c in unicodedata.normalize("NFKD", texto)
-                    if not unicodedata.combining(c))
-    return " ".join(texto.split())
-
-
-def ler_planilha_abastecimentos(wb):
-    """Lê LANÇAM + PLACA e devolve registros prontos para importação.
-
-    Aceita cabeçalhos com ou sem espaços finais, como ``LITROS `` e ``KM ``.
-    ``KM PERC`` e ``KM/L`` são lidos quando existirem, mas os indicadores
-    do sistema continuam usando os campos calculados do banco.
-    """
-    if ABA_LANCAMENTOS_ABAST not in wb.sheetnames:
-        raise ErroNegocio(f"Não encontrei a aba '{ABA_LANCAMENTOS_ABAST}' na planilha.")
-
-    mapa = {}
-    if ABA_PLACAS_ABAST in wb.sheetnames:
-        ws_placas = wb[ABA_PLACAS_ABAST]
-        for linha in ws_placas.iter_rows(values_only=True):
-            if len(linha) < 2:
-                continue
-            placa, frota = linha[0], linha[1]
-            if placa is None or frota is None:
-                continue
-            try:
-                mapa[int(float(frota))] = str(placa).strip().upper().replace("-", "")
-            except (TypeError, ValueError):
-                continue
-
-    ws = wb[ABA_LANCAMENTOS_ABAST]
-    linhas = ws.iter_rows(values_only=True)
+def ler_abastecimentos(arquivo):
     try:
-        cabecalho = next(linhas)
-    except StopIteration:
-        raise ErroNegocio("A aba LANÇAM está vazia.")
+        wb = load_workbook(arquivo, data_only=True, read_only=True)
+    except Exception:
+        raise ErroNegocio("Não consegui abrir a planilha. Envie um arquivo .xlsx ou .xlsm.")
 
-    nomes = [_normalizar_cabecalho_abastecimento(v) for v in cabecalho]
-    aliases = {
-        "VEICULO": ("VEICULO",),
-        "DATA": ("DATA",),
-        "LITROS": ("LITROS",),
-        "KM": ("KM",),
-        "KM PERC": ("KM PERC", "KMPERC"),
-        "KM/L": ("KM/L", "KM L"),
-    }
-    idx = {}
-    for canon, opcoes in aliases.items():
-        for opcao in opcoes:
-            if opcao in nomes:
-                idx[canon] = nomes.index(opcao)
-                break
+    ws = wb.active
+    linhas = list(ws.iter_rows(values_only=True))
+    if not linhas:
+        raise ErroNegocio("A planilha de abastecimentos está vazia.")
 
-    obrigatorios = ("VEICULO", "DATA", "LITROS", "KM")
-    faltando = [x for x in obrigatorios if x not in idx]
+    cabecalho = [str(c).replace("*", "").strip().upper() if c is not None else ""
+                 for c in linhas[0]]
+    indices = {titulo: cabecalho.index(titulo) for titulo, *_ in COLUNAS_ABASTECIMENTOS
+               if titulo in cabecalho}
+    faltando = [titulo for titulo, *_ in COLUNAS_ABASTECIMENTOS if titulo not in indices]
     if faltando:
-        raise ErroNegocio("A aba LANÇAM precisa conter as colunas: " + ", ".join(obrigatorios) + ".")
+        raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) +
+                          ". Use o modelo de lançamento de diesel.")
 
-    registros = []
-    for numero_linha, linha in enumerate(linhas, start=2):
-        def valor(nome):
-            i = idx.get(nome)
-            return linha[i] if i is not None and i < len(linha) else None
+    # Índice por prefixo. Aceita prefixos numéricos (1, 2, 3) e texto (FR-101).
+    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
+    por_prefixo = {}
+    for v in veiculos:
+        chave = str(v.prefixo or "").strip().upper()
+        if chave:
+            por_prefixo[chave] = v
 
-        frota = valor("VEICULO")
-        data = valor("DATA")
-        litros = valor("LITROS")
-        km = valor("KM")
-        if frota in (None, "") and data in (None, "") and litros in (None, "") and km in (None, ""):
+    # Também permite placa no campo VEÍCULO, como tolerância útil.
+    por_placa = {str(v.placa or "").strip().upper().replace("-", ""): v
+                 for v in veiculos if v.placa}
+
+    prontas, problemas = [], []
+    vistos = set()
+
+    for numero, bruta in enumerate(linhas[1:], start=2):
+        if numero - 1 > LIMITE_ABASTECIMENTOS:
+            problemas.append({"linha": numero,
+                              "erro": f"A planilha passa de {LIMITE_ABASTECIMENTOS} linhas. Divida em partes."})
+            break
+        if not any(c is not None and str(c).strip() != "" for c in bruta):
             continue
-        if frota in (None, "") or data in (None, "") or litros in (None, "") or km in (None, ""):
-            raise ErroNegocio(f"Linha {numero_linha}: veículo, data, litros e km são obrigatórios.")
-        try:
-            frota_num = int(float(frota))
-            litros_num = float(str(litros).replace(",", "."))
-            km_num = float(str(km).replace(",", "."))
-            data_num = data.date() if hasattr(data, "date") else ler_data(str(data)[:10], "data")
-        except (TypeError, ValueError) as exc:
-            raise ErroNegocio(f"Linha {numero_linha}: valor inválido ({exc}).")
-        if litros_num <= 0:
-            raise ErroNegocio(f"Linha {numero_linha}: litros deve ser maior que zero.")
-        if km_num < 0:
-            raise ErroNegocio(f"Linha {numero_linha}: km não pode ser negativo.")
-        registros.append({
-            "linha": numero_linha,
-            "veiculo_num": frota_num,
-            "placa": mapa.get(frota_num),
-            "data": data_num,
-            "litros": litros_num,
-            "km_atual": km_num,
-            "km_planilha": valor("KM PERC"),
-            "kml_planilha": valor("KM/L"),
-        })
-    return registros, mapa
 
-
-def importar_abastecimentos_workbook(wb):
-    """Importa um workbook já aberto e retorna um resumo.
-
-    A operação é transacional: qualquer erro de validação aborta toda a
-    importação. Registros já existentes (veículo + data + km) são ignorados.
-    """
-    from models import Abastecimento, Veiculo
-    from services.calculos import recalcular_abastecimento
-
-    registros, mapa = ler_planilha_abastecimentos(wb)
-    registros.sort(key=lambda r: (r["veiculo_num"], r["data"], r["km_atual"]))
-
-    veiculos_por_placa = {
-        v.placa.strip().upper().replace("-", ""): v
-        for v in Veiculo.query.all() if v.placa
-    }
-    veiculos_por_prefixo = {
-        v.prefixo.strip().upper(): v
-        for v in Veiculo.query.all() if v.prefixo
-    }
-
-    importados, duplicados, sem_veiculo, sem_mapa = [], [], [], set()
-    for reg in registros:
-        veiculo = veiculos_por_placa.get(reg["placa"]) if reg["placa"] else None
+        bruto_veiculo = bruta[indices["VEÍCULO"]]
+        chave_veiculo = str(bruto_veiculo or "").strip().upper()
+        chave_placa = chave_veiculo.replace("-", "")
+        veiculo = por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
+        erros = []
         if not veiculo:
-            veiculo = veiculos_por_prefixo.get(str(reg["veiculo_num"]))
-        if not veiculo:
-            if reg["placa"]:
-                sem_veiculo.append((reg["veiculo_num"], reg["placa"]))
+            erros.append(f"veículo '{chave_veiculo}' não encontrado no cadastro da frota")
+
+        dados = {"veiculo_id": veiculo.id if veiculo else None,
+                 "veiculo_nome": (f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else chave_veiculo)}
+
+        for titulo, campo, tipo_campo, obrigatorio in COLUNAS_ABASTECIMENTOS[1:]:
+            pos = indices[titulo]
+            valor = bruta[pos] if pos < len(bruta) else None
+            try:
+                convertido = _converter(valor, tipo_campo, titulo)
+            except ValueError as e:
+                erros.append(str(e))
+                convertido = None
+            if obrigatorio and convertido in (None, ""):
+                erros.append(f"'{titulo}' é obrigatório")
+            dados[campo] = convertido
+
+        if dados.get("litros") is not None and dados["litros"] <= 0:
+            erros.append("'LITROS' deve ser maior que zero")
+        if dados.get("km_atual") is not None and dados["km_atual"] < 0:
+            erros.append("'KM' não pode ser negativo")
+
+        if veiculo and dados.get("data") and dados.get("km_atual") is not None:
+            # A mesma linha não deve ser importada duas vezes.
+            chave = (veiculo.id, dados["data"], round(float(dados["km_atual"]), 3))
+            if chave in vistos:
+                erros.append("registro repetido na própria planilha")
             else:
-                sem_mapa.add(reg["veiculo_num"])
-            continue
+                vistos.add(chave)
+                existente = Abastecimento.query.filter_by(
+                    veiculo_id=veiculo.id,
+                    data=dados["data"],
+                    km_atual=dados["km_atual"]
+                ).first()
+                if existente:
+                    erros.append("já existe no sistema para este veículo, data e km")
 
-        existente = Abastecimento.query.filter_by(
-            veiculo_id=veiculo.id, data=reg["data"], km_atual=reg["km_atual"]
-        ).first()
-        if existente:
-            duplicados.append(reg)
-            continue
+        # ISO para a prévia JSON.
+        if isinstance(dados.get("data"), date):
+            dados["data"] = dados["data"].isoformat()
 
-        abast = Abastecimento(
-            data=reg["data"], veiculo_id=veiculo.id,
-            combustivel=veiculo.combustivel or "Diesel S10",
-            km_atual=reg["km_atual"], litros=reg["litros"], tanque_cheio=True,
-        )
-        db.session.add(abast)
-        db.session.flush()
-        recalcular_abastecimento(abast)
-        importados.append(abast)
+        if erros:
+            problemas.append({"linha": numero, "erro": "; ".join(erros), "dados": dados})
+        else:
+            prontas.append({"linha": numero, "dados": dados})
 
     return {
-        "total_linhas": len(registros),
-        "importados": len(importados),
-        "duplicados": len(duplicados),
-        "sem_veiculo": sorted(set(sem_veiculo)),
-        "sem_mapa": sorted(sem_mapa),
-        "veiculos_importados": len({a.veiculo_id for a in importados}),
-        "datas": sorted({a.data.isoformat() for a in importados}),
+        "tipo": "abastecimentos",
+        "titulo": "Abastecimentos",
+        "colunas": ["VEÍCULO", "DATA", "LITROS", "KM", "KM PERC", "KM/L"],
+        "campos": ["veiculo_nome", "data", "litros", "km_atual"],
+        "prontas": prontas,
+        "problemas": problemas,
+        "total": len(prontas) + len(problemas),
     }
+
+
+def gravar_abastecimentos(linhas):
+    if not linhas:
+        raise ErroNegocio("Não há abastecimentos válidos para importar.")
+
+    criados = []
+    veiculos_afetados = set()
+    try:
+        # Primeiro grava os lançamentos. Depois recalcula TODO o histórico dos
+        # veículos afetados em ordem de km, permitindo importar planilhas
+        # históricas sem a regra de "km maior que o último".
+        for item in linhas:
+            d = dict(item.get("dados") or item)
+            veiculo_id = int(d["veiculo_id"])
+            obj = Abastecimento(
+                veiculo_id=veiculo_id,
+                data=ler_data(d.get("data"), "DATA"),
+                litros=float(d.get("litros") or 0),
+                km_atual=float(d.get("km_atual") or 0),
+                combustivel="Diesel S10",
+                valor_litro=0,
+                valor_total=0,
+                tanque_cheio=True,
+            )
+            db.session.add(obj)
+            criados.append(obj)
+            veiculos_afetados.add(veiculo_id)
+
+        db.session.flush()
+
+        from services.calculos import recalcular_abastecimento, atualizar_consumo_diario_frota
+        for veiculo_id in veiculos_afetados:
+            historico = (Abastecimento.query
+                         .filter_by(veiculo_id=veiculo_id)
+                         .order_by(Abastecimento.km_atual.asc(), Abastecimento.id.asc())
+                         .all())
+            for obj in historico:
+                recalcular_abastecimento(obj)
+
+        atualizar_consumo_diario_frota()
+        db.session.flush()
+        return len(criados)
+    except (ValueError, TypeError, ErroNegocio):
+        db.session.rollback()
+        raise
+    except Exception as e:
+        db.session.rollback()
+        raise ErroNegocio(f"Não foi possível importar os abastecimentos: {e.__class__.__name__}.")
+
+
+# Compatibilidade com versões do routes/api.py que ainda usam o nome antigo.
+def importar_abastecimentos_workbook(workbook):
+    """Lê um workbook/arquivo de abastecimentos usando o importador atual.
+
+    Mantido para evitar erro de importação quando existe código legado
+    referenciando este nome. A gravação continua sendo feita por
+    gravar_abastecimentos() após a conferência.
+    """
+    return ler_abastecimentos(workbook)
