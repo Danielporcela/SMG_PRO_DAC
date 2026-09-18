@@ -10,7 +10,7 @@ digitar item por item. O fluxo é sempre o mesmo:
 Nada é gravado pela metade: se a gravação falhar, a transação é desfeita.
 """
 import io
-from datetime import date, datetime
+from datetime import date
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -134,8 +134,16 @@ def _config(tipo):
 
 
 def _converter(valor, tipo, cabecalho):
-    if valor is None or str(valor).strip() == "":
+    """Converte valores mantendo tipos nativos do Excel (especialmente datas)."""
+    if valor is None or (isinstance(valor, str) and valor.strip() == ""):
         return None
+    if tipo == "data":
+        try:
+            # openpyxl devolve datetime/date quando a célula é uma data real.
+            return ler_data(valor, cabecalho)
+        except (ValueError, TypeError, ErroNegocio):
+            raise ValueError(f"'{cabecalho}' com valor inválido: {valor}")
+
     texto = str(valor).strip()
     try:
         if tipo == "inteiro":
@@ -143,15 +151,6 @@ def _converter(valor, tipo, cabecalho):
         if tipo == "numero":
             return float(texto.replace(" ", "").replace(".", "").replace(",", ".")) \
                 if texto.count(",") == 1 else float(texto.replace(" ", ""))
-        if tipo == "data":
-            # O openpyxl devolve datas do Excel como datetime/date.
-            # Preserve o objeto de data em vez de convertê-lo para
-            # "2026-09-17 00:00:00", que o parser antigo rejeitava.
-            if isinstance(valor, datetime):
-                return valor.date()
-            if isinstance(valor, date):
-                return valor
-            return ler_data(texto[:10], cabecalho)
         if tipo == "placa":
             return texto.upper().replace("-", "").replace(" ", "")
     except (ValueError, TypeError, ErroNegocio):
@@ -333,22 +332,15 @@ def ler_abastecimentos(arquivo):
         raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) +
                           ". Use o modelo de lançamento de diesel.")
 
-    # A coluna VEÍCULO da planilha usa o número da frota (1, 2, 3...).
-    # No cadastro, esse número corresponde aos DOIS PRIMEIROS DÍGITOS
-    # do prefixo. Ex.: 2 -> "02 · JBF5F67", 3 -> "03 · RQY7H57",
-    # 58 -> "58 · RJG7B64".
+    # Índice por prefixo. Aceita prefixos numéricos (1, 2, 3) e texto (FR-101).
     veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
-    por_frota = {}
     por_prefixo = {}
     for v in veiculos:
-        prefixo = str(v.prefixo or "").strip().upper()
-        if prefixo:
-            por_prefixo[prefixo] = v
-            m = re.match(r"\s*(\d{1,2})", prefixo)
-            if m:
-                por_frota[m.group(1).zfill(2)] = v
+        chave = str(v.prefixo or "").strip().upper()
+        if chave:
+            por_prefixo[chave] = v
 
-    # Também permite placa no campo VEÍCULO como tolerância.
+    # Também permite placa no campo VEÍCULO, como tolerância útil.
     por_placa = {str(v.placa or "").strip().upper().replace("-", ""): v
                  for v in veiculos if v.placa}
 
@@ -364,22 +356,9 @@ def ler_abastecimentos(arquivo):
             continue
 
         bruto_veiculo = bruta[indices["VEÍCULO"]]
-        # A linha TOTAL é resumo da planilha, não é abastecimento.
-        if str(bruto_veiculo or "").strip().upper() == "TOTAL":
-            continue
         chave_veiculo = str(bruto_veiculo or "").strip().upper()
-        # Normaliza 1 -> 01, 2 -> 02, 58 -> 58. O Excel pode entregar
-        # o valor como inteiro, float (2.0) ou texto.
-        try:
-            numero_frota = str(int(float(chave_veiculo))).zfill(2)
-        except (ValueError, TypeError):
-            numero_frota = chave_veiculo[:2]
         chave_placa = chave_veiculo.replace("-", "")
-        veiculo = (
-            por_frota.get(numero_frota)
-            or por_prefixo.get(chave_veiculo)
-            or por_placa.get(chave_placa)
-        )
+        veiculo = por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
         erros = []
         if not veiculo:
             erros.append(f"veículo '{chave_veiculo}' não encontrado no cadastro da frota")
@@ -489,11 +468,130 @@ def gravar_abastecimentos(linhas):
 
 
 # Compatibilidade com versões do routes/api.py que ainda usam o nome antigo.
-def importar_abastecimentos_workbook(workbook):
-    """Lê um workbook/arquivo de abastecimentos usando o importador atual.
+def _normalizar_prefixo_importacao(valor):
+    """Transforma 2, 02, 2.0 ou '02 · JBF5F67' em '02'."""
+    if valor is None:
+        return ""
+    texto = str(valor).strip().upper()
+    if "·" in texto:
+        texto = texto.split("·", 1)[0].strip()
+    # Excel pode entregar 2 como 2.0.
+    try:
+        numero = float(texto.replace(",", "."))
+        if numero.is_integer():
+            return str(int(numero)).zfill(2)
+    except (ValueError, TypeError):
+        pass
+    digitos = "".join(ch for ch in texto if ch.isdigit())
+    if digitos and len(digitos) <= 2 and digitos == texto.replace(" ", ""):
+        return digitos.zfill(2)
+    return texto
 
-    Mantido para evitar erro de importação quando existe código legado
-    referenciando este nome. A gravação continua sendo feita por
-    gravar_abastecimentos() após a conferência.
+
+def _mapa_veiculos_por_prefixo():
+    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
+    return {_normalizar_prefixo_importacao(v.prefixo): v for v in veiculos if v.prefixo}
+
+
+def importar_abastecimentos_workbook(workbook):
+    """Importa diretamente um workbook na API legada /abastecimentos/importar-excel.
+
+    A coluna VEÍCULO da planilha representa o prefixo da frota: 2 -> prefixo 02,
+    58 -> prefixo 58 etc. DATA aceita datas nativas do Excel. KM PERC e KM/L são
+    calculados pelo SGMF e não precisam estar preenchidos para a importação.
     """
-    return ler_abastecimentos(workbook)
+    if hasattr(workbook, "active"):
+        wb = workbook
+        deve_fechar = False
+    else:
+        wb = load_workbook(workbook, data_only=True, read_only=True)
+        deve_fechar = True
+
+    try:
+        nomes = {str(ws.title).strip().upper(): ws for ws in wb.worksheets}
+        ws = nomes.get("LANÇAMENTO") or nomes.get("LANCAMENTO") or wb.active
+        linhas = list(ws.iter_rows(values_only=True))
+        if not linhas:
+            raise ErroNegocio("A planilha de abastecimentos está vazia.")
+
+        cab = [str(c).replace("*", "").strip().upper() if c is not None else "" for c in linhas[0]]
+        def idx(nome):
+            return cab.index(nome) if nome in cab else None
+
+        i_veiculo, i_data, i_litros, i_km = idx("VEÍCULO"), idx("DATA"), idx("LITROS"), idx("KM")
+        faltando = [nome for nome, pos in (("VEÍCULO", i_veiculo), ("DATA", i_data),
+                                             ("LITROS", i_litros), ("KM", i_km)) if pos is None]
+        if faltando:
+            raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) + ".")
+
+        por_prefixo = _mapa_veiculos_por_prefixo()
+        importados = duplicados = ignorados = 0
+        erros = []
+
+        for numero, row in enumerate(linhas[1:], start=2):
+            valores = list(row)
+            if not any(v is not None and str(v).strip() for v in valores):
+                continue
+
+            bruto_veiculo = valores[i_veiculo] if i_veiculo < len(valores) else None
+            texto_veiculo = str(bruto_veiculo).strip().upper() if bruto_veiculo is not None else ""
+            # A linha TOTAL da planilha não é lançamento.
+            if texto_veiculo == "TOTAL":
+                ignorados += 1
+                continue
+
+            prefixo = _normalizar_prefixo_importacao(bruto_veiculo)
+            veiculo = por_prefixo.get(prefixo)
+            if not veiculo:
+                erros.append(f"linha {numero}: veículo/prefixo '{texto_veiculo}' não encontrado")
+                continue
+
+            try:
+                data_val = _converter(valores[i_data] if i_data < len(valores) else None, "data", "DATA")
+                litros = _converter(valores[i_litros] if i_litros < len(valores) else None, "numero", "LITROS")
+                km = _converter(valores[i_km] if i_km < len(valores) else None, "numero", "KM")
+            except ValueError as exc:
+                erros.append(f"linha {numero}: {exc}")
+                continue
+
+            if not data_val or litros is None or km is None:
+                erros.append(f"linha {numero}: DATA, LITROS e KM são obrigatórios")
+                continue
+            if float(litros) <= 0 or float(km) < 0:
+                erros.append(f"linha {numero}: LITROS deve ser maior que zero e KM não pode ser negativo")
+                continue
+
+            existente = Abastecimento.query.filter_by(veiculo_id=veiculo.id, data=data_val, km_atual=float(km)).first()
+            if existente:
+                duplicados += 1
+                continue
+
+            obj = Abastecimento(
+                veiculo_id=veiculo.id, data=data_val, litros=float(litros), km_atual=float(km),
+                combustivel=veiculo.combustivel or "Diesel S10", valor_litro=0, valor_total=0, tanque_cheio=True
+            )
+            db.session.add(obj)
+            db.session.flush()
+            importados += 1
+
+        if erros:
+            # Não bloqueia linhas válidas, mas devolve os problemas para a interface.
+            # Eles são resumidos no retorno e as linhas válidas continuam importadas.
+            pass
+
+        if importados:
+            afetados = {obj.veiculo_id for obj in Abastecimento.query.order_by(Abastecimento.id.desc()).limit(importados).all()}
+            from services.calculos import recalcular_abastecimento
+            for vid in afetados:
+                historico = (Abastecimento.query.filter_by(veiculo_id=vid)
+                             .order_by(Abastecimento.km_atual.asc(), Abastecimento.id.asc()).all())
+                for obj in historico:
+                    recalcular_abastecimento(obj)
+            db.session.flush()
+
+        resumo = {"importados": importados, "duplicados": duplicados, "ignorados": ignorados, "erros": erros}
+        return resumo
+    finally:
+        if deve_fechar:
+            wb.close()
+
