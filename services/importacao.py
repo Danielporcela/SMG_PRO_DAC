@@ -312,7 +312,7 @@ def ler_abastecimentos(arquivo):
     except Exception:
         raise ErroNegocio("Não consegui abrir a planilha. Envie um arquivo .xlsx ou .xlsm.")
 
-    ws = wb.active
+    ws = wb["LANÇAMENTO"] if "LANÇAMENTO" in wb.sheetnames else wb.active
     linhas = list(ws.iter_rows(values_only=True))
     if not linhas:
         raise ErroNegocio("A planilha de abastecimentos está vazia.")
@@ -469,4 +469,12 @@ def importar_abastecimentos_workbook(workbook):
     referenciando este nome. A gravação continua sendo feita por
     gravar_abastecimentos() após a conferência.
     """
+    
+    if hasattr(workbook, "sheetnames"):
+        # Salva o workbook em memória para reutilizar o parser oficial.
+        # O endpoint legado pode fornecer um Workbook já aberto.
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        return ler_abastecimentos(buffer)
     return ler_abastecimentos(workbook)
