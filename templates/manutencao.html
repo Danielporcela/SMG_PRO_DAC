@@ -129,14 +129,6 @@
     border-bottom: 1px solid #EEF1F4; background: #fff; padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
   .sgmf-autocomplete-item:last-child { border-bottom: 0; }
   .sgmf-autocomplete-item:hover, .sgmf-autocomplete-item:focus { background: #EAF2F7; outline: 0; }
-  /* Mantém a ação de impressão sempre visível no lado direito da tabela. */
-  #areaTabela #tabelaDados th:last-child,
-  #areaTabela #tabelaDados td:last-child { position: sticky; right: 0; z-index: 2; background: #fff; }
-  #areaTabela #tabelaDados th:last-child { background: var(--aco); color: #fff; z-index: 3; }
-  #areaTabela #tabelaDados td:last-child .btn-imprimir-os {
-    min-width: 42px; min-height: 36px; font-size: 16px;
-  }
-  .os-problema { max-width: 330px; white-space: normal; line-height: 1.25; }
 </style>
 <script src="{{ url_for('static', filename='js/problemas_os.js') }}"></script>
 <script>
@@ -152,14 +144,13 @@ const telaOS = SGMF.tela({
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
   autoSalvarAoFechar: true,
-  pageLength: 15,
-  lengthMenu: [15],
   ordem: [[1, 'desc']],
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 3, somenteNovo: false, travarParaOutroSetor: true, ajuda: 'Registrado automaticamente ao abrir a OS.' },
+    { nome: 'hora_inicio', rotulo: 'Horário da abertura da OS', tipo: 'time', col: 3, travarParaOutroSetor: true, ajuda: 'Registrado automaticamente no momento da abertura e permanece fixo.' },
+    { nome: 'hora_inicio_servico', rotulo: 'Horário início do serviço', tipo: 'time', col: 3, travarParaCargos: ['CCO'], ajuda: 'Preenchido manualmente pelo mecânico ao iniciar o serviço.' },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
     { nome: 'km_veiculo', rotulo: 'Km do veículo', tipo: 'number', col: 4, travarParaOutroSetor: true },
@@ -179,31 +170,38 @@ const telaOS = SGMF.tela({
       opcoes: MECANICOS },
     { nome: 'data_fechamento', rotulo: 'Data de conclusão', tipo: 'date', col: 3, travarParaCargos: ['CCO'],
       ajuda: 'Preenchida sozinha ao finalizar.' },
-    { nome: 'hora_fim', rotulo: 'Horário final', tipo: 'time', col: 3, travarParaCargos: ['CCO'] },
+    { nome: 'hora_fim', rotulo: 'Horário final do serviço', tipo: 'time', col: 3, travarParaCargos: ['CCO'], ajuda: 'Preenchido manualmente pelo mecânico ao finalizar o serviço.' },
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   aoAbrirFormulario: (registro) => {
     const campoHora = document.getElementById('campo_hora_inicio');
-    if (!campoHora) return;
-    if (!registro && !campoHora.value) {
-      const agora = new Date();
-      campoHora.value = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+    if (campoHora) {
+      // O valor é definido pelo backend ao criar a OS. A tela apenas exibe.
+      campoHora.readOnly = true;
+      campoHora.disabled = true;
     }
-    // Horário de abertura é histórico: depois de registrado, fica fixo.
-    campoHora.disabled = true;
   },
   colunas: [
     { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>`,
       ordenarPor: v => Number(v) || 0 },
-    { campo: 'data_abertura', rotulo: 'Abertura',
-      render: (v, o) => `${SGMF.data(v)} · ${o.hora_inicio || '—'}`,
-      ordenarPor: (v, o) => `${v || ''} ${o.hora_inicio || ''}` },
+    { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v), ordenarPor: v => v || '' },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
-    { campo: 'problema', rotulo: 'Problema relatado', classe: 'os-problema', render: v => v || '—' },
-    { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
+    { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
+    { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
     { campo: 'grupo', rotulo: 'Tipo de serviço', render: v => v || '—' },
-    { campo: 'mecanico', rotulo: 'Mecânico', render: v => v || '—' }
+
+    { campo: 'status', rotulo: 'Situação', render: v => SGMF.status(v) },
+    { campo: 'mecanico', rotulo: 'Mecânico', render: v => v || '—' },
+    { campo: 'hora_inicio', rotulo: 'Abertura', classe: 'num', render: v => v || '—' },
+    { campo: 'hora_inicio_servico', rotulo: 'Início serviço', classe: 'num', render: v => v || '—' },
+    { campo: 'hora_fim', rotulo: 'Fim serviço', classe: 'num', render: v => v || '—' },
+    { campo: 'duracao_minutos', rotulo: 'Horas', classe: 'num',
+      render: v => v != null ? `${Math.floor(v/60)}h ${String(v%60).padStart(2,'0')}m` : '—' },
+    { campo: 'dias_parado', rotulo: 'Dias parado', classe: 'num text-end' },
+    { campo: 'custo_pecas', rotulo: 'Peças', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'custo_servicos_total', rotulo: 'Serviços', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'custo_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
   // "Imprimir OS" é ação de CONSULTA (não altera a OS), por isso fica em
   // acoesLinhaLeitura: assim ela continua aparecendo para cargos como CCO
@@ -211,8 +209,8 @@ const telaOS = SGMF.tela({
   // "visualizar" — antes, esse botão ficava dentro de acoesLinha e
   // desaparecia junto com Editar/Excluir para qualquer usuário somente
   // leitura, o que impedia esses logins de imprimir a ordem de serviço.
-  acoesLinhaLeitura: (item) => `<button class="btn btn-primario btn-imprimir-os" data-imprimir="${item.id}" title="Imprimir OS">
-                           <i class="fa-solid fa-print me-1"></i> Imprimir</button>`,
+  acoesLinhaLeitura: (item) => `<button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                           <i class="fa-solid fa-print"></i></button>`,
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
                            <i class="fa-solid fa-gears"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
@@ -237,6 +235,36 @@ const telaOS = SGMF.tela({
       () => telaOS.carregar());
   }
 });
+
+/* ------------------------------------------------ tipo de manutenção: gravação imediata
+   Ao editar uma OS já existente, a seleção de Preventiva/Corretiva/Emergencial
+   deve ser persistida imediatamente, sem depender do botão Salvar. Para uma
+   OS nova, o campo continua sendo gravado normalmente junto com o cadastro,
+   pois ainda não existe um ID para atualizar no banco. */
+(function ligarGravacaoImediataTipoManutencao() {
+  const campoTipo = document.getElementById('campo_tipo');
+  if (!campoTipo) return;
+
+  campoTipo.addEventListener('change', async () => {
+    const id = document.getElementById('modal_ordens_id')?.value;
+    if (!id) return;
+
+    const tipo = campoTipo.value;
+    if (!['Preventiva', 'Corretiva', 'Emergencial'].includes(tipo)) return;
+
+    campoTipo.disabled = true;
+    try {
+      await SGMF.put(`/api/ordens/${id}`, { tipo });
+      SGMF.limparCache('ordens');
+      SGMF.sucesso(`Tipo de manutenção salvo: ${tipo}`);
+      await telaOS.carregar();
+    } catch (e) {
+      SGMF.falha(`Não foi possível salvar o tipo de manutenção: ${e.message}`);
+    } finally {
+      campoTipo.disabled = false;
+    }
+  });
+})();
 
 /* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
    Agrupa as OS do período (já carregadas pela tela) por mês e por
@@ -675,8 +703,10 @@ async function imprimirOS(os) {
           <th>Frota (veículo)</th><td>${SGMF.esc(os.veiculo_nome) || '—'}</td></tr>
       <tr><th>Data</th><td>${SGMF.data(os.data_abertura)}</td>
           <th>Solicitante</th><td>${SGMF.esc(os.solicitante) || '—'}</td></tr>
-      <tr><th>Horário inicial</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
+      <tr><th>Horário da abertura</th><td>${SGMF.esc(os.hora_inicio) || '—'}</td>
           <th>Setor</th><td>${SGMF.esc(os.setor) || '—'}</td></tr>
+      <tr><th>Início do serviço</th><td>${SGMF.esc(os.hora_inicio_servico) || '—'}</td>
+          <th>Final do serviço</th><td>${SGMF.esc(os.hora_fim) || '—'}</td></tr>
       <tr><th>Km</th><td>${SGMF.numero(os.km_veiculo) || '—'}</td>
           <th>Tipo de serviço</th><td>${SGMF.esc(os.grupo) || '—'}</td></tr>
       <tr><th>Situação</th><td colspan="3">${SGMF.esc(os.status) || '—'}</td></tr>
