@@ -10,7 +10,7 @@ digitar item por item. O fluxo é sempre o mesmo:
 Nada é gravado pela metade: se a gravação falhar, a transação é desfeita.
 """
 import io
-from datetime import date
+from datetime import date, datetime
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -134,8 +134,22 @@ def _config(tipo):
 
 
 def _converter(valor, tipo, cabecalho):
+    """Converte valores vindos do Excel sem destruir tipos nativos.
+
+    O openpyxl devolve células de data como datetime/date. Converter essas
+    células para str antes de chamar ler_data fazia a importação rejeitar
+    datas perfeitamente válidas do Excel.
+    """
     if valor is None or str(valor).strip() == "":
         return None
+    if tipo == "data":
+        try:
+            if isinstance(valor, (datetime, date)):
+                return valor.date() if isinstance(valor, datetime) else valor
+            return ler_data(str(valor).strip(), cabecalho)
+        except (ValueError, TypeError, ErroNegocio):
+            raise ValueError(f"'{cabecalho}' com valor inválido: {valor}")
+
     texto = str(valor).strip()
     try:
         if tipo == "inteiro":
@@ -143,8 +157,6 @@ def _converter(valor, tipo, cabecalho):
         if tipo == "numero":
             return float(texto.replace(" ", "").replace(".", "").replace(",", ".")) \
                 if texto.count(",") == 1 else float(texto.replace(" ", ""))
-        if tipo == "data":
-            return ler_data(texto, cabecalho)
         if tipo == "placa":
             return texto.upper().replace("-", "").replace(" ", "")
     except (ValueError, TypeError, ErroNegocio):
@@ -312,7 +324,7 @@ def ler_abastecimentos(arquivo):
     except Exception:
         raise ErroNegocio("Não consegui abrir a planilha. Envie um arquivo .xlsx ou .xlsm.")
 
-    ws = wb["LANÇAMENTO"] if "LANÇAMENTO" in wb.sheetnames else wb.active
+    ws = wb.active
     linhas = list(ws.iter_rows(values_only=True))
     if not linhas:
         raise ErroNegocio("A planilha de abastecimentos está vazia.")
@@ -326,15 +338,14 @@ def ler_abastecimentos(arquivo):
         raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) +
                           ". Use o modelo de lançamento de diesel.")
 
-    # Índice por prefixo. Aceita prefixos numéricos (1, 2, 3) e texto (FR-101).
+    # O campo VEÍCULO da planilha pode trazer: ID do cadastro, prefixo ou placa.
     veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
+    por_id = {str(v.id).strip().upper(): v for v in veiculos}
     por_prefixo = {}
     for v in veiculos:
         chave = str(v.prefixo or "").strip().upper()
         if chave:
             por_prefixo[chave] = v
-
-    # Também permite placa no campo VEÍCULO, como tolerância útil.
     por_placa = {str(v.placa or "").strip().upper().replace("-", ""): v
                  for v in veiculos if v.placa}
 
@@ -351,8 +362,12 @@ def ler_abastecimentos(arquivo):
 
         bruto_veiculo = bruta[indices["VEÍCULO"]]
         chave_veiculo = str(bruto_veiculo or "").strip().upper()
+        # A planilha de origem pode trazer uma linha de totalização no final.
+        # Ela não representa um abastecimento e deve ser ignorada.
+        if chave_veiculo in {"TOTAL", "TOTAIS", "TOTAL GERAL"}:
+            continue
         chave_placa = chave_veiculo.replace("-", "")
-        veiculo = por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
+        veiculo = por_id.get(chave_veiculo) or por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
         erros = []
         if not veiculo:
             erros.append(f"veículo '{chave_veiculo}' não encontrado no cadastro da frota")
@@ -469,12 +484,4 @@ def importar_abastecimentos_workbook(workbook):
     referenciando este nome. A gravação continua sendo feita por
     gravar_abastecimentos() após a conferência.
     """
-    
-    if hasattr(workbook, "sheetnames"):
-        # Salva o workbook em memória para reutilizar o parser oficial.
-        # O endpoint legado pode fornecer um Workbook já aberto.
-        buffer = io.BytesIO()
-        workbook.save(buffer)
-        buffer.seek(0)
-        return ler_abastecimentos(buffer)
     return ler_abastecimentos(workbook)
