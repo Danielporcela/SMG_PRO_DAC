@@ -6,6 +6,7 @@ SGMF.tela = function (config) {
   const {
     recurso, titulo, campos, colunas, tela = recurso,
     ordem = [[0, 'asc']], filtroPeriodo = false, acoesLinha = null,
+    pageLength = 25, lengthMenu = [10, 25, 50, 100],
     acoesLinhaLeitura = null,
     aoRenderizar = null, aoAbrirFormulario = null, aoColetar = null, podeExcluir = true,
     rotuloSalvar = null
@@ -326,7 +327,7 @@ SGMF.tela = function (config) {
       registros.map(linhaHtml).join('');
 
     tabela = new DataTable('#tabelaDados', {
-      order: ordem, pageLength: 25, lengthMenu: [10, 25, 50, 100],
+      order: ordem, pageLength, lengthMenu,
       language: {
         search: 'Buscar:', lengthMenu: 'Mostrar _MENU_ registros',
         info: '_START_ a _END_ de _TOTAL_ registros', infoEmpty: 'Nenhum registro',

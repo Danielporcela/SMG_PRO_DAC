@@ -1,0 +1,1062 @@
+"""API REST dos módulos: frota, manutenção, combustível, pneus, estoque e orçamento."""
+from datetime import date
+
+from openpyxl import load_workbook
+
+from flask import Blueprint, current_app, jsonify, request, session
+from sqlalchemy import func
+
+from extensions import db
+from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, ItemOS,
+                    ItemOSPecaSerial, Lavagem, LogAuditoria, Motorista, MovimentoEstoque,
+                    Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoTerceiro, Usuario,
+                    Veiculo, proximo_codigo_peca)
+from services import indicadores
+from services.importacao import importar_abastecimentos_workbook
+from services.calculos import (atualizar_consumo_diario_frota, baixar_item_os,
+                               dar_entrada_serial, desvincular_movimentos,
+                               devolver_item_os, devolver_serial_ao_estoque,
+                               instalar_serial_no_item, movimentar_estoque,
+                               proximo_numero_os, recalcular_abastecimento,
+                               regularizar_seriais_peca, sincronizar_status_veiculo,
+                               validar_km)
+from services.crud import (ErroNegocio, aplicar_campos, editar_tela, login_obrigatorio,
+                           perfil_obrigatorio, pode_escrever, registrar_crud,
+                           registrar_log, visualizar_tela)
+from services.tempo import agora, hoje, ler_data
+from services.mapa_pneus import PneuHistorico, PneuMapaDados
+from services.posicoes_pneu import normalizar_posicao
+
+bp_api = Blueprint("api", __name__, url_prefix="/api")
+
+
+def _filtro_periodo(campo):
+    def filtrar(q, args):
+        inicio = ler_data(args.get("inicio"), "início do período")
+        fim = ler_data(args.get("fim"), "fim do período")
+        if inicio:
+            q = q.filter(campo >= inicio)
+        if fim:
+            q = q.filter(campo <= fim)
+        return q
+    return filtrar
+
+
+# ------------------------------------------------------- Módulo 1: veículos
+def _filtrar_veiculos_frota(q, args):
+    return q.filter(Veiculo.grupo_consumo_legado.isnot(True))
+
+
+def _antes_veiculo(obj, dados, anterior):
+    obj.placa = (obj.placa or "").upper().replace("-", "")
+    from services.grupos_consumo import nome_grupo_consumo_legado
+    grupo = nome_grupo_consumo_legado(obj)
+    if grupo:
+        raise ErroNegocio(
+            f"{grupo} é um grupo de consumo. Cadastre e dê baixa pelo menu Grupos de consumo.")
+
+
+registrar_crud(
+    bp_api, "veiculos", Veiculo,
+    campos={"prefixo": "str", "placa": "str", "marca": "str", "modelo": "str",
+            "ano": "int", "tipo": "str", "combustivel": "str", "centro_custo": "str",
+            "setor": "str", "hodometro": "float", "horimetro": "float", "situacao": "str",
+            "km_ultima_troca_oleo": "float", "intervalo_troca_oleo": "float",
+            "data_ultima_preventiva": "date", "intervalo_preventiva_dias": "int",
+            "orcamento_mensal": "float", "observacao": "str", "ativo": "bool"},
+    ordem=Veiculo.prefixo, obrigatorios=("prefixo", "placa"), tela="veiculos",
+    antes_salvar=_antes_veiculo, filtrar=_filtrar_veiculos_frota)
+
+
+# ------------------------------------------------- Módulo 2: motoristas
+registrar_crud(
+    bp_api, "motoristas", Motorista,
+    campos={"nome": "str", "matricula": "str", "cnh": "str", "categoria_cnh": "str",
+            "validade_cnh": "date", "telefone": "str", "setor": "str", "ativo": "bool"},
+    ordem=Motorista.nome, obrigatorios=("nome",), tela="motoristas")
+
+registrar_crud(
+    bp_api, "fornecedores", Fornecedor,
+    campos={"nome": "str", "tipo": "str", "cnpj": "str", "telefone": "str",
+            "cidade": "str", "contato": "str", "ativo": "bool"},
+    ordem=Fornecedor.nome, obrigatorios=("nome",), tela="fornecedores")
+
+
+# ---------------------------------------- Lançamento financeiro: serviço terceiro
+def _validar_servico_terceiro(obj, dados, anterior):
+    if not obj.veiculo_id or not db.session.get(Veiculo, obj.veiculo_id):
+        raise ErroNegocio("Selecione um veículo válido.")
+    if not (obj.prestador or "").strip():
+        raise ErroNegocio("Informe o prestador/empresa do serviço.")
+    if not (obj.descricao or "").strip():
+        raise ErroNegocio("Descreva o serviço executado.")
+    if (obj.valor or 0) <= 0:
+        raise ErroNegocio("Informe um valor maior que zero para o serviço.")
+    if obj.ordem_servico_id:
+        ordem = db.session.get(OrdemServico, obj.ordem_servico_id)
+        if not ordem:
+            raise ErroNegocio("A OS informada não existe.")
+        if ordem.veiculo_id != obj.veiculo_id:
+            raise ErroNegocio("A OS selecionada pertence a outro veículo.")
+
+
+def _filtrar_servicos_terceiros(q, args):
+    q = _filtro_periodo(ServicoTerceiro.data)(q, args)
+    veiculo_id = args.get("veiculo_id", type=int)
+    if veiculo_id:
+        q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
+    return q
+
+
+registrar_crud(
+    bp_api, "servicos-terceiros", ServicoTerceiro,
+    campos={"data": "date", "veiculo_id": "int", "ordem_servico_id": "int",
+            "prestador": "str", "tipo_servico": "str", "descricao": "str",
+            "valor": "float", "documento": "str", "observacao": "str"},
+    ordem=ServicoTerceiro.data.desc(),
+    obrigatorios=("data", "veiculo_id", "prestador", "descricao", "valor"),
+    tela="manutencao", antes_salvar=_validar_servico_terceiro,
+    filtrar=_filtrar_servicos_terceiros)
+
+
+# ---------------------------------------------------- Lançamento financeiro: lavagem
+def _validar_lavagem(obj, dados, anterior):
+    if not obj.veiculo_id or not db.session.get(Veiculo, obj.veiculo_id):
+        raise ErroNegocio("Selecione um veículo válido.")
+    if (obj.valor or 0) <= 0:
+        raise ErroNegocio("Informe um valor maior que zero para a lavagem.")
+
+
+def _filtrar_lavagens(q, args):
+    q = _filtro_periodo(Lavagem.data)(q, args)
+    veiculo_id = args.get("veiculo_id", type=int)
+    if veiculo_id:
+        q = q.filter(Lavagem.veiculo_id == veiculo_id)
+    return q
+
+
+registrar_crud(
+    bp_api, "lavagens", Lavagem,
+    campos={"data": "date", "veiculo_id": "int", "valor": "float", "observacao": "str"},
+    ordem=Lavagem.data.desc(),
+    obrigatorios=("data", "veiculo_id", "valor"),
+    tela="manutencao", antes_salvar=_validar_lavagem,
+    filtrar=_filtrar_lavagens)
+
+
+# ------------------------------------------------------ Módulo 3: manutenção
+def _verificar_os_duplicada(obj, anterior=None):
+    """Permite múltiplas OS abertas para o mesmo veículo/placa.
+
+    A existência de outra OS aberta não impede criar, editar ou finalizar
+    esta OS.
+    """
+    return
+
+def _verificar_valor_os(obj):
+    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
+    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
+    de preenchimento, não um serviço legítimo de custo zero.
+
+    Exceção: login com cargo Almoxarifado pode finalizar uma OS que não
+    teve nenhuma peça/serviço lançado na aba "Peças e serviços" — nesse
+    caso não é esquecimento, é uma OS que realmente não precisou de peça
+    (ex.: mecânico resolveu só com mão de obra já contabilizada em outro
+    lugar, ou serviço que não gerou custo)."""
+    if obj.status != "Finalizada" or obj.custo_total > 0:
+        return
+    cargo_atual = (session.get("cargo") or "").strip().upper()
+    if cargo_atual == "ALMOXARIFADO" and not obj.itens:
+        return
+    raise ErroNegocio(
+        "Não é possível finalizar a OS com o custo total zerado. "
+        "Informe o valor da mão de obra, dos serviços e/ou das peças "
+        "aplicadas antes de finalizar.")
+
+
+def _antes_os(obj, dados, anterior):
+    _verificar_os_duplicada(obj, anterior)
+    _verificar_valor_os(obj)
+
+    # Toda OS nova deve registrar automaticamente o usuário logado como CCO.
+    # O preenchimento no navegador continua existindo, mas esta regra garante
+    # o valor mesmo que a requisição venha de outro navegador/computador.
+    if anterior is None:
+        # O horário da abertura é registrado automaticamente no momento em
+        # que a OS é criada e não pode ser escolhido/manipulado pela tela.
+        obj.hora_inicio = agora().time().replace(second=0, microsecond=0)
+        if not (obj.cco or "").strip():
+            obj.cco = (session.get("usuario_nome") or "").strip() or None
+
+    if not obj.numero:
+        obj.numero = proximo_numero_os()
+    if obj.status == "Finalizada" and not obj.data_fechamento:
+        obj.data_fechamento = hoje()
+    if obj.status == "Finalizada" and not obj.hora_fim:
+        obj.hora_fim = agora().time().replace(second=0, microsecond=0)
+    if obj.status != "Finalizada":
+        obj.data_fechamento = None
+        obj.hora_fim = None
+
+
+def _depois_os(obj, dados, anterior):
+    # A peça fica pendente enquanto a OS está aberta. A baixa acontece ao
+    # salvar a OS como Finalizada. baixar_item_os é idempotente e ignora
+    # itens que já tiveram o estoque processado.
+    if obj.status == "Finalizada":
+        for item in obj.itens:
+            baixar_item_os(item)
+    sincronizar_status_veiculo(obj)
+
+
+def _antes_excluir_os(obj):
+    for item in obj.itens:
+        devolver_item_os(item)
+    desvincular_movimentos(obj.id)
+
+
+def _filtrar_ordens_principais(q, args):
+    """Tela principal: somente as 15 OS com status Aberta mais recentes."""
+    q = _filtro_periodo(OrdemServico.data_abertura)(q, args)
+    return (q.filter(OrdemServico.status == "Aberta")
+             .order_by(OrdemServico.data_abertura.desc(),
+                       OrdemServico.hora_inicio.desc(),
+                       OrdemServico.id.desc())
+             .limit(15))
+
+
+# Campos da OS que o cargo CCO apenas visualiza. O bloqueio é aplicado
+# também no backend, para impedir alteração por requisição manual.
+# Data de conclusão e horário final continuam sendo preenchidos
+# automaticamente quando a OS passa para "Finalizada".
+# "grupo" (Tipo de serviço) e "tipo" (Tipo de manutenção) NÃO entram aqui:
+# são campos de abertura, preenchidos por quem abre a OS (cargo CCO) — só
+# os campos de execução/fechamento ficam travados para esse cargo (ver
+# travarParaCargos em manutencao.html). "tipo" usa travarParaOutroSetor no
+# formulário, que já libera a edição justamente para CCO/admin; incluí-lo
+# aqui fazia o backend descartar o valor escolhido na abertura da OS,
+# mesmo com o campo habilitado e preenchido na tela.
+CAMPOS_EXECUCAO_OS = {"status", "prioridade", "mecanico", "data_fechamento", "hora_fim"}
+
+registrar_crud(
+    bp_api, "ordens", OrdemServico,
+    campos={"numero": "str", "data_abertura": "date", "data_fechamento": "date",
+            "veiculo_id": "int", "motorista_id": "int", "fornecedor_id": "int",
+            "mecanico": "str", "tipo": "str", "prioridade": "str", "status": "str",
+            "grupo": "str", "hora_inicio": "time", "hora_inicio_servico": "time",
+            "hora_fim": "time",
+            "cco": "str", "solicitante": "str", "setor": "str", "problema": "str",
+            "local_execucao": "str", "km_veiculo": "float", "descricao": "str",
+            "assinatura_mecanico": "str",
+            "custo_mao_obra": "float", "custo_servicos": "float", "avaliacao": "int"},
+    ordem=None, obrigatorios=("veiculo_id",), tela="manutencao",
+    antes_salvar=_antes_os, depois_salvar=_depois_os, antes_excluir=_antes_excluir_os,
+    filtrar=_filtrar_ordens_principais,
+    # A OS é aberta pelo CCO (perfil admin/operador). Quem entra depois só
+    # para lançar peça/serviço (ex.: Almoxarifado) não pode alterar os
+    # dados de abertura — só estes campos ficam liberados para edição.
+    # "status" está incluído para permitir que o Almoxarifado (ou outro
+    # perfil restrito com acesso de edição à tela) finalize a OS.
+    # "hora_inicio_servico" e "assinatura_mecanico" entram aqui pelo mesmo
+    # motivo de "hora_fim"/"descricao": são preenchidos durante a execução
+    # do serviço, não na abertura.
+    campos_liberados_para_restrito={"prioridade", "mecanico", "status", "data_fechamento",
+                                    "hora_inicio_servico", "hora_fim", "descricao",
+                                    "assinatura_mecanico"},
+    # CCO e Segurança do trabalho visualizam os campos definidos acima,
+    # mas não podem alterá-los pela API.
+    campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
+                                   "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+
+
+@bp_api.get("/ordens/consulta-frota")
+@visualizar_tela("manutencao")
+def consultar_ordens_por_frota():
+    """Consulta o histórico de OS de uma frota, sem alterar registros."""
+    prefixo = (request.args.get("frota") or request.args.get("prefixo") or "").strip()
+    if not prefixo:
+        return jsonify({"erro": "Informe o número da frota."}), 400
+    if len(prefixo) > 20:
+        return jsonify({"erro": "Número da frota inválido."}), 400
+
+    veiculo = (Veiculo.query
+               .filter(func.lower(Veiculo.prefixo) == prefixo.lower())
+               .first())
+    if not veiculo:
+        # Também aceita busca parcial para facilitar consultas como "123".
+        veiculos = (Veiculo.query
+                    .filter(Veiculo.prefixo.ilike(f"%{prefixo}%"))
+                    .order_by(Veiculo.prefixo)
+                    .all())
+        if len(veiculos) != 1:
+            return jsonify({
+                "erro": "Frota não encontrada." if not veiculos
+                       else "Há mais de uma frota compatível. Informe o número completo.",
+                "veiculos": [{"id": v.id, "prefixo": v.prefixo, "placa": v.placa}
+                             for v in veiculos[:20]]
+            }), 404 if not veiculos else 409
+
+        veiculo = veiculos[0]
+
+    ordens = (OrdemServico.query
+              .filter(OrdemServico.veiculo_id == veiculo.id)
+              .order_by(OrdemServico.data_abertura.desc(), OrdemServico.id.desc())
+              .all())
+
+    return jsonify({
+        "veiculo": veiculo.to_dict(),
+        "total": len(ordens),
+        "ordens": [o.to_dict(com_itens=True) for o in ordens]
+    })
+
+
+@bp_api.get("/ordens/<int:os_id>/itens")
+@visualizar_tela("manutencao")
+def listar_itens(os_id):
+    ordem = db.get_or_404(OrdemServico, os_id)
+    return jsonify(ordem.to_dict(com_itens=True))
+
+
+@bp_api.post("/ordens/<int:os_id>/itens")
+@editar_tela("manutencao")
+def adicionar_item(os_id):
+    ordem = db.get_or_404(OrdemServico, os_id)
+    # Uma OS em "Aguardando peça" continua aberta e deve aceitar o
+    # lançamento da peça quando ela chegar. O único status que bloqueia
+    # novos itens é "Finalizada".
+    if ordem.status == "Finalizada":
+        return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
+    dados = request.get_json(silent=True) or {}
+    item = ItemOS(ordem_servico_id=ordem.id)
+    try:
+        aplicar_campos(item, dados, {"peca_id": "int", "descricao": "str", "grupo": "str",
+                                     "quantidade": "float", "valor_unitario": "float"})
+        if item.peca_id:
+            peca = db.session.get(Peca, item.peca_id)
+            if not peca:
+                raise ErroNegocio("Peça não encontrada.")
+            item.descricao = item.descricao or peca.descricao
+            item.grupo = item.grupo or peca.grupo
+            if not item.valor_unitario:
+                item.valor_unitario = peca.custo_unitario
+        if not item.descricao:
+            raise ErroNegocio("Descreva a peça ou o serviço aplicado.")
+        db.session.add(item)
+        db.session.flush()
+        # Peças de estoque ficam pendentes neste momento. A baixa por quantidade
+        # é processada quando a OS é salva como Finalizada. Serviços não possuem
+        # peca_id e, portanto, nunca movimentam o estoque.
+        registrar_log("criar", "itens_os", item.id, f"OS {ordem.numero}")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(ordem.to_dict(com_itens=True)), 201
+
+
+@bp_api.post("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial")
+@editar_tela("manutencao")
+def vincular_serial_item(os_id, item_id):
+    """Aplica UMA unidade específica (número de série) a um item da OS.
+
+    Chamada uma vez por unidade — um item com quantidade 3 precisa de 3
+    chamadas, uma por número de série instalado.
+    """
+    ordem = db.get_or_404(OrdemServico, os_id)
+    item = db.get_or_404(ItemOS, item_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        if item.ordem_servico_id != ordem.id:
+            raise ErroNegocio("Este item não pertence a esta ordem de serviço.")
+        if len(item.pecas_serial) >= (item.quantidade or 0):
+            raise ErroNegocio("Este item já tem todas as unidades vinculadas.")
+        serial = instalar_serial_no_item(dados.get("numero_serie"), item, ordem)
+        registrar_log("vincular", "itens_os_pecas_serial", item.id,
+                      f"OS {ordem.numero}: {serial.numero_serie}")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(ordem.to_dict(com_itens=True)), 201
+
+
+@bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>/vincular-serial/<int:vinculo_id>")
+@editar_tela("manutencao")
+def desvincular_serial_item(os_id, item_id, vinculo_id):
+    """Remove uma unidade específica do item (sem excluir o item inteiro) —
+    a peça volta para o estoque e pode ser reinstalada depois."""
+    ordem = db.get_or_404(OrdemServico, os_id)
+    vinculo = db.get_or_404(ItemOSPecaSerial, vinculo_id)
+    try:
+        if vinculo.item_os_id != item_id:
+            raise ErroNegocio("Vínculo não encontrado neste item.")
+        devolver_serial_ao_estoque(vinculo.peca_serial, motivo="Removida da OS")
+        db.session.delete(vinculo)
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(ordem.to_dict(com_itens=True))
+
+
+@bp_api.get("/pecas/<int:peca_id>/seriais-estoque")
+@visualizar_tela("manutencao")
+def listar_seriais_em_estoque(peca_id):
+    """Unidades dessa peça disponíveis para instalar (status 'Estoque') —
+    alimenta o seletor da tela de Ordens de serviço."""
+    seriais = (PecaSerial.query
+              .filter_by(peca_id=peca_id, status="Estoque")
+              .order_by(PecaSerial.numero_serie).all())
+    return jsonify([s.to_dict() for s in seriais])
+
+
+@bp_api.get("/pecas/<int:peca_id>/rastreio")
+@visualizar_tela("estoque")
+def listar_rastreio_peca(peca_id):
+    """Todas as unidades (qualquer status) dessa peça, com o histórico
+    completo de cada uma — alimenta o botão "Rastrear" da tela de Estoque.
+    """
+    peca = db.get_or_404(Peca, peca_id)
+    seriais = (PecaSerial.query
+              .filter_by(peca_id=peca_id)
+              .order_by(PecaSerial.numero_serie).all())
+    resultados = []
+    for serial in seriais:
+        dado = serial.to_dict()
+        dado["historico"] = [m.to_dict() for m in serial.movimentos]
+        resultados.append(dado)
+    return jsonify({"peca_id": peca.id, "peca_codigo": peca.codigo,
+                    "peca_descricao": peca.descricao,
+                    "total": len(resultados), "resultados": resultados})
+
+
+@bp_api.get("/pecas/<int:peca_id>/regularizacao")
+@visualizar_tela("estoque")
+def situacao_regularizacao(peca_id):
+    """Diz quantas unidades dessa peça ainda não têm número de série —
+    saldo lançado antes deste recurso existir."""
+    peca = db.get_or_404(Peca, peca_id)
+    ja_regularizadas = PecaSerial.query.filter_by(peca_id=peca_id).count()
+    pendente = max(0, int(round((peca.quantidade or 0))) - ja_regularizadas)
+    return jsonify({"peca_id": peca.id, "quantidade": peca.quantidade,
+                    "regularizadas": ja_regularizadas, "pendente": pendente})
+
+
+@bp_api.post("/pecas/<int:peca_id>/regularizacao")
+@editar_tela("estoque")
+def regularizar_peca(peca_id):
+    """Converte o saldo antigo (peça lançada antes do rastreio por série)
+    em unidades individuais, com um número de série por unidade."""
+    dados = request.get_json(silent=True) or {}
+    brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
+    numeros = [n.strip() for n in brutos if n.strip()]
+    try:
+        criados = regularizar_seriais_peca(peca_id, numeros)
+        registrar_log("regularizar", "pecas_serial", peca_id, f"{len(criados)} unidade(s)")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True, "criados": [c.to_dict() for c in criados]}), 201
+
+
+@bp_api.delete("/ordens/<int:os_id>/itens/<int:item_id>")
+@editar_tela("manutencao")
+def remover_item(os_id, item_id):
+    item = db.get_or_404(ItemOS, item_id)
+    ordem = db.get_or_404(OrdemServico, os_id)
+    try:
+        devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
+        db.session.delete(item)
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(ordem.to_dict(com_itens=True))
+
+
+# ---------------------------------------------------- Módulo 5: combustível
+def _antes_abastecimento(obj, dados, anterior):
+    validar_km(obj)
+
+
+def _depois_abastecimento(obj, dados, anterior):
+    recalcular_abastecimento(obj)
+    atualizar_consumo_diario_frota()
+
+
+registrar_crud(
+    bp_api, "abastecimentos", Abastecimento,
+    campos={"data": "date", "veiculo_id": "int", "motorista_id": "int",
+            "fornecedor_id": "int", "combustivel": "str", "km_atual": "float",
+            "litros": "float", "valor_litro": "float", "valor_total": "float",
+            "tanque_cheio": "bool"},
+    ordem=Abastecimento.data.desc(), obrigatorios=("veiculo_id", "km_atual", "litros"),
+    tela="combustivel",
+    antes_salvar=_antes_abastecimento, depois_salvar=_depois_abastecimento,
+    filtrar=_filtro_periodo(Abastecimento.data))
+
+
+@bp_api.post("/abastecimentos/importar-excel")
+@editar_tela("combustivel")
+def importar_abastecimentos_excel():
+    """Importa lançamentos da aba LANÇAM de um Excel para Abastecimentos.
+
+    O arquivo é processado em memória. A importação é atômica e ignora
+    duplicidades pelo conjunto veículo + data + km.
+    """
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        return jsonify({"erro": "Selecione um arquivo Excel (.xlsx)."}), 400
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"erro": "Formato inválido. Envie um arquivo Excel .xlsx."}), 400
+
+    try:
+        wb = load_workbook(arquivo.stream, data_only=True, read_only=True)
+        resumo = importar_abastecimentos_workbook(wb)
+        wb.close()
+        db.session.commit()
+        if resumo["importados"]:
+            atualizar_consumo_diario_frota()
+        registrar_log("importar_excel", "abastecimentos", None,
+                      f"{resumo['importados']} importado(s); {resumo['duplicados']} duplicado(s)")
+        db.session.commit()
+        return jsonify({"ok": True, "mensagem": "Importação concluída.", "resumo": resumo})
+    except (ErroNegocio, ValueError, TypeError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível importar a planilha ({e.__class__.__name__}). Confira o arquivo e tente novamente."}), 400
+
+
+# ---------------------------------------------------------- Módulo 7: pneus
+registrar_crud(
+    bp_api, "pneus", Pneu,
+    campos={"numero_fogo": "str", "veiculo_id": "int", "posicao": "str", "marca": "str",
+            "medida": "str", "sulco_mm": "float", "vida": "str", "km_instalacao": "float",
+            "data_instalacao": "date", "data_medicao": "date", "status": "str",
+            "custo": "float"},
+    ordem=Pneu.numero_fogo, obrigatorios=("numero_fogo",), tela="pneus",
+    serializar=lambda o: o.to_dict(current_app.config["SULCO_MINIMO_MM"]))
+
+
+# ----------------------------------------------------- Mapa interativo de pneus
+# As 10 posições seguem a convenção do caminhão truck:
+# 1-2 dianteiro; 3-6 primeiro eixo traseiro; 7-10 segundo eixo traseiro.
+_MAPA_POSICOES = [
+    {"numero": 1, "valor": "Dianteiro esquerdo", "eixo": "Eixo dianteiro", "lado": "Esquerdo", "lado_curto": "DE"},
+    {"numero": 2, "valor": "Dianteiro direito", "eixo": "Eixo dianteiro", "lado": "Direito", "lado_curto": "DD"},
+    {"numero": 3, "valor": "Tração traseiro externo esquerdo", "eixo": "1º eixo traseiro", "lado": "Esquerdo externo", "lado_curto": "TE"},
+    {"numero": 4, "valor": "Tração traseiro interno esquerdo", "eixo": "1º eixo traseiro", "lado": "Esquerdo interno", "lado_curto": "TI"},
+    {"numero": 5, "valor": "Tração traseiro interno direito", "eixo": "1º eixo traseiro", "lado": "Direito interno", "lado_curto": "DI"},
+    {"numero": 6, "valor": "Tração traseiro externo direito", "eixo": "1º eixo traseiro", "lado": "Direito externo", "lado_curto": "DE"},
+    {"numero": 7, "valor": "Truck traseiro externo esquerdo", "eixo": "2º eixo traseiro", "lado": "Esquerdo externo", "lado_curto": "TE"},
+    {"numero": 8, "valor": "Truck traseiro interno esquerdo", "eixo": "2º eixo traseiro", "lado": "Esquerdo interno", "lado_curto": "TI"},
+    {"numero": 9, "valor": "Truck traseiro interno direito", "eixo": "2º eixo traseiro", "lado": "Direito interno", "lado_curto": "DI"},
+    {"numero": 10, "valor": "Truck traseiro externo direito", "eixo": "2º eixo traseiro", "lado": "Direito externo", "lado_curto": "DE"},
+]
+_MAPA_POR_POSICAO = {p["valor"]: p for p in _MAPA_POSICOES}
+
+
+def _pneus_em_uso_mapa(veiculo_id):
+    mapa = {}
+    for pneu in Pneu.query.filter_by(veiculo_id=veiculo_id).all():
+        if pneu.status != "Em uso":
+            continue
+        posicao = normalizar_posicao(pneu.posicao)
+        if posicao in _MAPA_POR_POSICAO:
+            mapa[posicao] = pneu
+    return mapa
+
+
+def _dados_pneu_mapa(pneu):
+    if pneu is None:
+        return None
+    extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+    return {
+        "id": pneu.id,
+        "numero_fogo": pneu.numero_fogo,
+        "veiculo_id": pneu.veiculo_id,
+        "posicao": normalizar_posicao(pneu.posicao) or pneu.posicao,
+        "marca": pneu.marca,
+        "medida": pneu.medida,
+        "vida": pneu.vida,
+        "sulco_mm": pneu.sulco_mm,
+        "km_instalacao": pneu.km_instalacao,
+        "data_instalacao": pneu.data_instalacao.isoformat() if pneu.data_instalacao else None,
+        "status": pneu.status,
+        "custo": pneu.custo,
+        "dot": extra.dot if extra else None,
+        "observacao": extra.observacao if extra else None,
+        "trocar": (pneu.sulco_mm or 0) < current_app.config["SULCO_MINIMO_MM"],
+    }
+
+
+def _registrar_historico_pneu(pneu, evento, detalhe=""):
+    extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+    veiculo = db.session.get(Veiculo, pneu.veiculo_id) if pneu.veiculo_id else None
+    km = veiculo.hodometro if veiculo else pneu.km_instalacao
+    db.session.add(PneuHistorico(
+        pneu_id=pneu.id,
+        numero_fogo=pneu.numero_fogo,
+        veiculo_id=pneu.veiculo_id,
+        posicao=normalizar_posicao(pneu.posicao) or pneu.posicao,
+        dot=extra.dot if extra else None,
+        sulco_mm=pneu.sulco_mm,
+        km=km,
+        status=pneu.status,
+        evento=evento,
+        detalhe=detalhe,
+        usuario=session.get("usuario_nome", "sistema"),
+    ))
+
+
+@bp_api.get("/mapa-pneus/posicoes")
+@visualizar_tela("pneus")
+def mapa_pneus_posicoes():
+    return jsonify(_MAPA_POSICOES)
+
+
+@bp_api.get("/mapa-pneus/<int:veiculo_id>")
+@visualizar_tela("pneus")
+def mapa_pneus_obter(veiculo_id):
+    veiculo = db.get_or_404(Veiculo, veiculo_id)
+    ocupadas = _pneus_em_uso_mapa(veiculo_id)
+    resposta = []
+    for pos in _MAPA_POSICOES:
+        pneu = ocupadas.get(pos["valor"])
+        item = dict(pos)
+        item["pneu"] = _dados_pneu_mapa(pneu)
+        resposta.append(item)
+    return jsonify({
+        "veiculo": {
+            "id": veiculo.id,
+            "prefixo": veiculo.prefixo,
+            "placa": veiculo.placa,
+            "hodometro": veiculo.hodometro or 0,
+        },
+        "posicoes": resposta,
+    })
+
+
+@bp_api.get("/mapa-pneus/<int:veiculo_id>/historico")
+@visualizar_tela("pneus")
+def mapa_pneus_historico(veiculo_id):
+    db.get_or_404(Veiculo, veiculo_id)
+    pneu_id = request.args.get("pneu_id", type=int)
+    q = PneuHistorico.query.filter(PneuHistorico.veiculo_id == veiculo_id)
+    if pneu_id:
+        q = q.filter(PneuHistorico.pneu_id == pneu_id)
+    q = q.order_by(PneuHistorico.criado_em.desc(), PneuHistorico.id.desc()).limit(200)
+    return jsonify([h.to_dict() for h in q.all()])
+
+
+@bp_api.post("/mapa-pneus/posicao")
+@editar_tela("pneus")
+def mapa_pneus_salvar():
+    dados = request.get_json(silent=True) or {}
+    veiculo_id = dados.get("veiculo_id")
+    try:
+        veiculo_id = int(veiculo_id)
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Selecione um veículo válido."}), 400
+
+    veiculo = db.session.get(Veiculo, veiculo_id)
+    if not veiculo:
+        return jsonify({"erro": "Veículo não encontrado."}), 404
+
+    posicao = normalizar_posicao(dados.get("posicao"))
+    if posicao not in _MAPA_POR_POSICAO:
+        return jsonify({"erro": "Selecione uma posição válida do mapa."}), 400
+
+    fogo = str(dados.get("numero_fogo") or "").strip()
+    if not fogo:
+        return jsonify({"erro": "Informe o número de fogo do pneu."}), 400
+
+    evento = str(dados.get("evento") or "Atualização").strip()
+    if evento not in ("Atualização", "Instalação/Troca", "Rodízio"):
+        evento = "Atualização"
+
+    try:
+        sulco = float(str(dados.get("sulco_mm") or "0").replace(",", "."))
+        km_instalacao = float(str(dados.get("km_instalacao") or veiculo.hodometro or 0).replace(",", "."))
+    except ValueError:
+        return jsonify({"erro": "Sulco e quilometragem devem ser numéricos."}), 400
+
+    data_instalacao = ler_data(dados.get("data_instalacao"), "data de instalação") or hoje()
+    marca = str(dados.get("marca") or "").strip()
+    medida = str(dados.get("medida") or "").strip()
+    vida = str(dados.get("vida") or "Novo").strip()
+    dot = str(dados.get("dot") or "").strip()
+    observacao = str(dados.get("observacao") or "").strip()
+
+    try:
+        ocupadas = _pneus_em_uso_mapa(veiculo_id)
+        alvo = ocupadas.get(posicao)
+        pneu = Pneu.query.filter(Pneu.numero_fogo == fogo).first()
+
+        if pneu is not None and pneu.status == "Em uso" and pneu.veiculo_id != veiculo_id:
+            raise ErroNegocio("Este pneu já está em uso em outra frota. Retire-o de lá antes do rodízio.")
+
+        # Rodízio: se o pneu informado já ocupa outra posição desta mesma frota,
+        # troca as posições dos dois pneus em uma única operação.
+        posicao_atual = normalizar_posicao(pneu.posicao) if pneu else None
+        if pneu is not None and pneu.status == "Em uso" and pneu.veiculo_id == veiculo_id \
+                and posicao_atual and posicao_atual != posicao:
+            if evento != "Rodízio":
+                raise ErroNegocio(
+                    f"O pneu {fogo} já está na posição {posicao_atual}. "
+                    "Selecione 'Rodízio' para movimentá-lo.")
+            if alvo is not None and alvo.id != pneu.id:
+                alvo.posicao = posicao_atual
+                _registrar_historico_pneu(
+                    alvo, "Rodízio",
+                    f"Troca de posição com o pneu {pneu.numero_fogo}.")
+            pneu.posicao = posicao
+            pneu.marca = marca or pneu.marca
+            pneu.medida = medida or pneu.medida
+            pneu.sulco_mm = sulco
+            pneu.km_instalacao = pneu.km_instalacao or km_instalacao
+            pneu.vida = vida or pneu.vida
+            pneu.data_medicao = hoje()
+            _registrar_historico_pneu(
+                pneu, "Rodízio",
+                f"Movido de {posicao_atual} para {posicao}.")
+        else:
+            if pneu is None:
+                pneu = Pneu(numero_fogo=fogo)
+                db.session.add(pneu)
+                db.session.flush()
+                evento_real = "Instalação"
+            else:
+                evento_real = evento
+
+            if alvo is not None and alvo.id != pneu.id:
+                if evento == "Rodízio":
+                    raise ErroNegocio(
+                        f"A posição {posicao} já está ocupada pelo pneu {alvo.numero_fogo}. "
+                        "Para rodízio, informe o pneu que será movimentado.")
+                alvo.status = "Descartado"
+                _registrar_historico_pneu(
+                    alvo, "Troca",
+                    f"Substituído na posição {posicao} pelo pneu {fogo}.")
+
+            pneu.veiculo_id = veiculo_id
+            pneu.posicao = posicao
+            pneu.marca = marca
+            pneu.medida = medida
+            pneu.sulco_mm = sulco
+            pneu.vida = vida
+            pneu.km_instalacao = km_instalacao
+            pneu.data_instalacao = data_instalacao
+            pneu.data_medicao = hoje()
+            pneu.status = "Em uso"
+
+            if evento == "Instalação/Troca":
+                evento_real = "Instalação" if evento_real == "Instalação" else "Troca"
+            elif evento_real != "Instalação":
+                evento_real = "Atualização"
+
+            db.session.flush()
+
+            extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+            if extra is None:
+                extra = PneuMapaDados(pneu_id=pneu.id)
+                db.session.add(extra)
+            extra.dot = dot
+            extra.observacao = observacao
+
+            _registrar_historico_pneu(pneu, evento_real, f"Posição {posicao}.")
+
+        # Em um rodízio também atualizamos os dados DOT/observação do pneu movido.
+        if evento == "Rodízio":
+            extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
+            if extra is None:
+                extra = PneuMapaDados(pneu_id=pneu.id)
+                db.session.add(extra)
+            if dot:
+                extra.dot = dot
+            if observacao:
+                extra.observacao = observacao
+
+        db.session.commit()
+        return jsonify(_dados_pneu_mapa(pneu))
+    except (ValueError, ErroNegocio) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}."}), 400
+
+# -------------------------------------------------------- Módulo 11: estoque
+def _verificar_peca_duplicada(obj, anterior):
+    """Bloqueia o cadastro/edição quando já existe outra peça com o mesmo
+    nome (descrição) ou o mesmo código. A comparação de nome ignora
+    maiúsculas/minúsculas e espaços nas pontas, para pegar duplicidade real
+    ('Filtro de óleo' vs 'filtro de óleo ').
+    """
+    from sqlalchemy import func
+
+    descricao = (obj.descricao or "").strip()
+    if descricao:
+        conflito_desc = Peca.query.filter(func.lower(Peca.descricao) == descricao.lower())
+        if anterior is not None:
+            conflito_desc = conflito_desc.filter(Peca.id != obj.id)
+        conflito_desc = conflito_desc.first()
+        if conflito_desc:
+            raise ErroNegocio(
+                f"Já existe uma peça cadastrada com este nome: '{conflito_desc.descricao}' "
+                f"(código {conflito_desc.codigo}). Verifique antes de cadastrar novamente.")
+
+    codigo = (obj.codigo or "").strip()
+    if codigo:
+        conflito_cod = Peca.query.filter(Peca.codigo == codigo)
+        if anterior is not None:
+            conflito_cod = conflito_cod.filter(Peca.id != obj.id)
+        conflito_cod = conflito_cod.first()
+        if conflito_cod:
+            raise ErroNegocio(
+                f"Já existe uma peça cadastrada com o código '{codigo}' "
+                f"({conflito_cod.descricao}).")
+
+
+def _antes_peca(obj, dados, anterior):
+    """Peça nova: o Código é sempre gerado pelo sistema (0001, 0002...),
+    ignorando qualquer valor enviado pela tela — o campo fica travado lá.
+    Em edição, o código não muda.
+
+    Antes de gerar/gravar, verifica duplicidade de nome ou código para não
+    deixar duas peças cadastradas como a mesma coisa.
+    """
+    _verificar_peca_duplicada(obj, anterior)
+    if anterior is None:
+        obj.codigo = proximo_codigo_peca()
+
+
+def _depois_peca(obj, dados, anterior):
+    """Saldo inicial vira uma unidade rastreável por número de série — o
+    estoque nunca muda sem histórico, e agora nenhuma peça entra sem um
+    número de série/identificação vinculado.
+    """
+    if anterior is not None or not dados.get("quantidade_inicial"):
+        return
+    quantidade = float(dados["quantidade_inicial"])
+    brutos = str(dados.get("numeros_serie") or "").replace(",", "\n").splitlines()
+    numeros = [n.strip() for n in brutos if n.strip()]
+    if len(numeros) != int(quantidade):
+        raise ErroNegocio(
+            f"Informe {int(quantidade)} número(s) de série (um por linha) — "
+            f"a quantidade de números precisa bater com o saldo inicial informado.")
+    for numero in numeros:
+        dar_entrada_serial(obj.id, numero, dados.get("custo_unitario") or obj.custo_unitario,
+                           origem="Cadastro manual", documento="Saldo inicial",
+                           observacao="Cadastro da peça")
+
+
+registrar_crud(
+    bp_api, "pecas", Peca,
+    campos={"codigo": "str", "referencia": "str", "descricao": "str", "grupo": "str",
+            "unidade": "str", "estoque_minimo": "float", "custo_unitario": "float",
+            "localizacao": "str", "fornecedor_id": "int"},
+    ordem=Peca.codigo, obrigatorios=("descricao",), tela="estoque",
+    antes_salvar=_antes_peca, depois_salvar=_depois_peca)
+
+
+@bp_api.get("/movimentos")
+@visualizar_tela("estoque")
+def listar_movimentos():
+    q = MovimentoEstoque.query
+    peca_id = request.args.get("peca_id")
+    if peca_id:
+        q = q.filter(MovimentoEstoque.peca_id == int(peca_id))
+    q = _filtro_periodo(MovimentoEstoque.data)(q, request.args)
+    q = q.order_by(MovimentoEstoque.id.desc())
+    movimentos = q.all() if peca_id else q.limit(500).all()
+    dados = []
+    from services.grupos_consumo import grupo_para_ordem
+    for movimento in movimentos:
+        item = movimento.to_dict()
+        if not item.get("grupo_consumo_id") and movimento.ordem_servico_id:
+            grupo = grupo_para_ordem(movimento.ordem_servico_id)
+            if grupo:
+                item["grupo_consumo_id"] = grupo.id
+                item["grupo_consumo_nome"] = grupo.nome
+        dados.append(item)
+    return jsonify(dados)
+
+
+@bp_api.post("/movimentos")
+@editar_tela("estoque")
+def criar_movimento():
+    dados = request.get_json(silent=True) or {}
+    try:
+        movimentar_estoque(int(dados.get("peca_id") or 0), dados.get("tipo", "entrada"),
+                           dados.get("quantidade"), dados.get("custo_unitario"),
+                           documento=dados.get("documento"),
+                           observacao=dados.get("observacao"))
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True}), 201
+
+
+# --------------------------------------------------------- Módulo 8: orçamento
+def _serializar_orcamento(obj):
+    dado = obj.to_dict()
+    if not obj.grupo_consumo_id and obj.veiculo and obj.veiculo.grupo_consumo_legado:
+        from services.grupos_consumo import grupo_para_veiculo_legado
+        grupo = grupo_para_veiculo_legado(obj.veiculo)
+        if grupo:
+            dado["grupo_consumo_id"] = grupo.id
+            dado["grupo_consumo_nome"] = grupo.nome
+            dado["veiculo_id"] = None
+            dado["veiculo_nome"] = None
+            dado["categoria"] = "Consumo interno"
+            dado["centro_custo"] = grupo.nome
+    return dado
+
+
+def _antes_orcamento(obj, dados, anterior):
+    if obj.grupo_consumo_id and obj.veiculo_id:
+        raise ErroNegocio("Escolha um veículo ou um grupo de consumo, não os dois.")
+    if obj.grupo_consumo_id:
+        grupo = db.session.get(GrupoConsumo, obj.grupo_consumo_id)
+        if not grupo:
+            raise ErroNegocio("Grupo de consumo não encontrado.")
+        obj.categoria = "Consumo interno"
+        obj.centro_custo = grupo.nome
+    elif obj.veiculo_id:
+        veiculo = db.session.get(Veiculo, obj.veiculo_id)
+        if not veiculo or veiculo.grupo_consumo_legado:
+            raise ErroNegocio("Selecione um veículo válido da frota.")
+
+
+registrar_crud(
+    bp_api, "orcamentos", Orcamento,
+    campos={"ano": "int", "mes": "int", "categoria": "str", "veiculo_id": "int",
+            "centro_custo": "str", "grupo_consumo_id": "int", "meta_valor": "float"},
+    ordem=Orcamento.id.desc(), obrigatorios=("ano", "mes", "meta_valor"), tela="orcamento",
+    antes_salvar=_antes_orcamento, serializar=_serializar_orcamento)
+
+
+# ------------------------------------------- Lista de mecânicos das OS
+@bp_api.get("/mecanicos-os")
+@login_obrigatorio
+def listar_mecanicos_os():
+    """Retorna os nomes únicos de mecânicos já cadastrados nas OS,
+    normalizados (sem duplicatas por capitalização), para popular o datalist."""
+    from sqlalchemy import func
+    nomes = (
+        db.session.query(OrdemServico.mecanico)
+        .filter(OrdemServico.mecanico.isnot(None),
+                OrdemServico.mecanico != "")
+        .distinct()
+        .order_by(func.lower(OrdemServico.mecanico))
+        .all()
+    )
+    # Deduplica por nome em maiúsculas (ex: "cleiton" e "CLEITON" viram um só)
+    vistos = {}
+    for (nome,) in nomes:
+        chave = nome.strip().upper()
+        if chave not in vistos:
+            vistos[chave] = nome.strip().title()
+    return jsonify(sorted(vistos.values()))
+
+
+# ------------------------------------------- Módulos 6, 9 e 10: painéis
+@bp_api.get("/painel/resumo")
+@visualizar_tela("dashboard")
+def painel_resumo():
+    return jsonify(indicadores.resumo(request.args.get("inicio"), request.args.get("fim"),
+                                      request.args.get("veiculo_id", type=int)))
+
+
+@bp_api.get("/painel/graficos")
+@visualizar_tela("dashboard")
+def painel_graficos():
+    return jsonify(indicadores.series_graficos(request.args.get("inicio"),
+                                               request.args.get("fim")))
+
+
+@bp_api.get("/consumo-diario/historico")
+@visualizar_tela("dashboard")
+def consumo_diario_historico():
+    """Evolução diária do consumo médio da frota (últimos N dias).
+
+    Recalcula a linha de hoje a cada leitura — assim o painel sempre
+    mostra o dado mais atual, mesmo que ninguém tenha lançado um
+    abastecimento agora há pouco (uma edição ou exclusão de um
+    abastecimento antigo também é refletida na próxima vez que essa
+    rota for lida, sem precisar de ação manual).
+    """
+    atualizar_consumo_diario_frota()
+    dias = request.args.get("dias", 30, type=int)
+    registros = (ConsumoDiario.query
+                 .order_by(ConsumoDiario.data_consumo.desc())
+                 .limit(dias).all())
+    registros.reverse()
+    return jsonify([r.to_dict() for r in registros])
+
+
+@bp_api.get("/painel/horas-mecanicos")
+@visualizar_tela("dashboard")
+def painel_horas_mecanicos():
+    return jsonify(indicadores.horas_por_mecanico(request.args.get("inicio"),
+                                                   request.args.get("fim")))
+
+
+@bp_api.get("/painel/rankings")
+@visualizar_tela("ranking")
+def painel_rankings():
+    return jsonify(indicadores.rankings(request.args.get("inicio"), request.args.get("fim")))
+
+
+@bp_api.get("/painel/alertas")
+@login_obrigatorio
+def painel_alertas():
+    return jsonify(indicadores.alertas())
+
+
+@bp_api.get("/painel/conectados")
+@perfil_obrigatorio("admin")
+def painel_conectados():
+    """Logins conectados agora, para o card do Painel (só administradores).
+
+    Não existe tabela de sessões: "conectado" é uma janela de atividade
+    recente (ultimo_acesso), atualizada a cada request em app.py. Padrão:
+    últimos 5 minutos.
+    """
+    minutos = request.args.get("minutos", default=5, type=int)
+    # ultimo_acesso vem do PostgreSQL como datetime sem timezone.
+    # Mantemos a comparação no mesmo formato para evitar TypeError.
+    agora_ref = agora().replace(tzinfo=None)
+    usuarios = Usuario.conectados_agora(minutos=minutos)
+    resultado = []
+    for u in usuarios:
+        minutos_atras = max(0, int((agora_ref - u.ultimo_acesso).total_seconds() // 60))
+        resultado.append({
+            "id": u.id, "nome": u.nome, "email": u.email, "cargo": u.cargo,
+            "perfil": u.perfil, "minutos_atras": minutos_atras,
+            "voce": u.id == session.get("usuario_id"),
+        })
+    return jsonify(resultado)
+
+
+@bp_api.get("/painel/logins-conectados")
+@perfil_obrigatorio("admin")
+def painel_logins_conectados():
+    """Alias estável para o card de logins conectados do Painel."""
+    return painel_conectados()
+
+
+# ------------------------------------------------------------- auditoria
+@bp_api.get("/logs")
+@perfil_obrigatorio("admin")
+def listar_logs():
+    """Quem criou, editou ou excluiu cada registro (500 mais recentes)."""
+    q = LogAuditoria.query.order_by(LogAuditoria.id.desc())
+    if request.args.get("entidade"):
+        q = q.filter(LogAuditoria.entidade == request.args["entidade"])
+    return jsonify([registro.to_dict() for registro in q.limit(500)])
