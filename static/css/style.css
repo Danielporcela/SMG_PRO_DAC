@@ -310,6 +310,13 @@ a:hover { text-decoration: underline; }
 input[type="number"], input[type="date"] { font-family: var(--mono); }
 
 /* --------------------------------------------------------------- tabelas */
+/* O scroll horizontal (quando a tabela é mais larga que o cartão) fica
+   contido aqui dentro, e não na página inteira — é isso que permite a
+   última coluna (Ações) ficar "grudada" na borda direita da área da
+   tabela com `position: sticky`, sem precisar rolar a tela para o lado
+   para clicar em Imprimir / Peças / Editar / Excluir. */
+#areaTabela { overflow-x: auto; }
+
 table.dataTable {
   font-size: 13px;
   border-collapse: separate !important;
@@ -327,6 +334,34 @@ table.dataTable thead th {
 }
 table.dataTable tbody td { vertical-align: middle; border-bottom: 1px solid #EBEFF3; }
 table.dataTable tbody tr:hover td { background: #F7FAFC; }
+
+/* Coluna "Ações" (última coluna) sempre visível, mesmo com scroll
+   horizontal na tabela — o botão Imprimir nunca fica escondido. */
+table.dataTable thead th:last-child,
+table.dataTable tbody td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  box-shadow: -6px 0 8px -6px rgba(15, 61, 86, .18);
+}
+table.dataTable thead th:last-child {
+  background: #F5F8FA;
+  z-index: 3;
+}
+table.dataTable tbody td:last-child { background: var(--papel); }
+table.dataTable tbody tr:hover td:last-child { background: #F7FAFC; }
+
+/* Coluna "Problema relatado": mostra o texto na listagem sem esticar a
+   tabela — trunca com reticências e o texto completo aparece ao passar
+   o mouse (atributo title). */
+.celula-problema {
+  display: inline-block;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
 .dataTables_wrapper .dataTables_filter input,
 .dataTables_wrapper .dataTables_length select {
   border: 1px solid var(--linha);

@@ -199,7 +199,8 @@ SGMF.tela = function (config) {
         cargoAtual === 'CCO';
       el.disabled = !!(c.somenteNovo && registro) ||
         !!(c.travarParaOutroSetor && !podeEditarCampoSetor) ||
-        !!bloqueadoPorCargo;
+        !!bloqueadoPorCargo ||
+        !!c.travarSempre;   // campo automático (ex.: horário de abertura da OS) — nunca editável à mão
     });
     if (aoAbrirFormulario) aoAbrirFormulario(registro);
     bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();

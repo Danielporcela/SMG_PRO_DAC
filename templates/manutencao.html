@@ -145,12 +145,15 @@ const telaOS = SGMF.tela({
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
   autoSalvarAoFechar: true,
-  ordem: [[1, 'desc']],
+  ordem: [[0, 'desc']],
+  pageLength: 10,
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 3, travarParaOutroSetor: true },
+    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 3,
+      padrao: SGMF.horaAtual, travarSempre: true,
+      ajuda: 'Preenchido sozinho com o horário atual ao abrir a OS — não é editável.' },
     { nome: 'hora_inicio_servico', rotulo: 'Horário do início do serviço', tipo: 'time', col: 3, travarParaCargos: ['CCO'] },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
@@ -175,9 +178,12 @@ const telaOS = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   colunas: [
-    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
+    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>`,
+      ordenarPor: v => Number(v) || 0 },
     { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'problema', rotulo: 'Problema relatado',
+      render: v => v ? `<span class="celula-problema" title="${v}">${v}</span>` : '—' },
     { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
     { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
@@ -197,7 +203,7 @@ const telaOS = SGMF.tela({
   ],
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
                            <i class="fa-solid fa-gears"></i></button>
-                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                         <button class="btn btn-primario btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
                            <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
     ultimasLinhasOS = linhas;
