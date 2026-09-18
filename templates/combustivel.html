@@ -69,9 +69,9 @@ function mostrarPreviaAbastecimentos(d) {
       </div>
       <div class="cartao-corpo p-0" style="max-height:360px;overflow:auto">
         <table class="table table-sm mb-0" style="font-size:12.5px">
-          <thead><tr><th class="ps-3">Linha</th><th>Veículo</th><th>Data</th><th>Litros</th><th>Km</th></tr></thead>
+          <thead><tr><th class="ps-3">Frota</th><th>Veículo</th><th>Data</th><th>Litros</th><th>Km</th></tr></thead>
           <tbody>${d.prontas.slice(0, 200).map(l => `<tr>
-            <td class="ps-3 num">${l.linha}</td>
+            <td class="ps-3 num">${SGMF.esc((l.dados.veiculo_nome || '').split(' · ')[0])}</td>
             <td>${SGMF.esc(l.dados.veiculo_nome || '')}</td>
             <td>${SGMF.data(l.dados.data)}</td>
             <td class="num">${SGMF.numero(l.dados.litros, 2)}</td>
@@ -152,29 +152,6 @@ async function gravarAbastecimentos() {
   }
 }
 
-function montarCamposCalculados() {
-  const kmP = document.getElementById('campo_km_percorridos');
-  const kmL = document.getElementById('campo_km_por_litro');
-  if (kmP && !kmP.innerHTML.trim()) kmP.innerHTML = '<input class="form-control" id="valorKmPercExcel" readonly placeholder="Será calculado">';
-  if (kmL && !kmL.innerHTML.trim()) kmL.innerHTML = '<input class="form-control" id="valorKmLExcel" readonly placeholder="Será calculado">';
-  ['campo_veiculo_id','campo_km_atual','campo_litros'].forEach(id => {
-    const el=document.getElementById(id);
-    if(el && !el.dataset.calcExcel) { el.dataset.calcExcel='1'; el.addEventListener('input', atualizarCalculosExcel); el.addEventListener('change', atualizarCalculosExcel); }
-  });
-}
-function atualizarCalculosExcel() {
-  const veiculo = Number(document.getElementById('campo_veiculo_id')?.value || 0);
-  const km = Number(document.getElementById('campo_km_atual')?.value || 0);
-  const litros = Number(document.getElementById('campo_litros')?.value || 0);
-  const anteriores = telaCombustivel.dados().filter(x => Number(x.veiculo_id)===veiculo && Number(x.km_atual) < km).sort((a,b)=>Number(b.km_atual)-Number(a.km_atual));
-  const ultimo = anteriores[0];
-  const kmPerc = ultimo ? km-Number(ultimo.km_atual||0) : 0;
-  const kmL = kmPerc>0 && litros>0 ? kmPerc/litros : 0;
-  const a=document.getElementById('valorKmPercExcel'), b=document.getElementById('valorKmLExcel');
-  if(a) a.value = kmPerc>0 ? SGMF.numero(kmPerc,2) : '';
-  if(b) b.value = kmL>0 ? SGMF.numero(kmL,2) : '';
-}
-
 const telaCombustivel = SGMF.tela({
   recurso: 'abastecimentos',
   tela: 'combustivel',
@@ -191,8 +168,6 @@ const telaCombustivel = SGMF.tela({
       opcoes: ['Diesel S10', 'Diesel S500', 'Gasolina', 'Etanol', 'GNV', 'ARLA 32'] },
     { nome: 'km_atual', rotulo: 'Km no painel', tipo: 'number', col: 4, obrigatorio: true,
       ajuda: 'Precisa ser maior que o último km lançado para o veículo.' },
-    { nome: 'km_percorridos', rotulo: 'KM PERC (automático)', tipo: 'personalizado', col: 4 },
-    { nome: 'km_por_litro', rotulo: 'KM/L (automático)', tipo: 'personalizado', col: 4 },
     { nome: 'litros', rotulo: 'Litros', tipo: 'number', col: 4, obrigatorio: true },
     { nome: 'valor_litro', rotulo: 'Valor por litro (R$)', tipo: 'moeda', col: 4 },
     { nome: 'tanque_cheio', rotulo: 'Tanque completo', tipo: 'checkbox', col: 4 }
@@ -210,69 +185,6 @@ const telaCombustivel = SGMF.tela({
     { campo: 'custo_por_km', rotulo: 'Custo/km', classe: 'num text-end', render: v => v ? SGMF.moeda(v) : '—' },
     { campo: 'valor_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
-  aoAbrirFormulario: (registro) => {
-    const modal = document.getElementById('modal_abastecimentos');
-    const campos = document.getElementById('modal_abastecimentos_campos');
-    if (!modal || !campos) return;
-
-    let caixa = document.getElementById('importarExcelNoNovoAbastecimento');
-    if (!caixa) {
-      caixa = document.createElement('div');
-      caixa.id = 'importarExcelNoNovoAbastecimento';
-      caixa.className = 'col-12';
-      caixa.innerHTML = `
-        <div class="cartao" style="background:#f7fafc;border:1px dashed var(--petroleo)">
-          <div class="cartao-corpo py-2">
-            <div class="d-flex flex-wrap align-items-center gap-2">
-              <button type="button" class="btn btn-contorno" id="btnExcelNovoAbastecimento">
-                <i class="fa-solid fa-file-excel me-1"></i> Preencher com Excel
-              </button>
-              <input type="file" id="arquivoExcelNovoAbastecimento" accept=".xlsx,.xlsm" hidden>
-              <span class="form-text">Lê VEÍCULO, DATA, LITROS e KM. KM PERC e KM/L são calculados automaticamente.</span>
-            </div>
-          </div>
-        </div>`;
-      campos.prepend(caixa);
-
-      const btn = document.getElementById('btnExcelNovoAbastecimento');
-      const input = document.getElementById('arquivoExcelNovoAbastecimento');
-      btn.onclick = () => input.click();
-      input.onchange = async () => {
-        const arquivo = input.files[0];
-        if (!arquivo) return;
-        const fd = new FormData(); fd.append('arquivo', arquivo);
-        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Lendo Excel…';
-        try {
-          const resp = await fetch('/api/abastecimentos/importar/conferir', { method:'POST', body:fd, credentials:'same-origin' });
-          const dados = await resp.json();
-          if (!resp.ok) throw new Error(dados.erro || 'Não consegui ler a planilha.');
-          if (!dados.prontas || !dados.prontas.length) throw new Error('Nenhum lançamento válido foi encontrado na planilha.');
-          if (dados.prontas.length > 1) {
-            const ok = await SGMF.confirmar('Planilha com vários lançamentos',
-              `Foram encontrados ${dados.prontas.length} registros. Este formulário preencherá o primeiro. Para importar todos, use o botão Importar Excel da tela de Abastecimentos.`, 'Preencher primeiro');
-            if (!ok) return;
-          }
-          const d = dados.prontas[0].dados;
-          const veiculo = document.getElementById('campo_veiculo_id');
-          const data = document.getElementById('campo_data');
-          const litros = document.getElementById('campo_litros');
-          const km = document.getElementById('campo_km_atual');
-          if (veiculo) veiculo.value = d.veiculo_id || '';
-          if (data) data.value = d.data || '';
-          if (litros) litros.value = d.litros ?? '';
-          if (km) km.value = d.km_atual ?? '';
-          [veiculo,data,litros,km].forEach(el => el && el.dispatchEvent(new Event('input',{bubbles:true})));
-          if (veiculo) veiculo.dispatchEvent(new Event('change',{bubbles:true}));
-          atualizarCalculosExcel();
-          SGMF.sucesso('Dados do Excel preenchidos no Novo abastecimento.');
-        } catch(e) { SGMF.falha(e.message); }
-        finally { btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-file-excel me-1"></i> Preencher com Excel'; input.value=''; }
-      };
-    }
-    montarCamposCalculados();
-    atualizarCalculosExcel();
-  },
-
   aoRenderizar: (linhas) => {
     SGMF.anexos.ligarBotoes('abastecimentos', linhas,
       (a) => `${a.data ? SGMF.data(a.data) : ''} · ${a.veiculo_nome || ''}`,
