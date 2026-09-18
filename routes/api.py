@@ -215,10 +215,14 @@ def _antes_excluir_os(obj):
 # também no backend, para impedir alteração por requisição manual.
 # Data de conclusão e horário final continuam sendo preenchidos
 # automaticamente quando a OS passa para "Finalizada".
-# "grupo" (Tipo de serviço) NÃO entra aqui: é campo de abertura, preenchido
-# por quem abre a OS (cargo CCO) — só os campos de execução/fechamento
-# ficam travados para esse cargo (ver travarParaCargos em manutencao.html).
-CAMPOS_EXECUCAO_OS = {"status", "tipo", "prioridade", "mecanico", "data_fechamento", "hora_fim"}
+# "grupo" (Tipo de serviço) e "tipo" (Tipo de manutenção) NÃO entram aqui:
+# são campos de abertura, preenchidos por quem abre a OS (cargo CCO) — só
+# os campos de execução/fechamento ficam travados para esse cargo (ver
+# travarParaCargos em manutencao.html). "tipo" usa travarParaOutroSetor no
+# formulário, que já libera a edição justamente para CCO/admin; incluí-lo
+# aqui fazia o backend descartar o valor escolhido na abertura da OS,
+# mesmo com o campo habilitado e preenchido na tela.
+CAMPOS_EXECUCAO_OS = {"status", "prioridade", "mecanico", "data_fechamento", "hora_fim"}
 
 registrar_crud(
     bp_api, "ordens", OrdemServico,
