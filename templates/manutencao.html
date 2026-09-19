@@ -124,6 +124,8 @@ const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'G
   'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
   'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
 
+let linhasOS = [];   // últimas OS carregadas; usada pela delegação de cliques abaixo
+
 const telaOS = SGMF.tela({
   recurso: 'ordens',
   tela: 'manutencao',
@@ -199,11 +201,30 @@ const telaOS = SGMF.tela({
       <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
       <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>`;
 
-    document.querySelectorAll('[data-pecas]').forEach(b =>
-      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
-
-    document.querySelectorAll('[data-imprimir]').forEach(b =>
-      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
+    /* Os botões "Peças e serviços" e "Imprimir" ficam dentro da tabela do
+       DataTables, que só mantém no DOM as linhas da página exibida (10 por
+       vez). Ligar onclick direto em cada botão só alcançava a 1ª página:
+       nas seguintes o botão aparecia, mas sem ação nenhuma. Por isso a
+       ligação é feita uma única vez, por delegação de evento no container
+       da tabela — igual crud.js (Editar/Excluir) e anexos.js (clipe). */
+    linhasOS = linhas;
+    const areaTabelaOS = document.getElementById('areaTabela');
+    if (!areaTabelaOS.dataset.acoesOsLigadas) {
+      areaTabelaOS.dataset.acoesOsLigadas = '1';
+      areaTabelaOS.addEventListener('click', (e) => {
+        const botaoPecas = e.target.closest('[data-pecas]');
+        if (botaoPecas) {
+          const os = linhasOS.find(o => o.id == botaoPecas.dataset.pecas);
+          if (os) abrirPecas(os);
+          return;
+        }
+        const botaoImprimir = e.target.closest('[data-imprimir]');
+        if (botaoImprimir) {
+          const os = linhasOS.find(o => o.id == botaoImprimir.dataset.imprimir);
+          if (os) imprimirOS(os);
+        }
+      });
+    }
 
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
