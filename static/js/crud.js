@@ -142,6 +142,33 @@ SGMF.tela = function (config) {
     });
 
     const elModal = document.getElementById(idModal);
+
+    // Guarda quem abriu o modal para devolver o foco corretamente ao fechar.
+    let elementoQueAbriuModal = null;
+    elModal.addEventListener('show.bs.modal', () => {
+      const ativo = document.activeElement;
+      if (ativo && ativo !== document.body && !elModal.contains(ativo)) {
+        elementoQueAbriuModal = ativo;
+      }
+    });
+
+    // O Bootstrap aplica aria-hidden=true no fechamento. O foco precisa sair
+    // do modal antes disso, especialmente quando o foco está no botão X.
+    elModal.addEventListener('hide.bs.modal', () => {
+      const ativo = document.activeElement;
+      if (ativo && elModal.contains(ativo)) {
+        ativo.blur();
+      }
+    });
+
+    elModal.addEventListener('hidden.bs.modal', () => {
+      const alvo = elementoQueAbriuModal;
+      elementoQueAbriuModal = null;
+      if (alvo && document.contains(alvo) && !alvo.disabled && alvo.offsetParent !== null) {
+        alvo.focus({ preventScroll: true });
+      }
+    });
+
     document.getElementById(`${idModal}_campos`)
       .addEventListener('input', () => { sujo = true; });
     document.getElementById(`${idModal}_campos`)
