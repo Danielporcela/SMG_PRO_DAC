@@ -171,11 +171,23 @@ PATCH_JS = r'''
 
   function atualizarBotao() {
     const b = botao();
+    // O botão é position:fixed no canto inferior direito — bem em cima
+    // da coluna de ações (engrenagem "Peças", imprimir, editar, excluir)
+    // da tabela de Ordens de Serviço, que fica colada nesse mesmo canto.
+    // Sem essa reserva de espaço, ele ficava por cima dos ícones da
+    // última linha visível sempre que a lista rolava até perto do fim, e
+    // capturava o clique no lugar deles — "Peças" e "Imprimir" pareciam
+    // não responder a nada. Reservando um respiro embaixo do conteúdo do
+    // tamanho do botão, a tabela nunca deixa nenhuma linha embaixo dele,
+    // não importa a rolagem.
+    const conteudo = document.querySelector('main.conteudo');
     if (pendentes.length) {
       b.style.display = 'block';
       b.textContent = `Definir posição do pneu (${pendentes.length})`;
+      if (conteudo) conteudo.style.paddingBottom = '86px';
     } else {
       b.style.display = 'none';
+      if (conteudo) conteudo.style.paddingBottom = '';
     }
   }
 
