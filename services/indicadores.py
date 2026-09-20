@@ -3,7 +3,7 @@ import calendar
 from datetime import date, timedelta
 
 from flask import current_app
-from sqlalchemy import func
+from sqlalchemy import case, func
 
 from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
@@ -372,6 +372,114 @@ def series_graficos(inicio=None, fim=None):
               "consumo_media_da_media": v["consumo_media_da_media"]}
              for v in por_veiculo if v["consumo"]],
             key=lambda x: x["consumo"], reverse=True)[:10],
+    }
+
+
+def combustivel_por_dia(inicio=None, fim=None):
+    """Litros e km/L de cada dia do período — alimenta o gráfico "Litros
+    abastecidos por dia" do painel (mesma ideia da aba TOTAIS da planilha).
+
+    O km/L do dia só usa os abastecimentos que têm km rodados calculado (o
+    primeiro lançamento de um veículo não tem anterior para comparar), para
+    não puxar a média para baixo.
+    """
+    inicio, fim = periodo_padrao(inicio, fim)
+    com_km = Abastecimento.km_percorridos > 0
+    linhas = (db.session.query(
+                  Abastecimento.data,
+                  func.sum(Abastecimento.litros),
+                  func.sum(case((com_km, Abastecimento.litros), else_=0)),
+                  func.sum(Abastecimento.km_percorridos),
+                  func.count(Abastecimento.id),
+                  func.count(func.distinct(Abastecimento.veiculo_id)))
+              .filter(Abastecimento.data.between(inicio, fim))
+              .group_by(Abastecimento.data)
+              .order_by(Abastecimento.data)
+              .all())
+
+    dias, total_litros, total_litros_km, total_km = [], 0.0, 0.0, 0.0
+    for data, litros, litros_com_km, km, qtd, veiculos in linhas:
+        litros, litros_com_km, km = litros or 0, litros_com_km or 0, km or 0
+        total_litros += litros
+        total_litros_km += litros_com_km
+        total_km += km
+        dias.append({
+            "data": data.isoformat(), "litros": round(litros, 1), "km": round(km),
+            "km_por_litro": round(km / litros_com_km, 2) if litros_com_km else 0,
+            "abastecimentos": qtd, "veiculos": veiculos,
+        })
+    return {
+        "dias": dias,
+        "total_litros": round(total_litros, 1),
+        "media_litros_dia": round(total_litros / len(dias), 1) if dias else 0,
+        "km_por_litro": round(total_km / total_litros_km, 2) if total_litros_km else 0,
+    }
+
+
+def _ordem_frota(prefixo):
+    """Ordena 01, 02, ... 10 pelo número; prefixos com letras vão depois."""
+    texto = str(prefixo or "").strip()
+    return (0, int(texto), texto) if texto.isdigit() else (1, 0, texto.upper())
+
+
+def consumo_frotas(inicio=None, fim=None):
+    """Km/L de TODAS as frotas ativas no período e no período anterior.
+
+    O período anterior tem o mesmo número de dias e termina no dia anterior
+    ao início do filtro (ex.: 01/09–20/09 é comparado com 12/08–31/08). O
+    km/L é soma dos km rodados ÷ soma dos litros do período — a mesma conta
+    do gráfico "Consumo por veículo" do painel. Frotas sem abastecimento
+    aparecem mesmo assim (consumo 0), para o relatório listar a frota toda.
+    """
+    inicio, fim = periodo_padrao(inicio, fim)
+    dias = (fim - inicio).days + 1
+    fim_ant = inicio - timedelta(days=1)
+    inicio_ant = fim_ant - timedelta(days=dias - 1)
+
+    def somas(ini, final):
+        linhas = (db.session.query(Abastecimento.veiculo_id,
+                                   func.sum(Abastecimento.litros),
+                                   func.sum(Abastecimento.km_percorridos))
+                  .filter(Abastecimento.data.between(ini, final))
+                  .group_by(Abastecimento.veiculo_id).all())
+        return {vid: (litros or 0, km or 0) for vid, litros, km in linhas}
+
+    atual, anterior = somas(inicio, fim), somas(inicio_ant, fim_ant)
+
+    def kml(litros, km):
+        return round(km / litros, 2) if litros and km else 0
+
+    def montar(rotulo_frota, placa, litros, km, litros_ant, km_ant):
+        consumo, consumo_ant = kml(litros, km), kml(litros_ant, km_ant)
+        variacao = variacao_pct = None
+        if consumo and consumo_ant:
+            variacao = round(consumo - consumo_ant, 2)
+            variacao_pct = round((consumo - consumo_ant) / consumo_ant * 100, 1)
+            evolucao = ("estavel" if abs(variacao_pct) < 1
+                        else "melhorou" if variacao > 0 else "piorou")
+        else:
+            evolucao = "sem_dados" if not consumo else "sem_base"
+        return {"veiculo": rotulo_frota, "placa": placa,
+                "litros": round(litros, 1), "km": round(km),
+                "consumo": consumo, "consumo_anterior": consumo_ant,
+                "variacao": variacao, "variacao_pct": variacao_pct,
+                "evolucao": evolucao}
+
+    frotas = []
+    soma = [0.0, 0.0, 0.0, 0.0]
+    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True),
+                                    Veiculo.grupo_consumo_legado.isnot(True)).all()
+    for v in sorted(veiculos, key=lambda x: _ordem_frota(x.prefixo)):
+        litros, km = atual.get(v.id, (0, 0))
+        litros_ant, km_ant = anterior.get(v.id, (0, 0))
+        soma[0] += litros; soma[1] += km; soma[2] += litros_ant; soma[3] += km_ant
+        frotas.append(montar(v.prefixo, v.placa_exibicao, litros, km, litros_ant, km_ant))
+
+    return {
+        "periodo_atual": {"inicio": inicio.isoformat(), "fim": fim.isoformat()},
+        "periodo_anterior": {"inicio": inicio_ant.isoformat(), "fim": fim_ant.isoformat()},
+        "frotas": frotas,
+        "total": montar("FROTA TOTAL", "", *soma),
     }
 
 

@@ -3,6 +3,7 @@
 Cada módulo do sistema tem seu próprio conjunto de tabelas, mas todas
 compartilham a mesma sessão do SQLAlchemy (extensions.db).
 """
+import re
 import secrets
 from datetime import date, datetime, timedelta
 
@@ -315,6 +316,18 @@ class Veiculo(db.Model):
     def km_proxima_troca_oleo(self):
         return (self.km_ultima_troca_oleo or 0) + (self.intervalo_troca_oleo or 0)
 
+    @property
+    def placa_exibicao(self):
+        """Placa sem o nº da frota que o cadastro guarda na frente
+        ('01JBH6B46' -> 'JBH6B46'). Só para exibir; o banco não muda."""
+        placa = str(self.placa or "").strip()
+        return re.sub(r"^\d+\s*[-–—·.]?\s*", "", placa) or placa
+
+    @property
+    def rotulo(self):
+        """Como o veículo aparece nas telas e importações: '01 · JBH6B46'."""
+        return f"{self.prefixo} · {self.placa_exibicao}"
+
     def to_dict(self):
         return {
             "id": self.id, "prefixo": self.prefixo, "placa": self.placa,
@@ -331,7 +344,7 @@ class Veiculo(db.Model):
             "orcamento_mensal": self.orcamento_mensal,
             "observacao": self.observacao, "ativo": self.ativo,
             "grupo_consumo_legado": bool(self.grupo_consumo_legado),
-            "identificacao": f"{self.prefixo} · {self.placa}",
+            "identificacao": self.rotulo,
         }
 
 
@@ -559,7 +572,7 @@ class PecaSerial(db.Model):
             "peca_descricao": self.peca.descricao if self.peca else None,
             "numero_serie": self.numero_serie, "status": self.status,
             "veiculo_atual_id": self.veiculo_atual_id,
-            "veiculo_atual_nome": (f"{self.veiculo_atual.prefixo} · {self.veiculo_atual.placa}"
+            "veiculo_atual_nome": (self.veiculo_atual.rotulo
                                    if self.veiculo_atual else None),
             "ordem_servico_atual_id": self.ordem_servico_atual_id,
             "ordem_servico_atual_numero": (self.ordem_servico_atual.numero
@@ -599,7 +612,7 @@ class MovimentoPecaSerial(db.Model):
             "data": self.data.isoformat() if self.data else None,
             "tipo": self.tipo,
             "veiculo_id": self.veiculo_id,
-            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+            "veiculo_nome": (self.veiculo.rotulo
                              if self.veiculo else None),
             "ordem_servico_id": self.ordem_servico_id,
             "ordem_servico_numero": self.ordem_servico.numero if self.ordem_servico else None,
@@ -830,7 +843,7 @@ class OrdemServico(db.Model):
             "data_abertura": self.data_abertura.isoformat() if self.data_abertura else None,
             "data_fechamento": self.data_fechamento.isoformat() if self.data_fechamento else None,
             "veiculo_id": self.veiculo_id,
-            "veiculo_nome": f"{self.veiculo.prefixo} · {self.veiculo.placa}" if self.veiculo else None,
+            "veiculo_nome": self.veiculo.rotulo if self.veiculo else None,
             "motorista_id": self.motorista_id,
             "motorista_nome": self.motorista.nome if self.motorista else None,
             "fornecedor_id": self.fornecedor_id,
@@ -932,7 +945,7 @@ class ServicoTerceiro(db.Model):
             "id": self.id,
             "data": self.data.isoformat() if self.data else None,
             "veiculo_id": self.veiculo_id,
-            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+            "veiculo_nome": (self.veiculo.rotulo
                               if self.veiculo else None),
             "ordem_servico_id": self.ordem_servico_id,
             "ordem_numero": self.ordem.numero if self.ordem else None,
@@ -968,7 +981,7 @@ class Lavagem(db.Model):
             "id": self.id,
             "data": self.data.isoformat() if self.data else None,
             "veiculo_id": self.veiculo_id,
-            "veiculo_nome": (f"{self.veiculo.prefixo} · {self.veiculo.placa}"
+            "veiculo_nome": (self.veiculo.rotulo
                               if self.veiculo else None),
             "valor": round(self.valor or 0, 2),
             "observacao": self.observacao,
@@ -1002,7 +1015,7 @@ class Abastecimento(db.Model):
     def to_dict(self):
         return {"id": self.id, "data": self.data.isoformat() if self.data else None,
                 "veiculo_id": self.veiculo_id,
-                "veiculo_nome": f"{self.veiculo.prefixo} · {self.veiculo.placa}" if self.veiculo else None,
+                "veiculo_nome": self.veiculo.rotulo if self.veiculo else None,
                 "motorista_id": self.motorista_id,
                 "motorista_nome": self.motorista.nome if self.motorista else None,
                 "fornecedor_id": self.fornecedor_id,
@@ -1073,7 +1086,7 @@ class Pneu(db.Model):
         if self.veiculo and self.km_instalacao:
             km_rodados = max((self.veiculo.hodometro or 0) - self.km_instalacao, 0)
         return {"id": self.id, "numero_fogo": self.numero_fogo, "veiculo_id": self.veiculo_id,
-                "veiculo_nome": f"{self.veiculo.prefixo} · {self.veiculo.placa}" if self.veiculo else None,
+                "veiculo_nome": self.veiculo.rotulo if self.veiculo else None,
                 "posicao": self.posicao, "marca": self.marca, "medida": self.medida,
                 "sulco_mm": self.sulco_mm, "vida": self.vida,
                 "km_instalacao": self.km_instalacao, "km_rodados": round(km_rodados),
@@ -1101,7 +1114,7 @@ class Orcamento(db.Model):
     def to_dict(self):
         return {"id": self.id, "ano": self.ano, "mes": self.mes, "categoria": self.categoria,
                 "veiculo_id": self.veiculo_id,
-                "veiculo_nome": f"{self.veiculo.prefixo} · {self.veiculo.placa}" if self.veiculo else None,
+                "veiculo_nome": self.veiculo.rotulo if self.veiculo else None,
                 "centro_custo": self.centro_custo,
                 "grupo_consumo_id": self.grupo_consumo_id,
                 "grupo_consumo_nome": self.grupo_consumo.nome if self.grupo_consumo else None,

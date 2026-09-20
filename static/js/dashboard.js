@@ -3,6 +3,7 @@
   const inicio = () => document.getElementById('filtroInicio').value;
   const fim = () => document.getElementById('filtroFim').value;
 
+  let ultimoConsumoFrotas = null; // km/L de todas as frotas (atual x anterior) para a impressão
   let ultimosGraficos = null; // guarda o retorno de /api/painel/graficos para a impressão
   let ultimoConsumoDiario = null; // guarda o histórico de /api/consumo-diario para a impressão
   let ultimoHorasMecanicos = null; // guarda o retorno de /api/painel/horas-mecanicos para a impressão
@@ -379,7 +380,7 @@
      tabelas), então aqui a gente converte o gráfico em imagem
      (canvas.toDataURL) e monta a janela de impressão na mão, no mesmo
      estilo da impressão de OS. */
-  function abrirImpressaoRelatorio({ titulo, canvasId, colunas, linhas, notaExtra = '', semPeriodo = false }) {
+  function abrirImpressaoRelatorio({ titulo, canvasId, colunas, linhas, notaExtra = '', semPeriodo = false, rodape = '' }) {
     if (!linhas || !linhas.length) return SGMF.aviso('Não há dados para imprimir neste período.');
 
     const canvas = canvasId ? document.getElementById(canvasId) : null;
@@ -407,6 +408,8 @@
       th, td { border: 1px solid #D3DBE2; padding: 6px 9px; text-align: left; }
       th { background: #0F3D56; color: #fff; text-transform: uppercase; font-size: 10.5px; letter-spacing: .02em; }
       tr:nth-child(even) td { background: #F5F7F9; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
       .num, .text-end { text-align: right; }
       .rodape-impressao { margin-top: 16px; font-size: 10.5px; color: #888; }
       @media print { @page { margin: 14mm; } }
@@ -423,7 +426,7 @@
         <thead><tr>${cabecalho}</tr></thead>
         <tbody>${corpo}</tbody>
       </table>
-      <div class="rodape-impressao">Sistema de Gestão de Manutenção de Frotas</div>
+      <div class="rodape-impressao">${rodape ? `${SGMF.esc(rodape)}<br>` : ''}Sistema de Gestão de Manutenção de Frotas</div>
     `;
     doc.body.appendChild(corpoDoc);
 
@@ -501,17 +504,40 @@
     });
   }
 
+  // Imprime TODAS as frotas cadastradas com o km/L do período e o km/L do
+  // período anterior (mesmo nº de dias), para acompanhar a evolução.
   function imprimirGraficoConsumo() {
-    const g = precisaGraficos(); if (!g) return;
+    const d = ultimoConsumoFrotas;
+    if (!d) return SGMF.aviso('Aguarde os dados carregarem e tente novamente.');
+
+    const kml = v => v ? SGMF.numero(v, 2) : '—';
+    const negrito = (l, texto) => l.total ? `<b>${texto}</b>` : texto;
+    const rotulos = {
+      melhorou: ['▲ Melhorou', '#1B7F3B'], piorou: ['▼ Piorou', '#C0392B'],
+      estavel: ['= Estável', '#555'], sem_base: ['— Sem período anterior', '#888'],
+      sem_dados: ['— Sem abastecimento', '#888']
+    };
+    const linhas = [...d.frotas, { ...d.total, total: true }];
+
     abrirImpressaoRelatorio({
-      titulo: 'Consumo por veículo (km/L)', canvasId: 'graficoConsumo',
+      titulo: 'Consumo por frota (km/L) — comparativo de evolução',
+      canvasId: 'graficoConsumo',
+      notaExtra: ` · comparado com ${SGMF.data(d.periodo_anterior.inicio)} a ${SGMF.data(d.periodo_anterior.fim)}`,
+      rodape: 'Km/L = km rodados ÷ litros no período. ▲ Melhorou = mais km por litro que no período anterior '
+            + '(variação abaixo de 1% é considerada estável).',
       colunas: [
-        { rotulo: 'Veículo', campo: 'veiculo' },
-        { rotulo: 'Km/L', classe: 'text-end num', render: l => SGMF.numero(l.consumo, 2) },
-        { rotulo: 'Km/L (média da média)', classe: 'text-end num',
-          render: l => l.consumo_media_da_media ? SGMF.numero(l.consumo_media_da_media, 2) : '—' }
+        { rotulo: 'Frota', render: l => negrito(l, SGMF.esc(l.veiculo)) },
+        { rotulo: 'Placa', render: l => SGMF.esc(l.placa || '') },
+        { rotulo: 'Litros', classe: 'text-end num', render: l => negrito(l, l.litros ? SGMF.numero(l.litros, 1) : '—') },
+        { rotulo: 'Km rodados', classe: 'text-end num', render: l => negrito(l, l.km ? SGMF.numero(l.km, 0) : '—') },
+        { rotulo: 'Km/L anterior', classe: 'text-end num', render: l => negrito(l, kml(l.consumo_anterior)) },
+        { rotulo: 'Km/L atual', classe: 'text-end num', render: l => negrito(l, kml(l.consumo)) },
+        { rotulo: 'Variação', classe: 'text-end num', render: l => l.variacao === null ? '—'
+            : negrito(l, `${l.variacao > 0 ? '+' : ''}${SGMF.numero(l.variacao, 2)} (${l.variacao_pct > 0 ? '+' : ''}${SGMF.numero(l.variacao_pct, 1)}%)`) },
+        { rotulo: 'Evolução', render: l => { const [txt, cor] = rotulos[l.evolucao];
+            return `<span style="color:${cor};font-weight:bold">${txt}</span>`; } }
       ],
-      linhas: g.consumo_veiculo
+      linhas
     });
   }
 
@@ -575,6 +601,60 @@
     });
   }
 
+  // Litros abastecidos por dia (barras) + km/L do dia (linha) no período do
+  // filtro. Os dados vêm da planilha diária importada na tela Combustível.
+  async function carregarCombustivelDiario() {
+    const d = await SGMF.get(`/api/painel/combustivel-diario?inicio=${inicio()}&fim=${fim()}`);
+    const dias = d.dias || [];
+    document.getElementById('resumoCombustivelDiario').innerHTML = dias.length ? [
+      medidor('Litros no período', SGMF.numero(d.total_litros, 0), { icone: 'fa-droplet', nota: `${dias.length} dia(s) com abastecimento` }),
+      medidor('Média por dia', SGMF.numero(d.media_litros_dia, 0), { icone: 'fa-calendar-day', nota: 'litros por dia' }),
+      medidor('Consumo do período', `${SGMF.numero(d.km_por_litro, 2)} <small>km/L</small>`, { icone: 'fa-gas-pump' })
+    ].join('') : `<div class="text-muted" style="font-size:12.5px">Sem abastecimentos neste período.
+      Importe a planilha do dia na tela Combustível.</div>`;
+
+    const rotulo = (iso) => {
+      const dia = new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      return `${dia} ${SGMF.data(iso).slice(0, 5)}`;
+    };
+    SGMF.grafico('graficoCombustivelDiario', {
+      type: 'bar',
+      data: {
+        labels: dias.map(x => rotulo(x.data)),
+        datasets: [
+          { type: 'bar', label: 'Litros', data: dias.map(x => x.litros), yAxisID: 'y',
+            backgroundColor: '#0F3D56', borderRadius: 2 },
+          { type: 'line', label: 'Km/L do dia', data: dias.map(x => x.km_por_litro || null), yAxisID: 'y1',
+            borderColor: '#F5A800', backgroundColor: '#F5A800', borderWidth: 2, pointRadius: 3, tension: .25 }
+        ]
+      },
+      options: {
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: { callbacks: {
+            label: c => c.dataset.yAxisID === 'y1'
+              ? `${SGMF.numero(c.parsed.y, 2)} km/L` : `${SGMF.numero(c.parsed.y, 0)} litros`,
+            afterBody: itens => `${dias[itens[0].dataIndex].veiculos} veículo(s) abastecido(s)`
+          } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { beginAtZero: true, ticks: { callback: v => SGMF.numero(v) }, grid: { color: '#EBEFF3' } },
+          y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false },
+                ticks: { callback: v => SGMF.numero(v, 1) } }
+        }
+      }
+    });
+  }
+
+  // Km/L de TODAS as frotas no período do filtro e no período anterior. Fica
+  // guardado para o botão Imprimir do gráfico "Consumo por veículo".
+  async function carregarConsumoFrotas() {
+    ultimoConsumoFrotas = await SGMF.get(`/api/painel/consumo-frotas?inicio=${inicio()}&fim=${fim()}`);
+  }
+
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
     imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas,
@@ -583,7 +663,7 @@
 
   async function atualizar() {
     try {
-      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(),
+      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(), carregarCombustivelDiario(), carregarConsumoFrotas(),
                          carregarHorasMecanicos(), carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
   }

@@ -74,7 +74,7 @@ def _avaliar_ordem(ordem):
         "data_fechamento": ordem.data_fechamento.isoformat() if ordem.data_fechamento else None,
         "veiculo_id": ordem.veiculo_id,
         "veiculo_nome": (
-            f"{ordem.veiculo.prefixo} · {ordem.veiculo.placa}"
+            ordem.veiculo.rotulo
             if ordem.veiculo else None
         ),
         "itens_pendentes": len(itens),

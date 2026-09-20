@@ -10,7 +10,10 @@ digitar item por item. O fluxo é sempre o mesmo:
 Nada é gravado pela metade: se a gravação falhar, a transação é desfeita.
 """
 import io
-from datetime import date
+import re
+import unicodedata
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -310,71 +313,220 @@ COLUNAS_ABASTECIMENTOS = [
 ]
 
 LIMITE_ABASTECIMENTOS = 5000
+LIMITE_SALTO_KM = 2000            # salto de KM acima disso quase sempre é erro de digitação
+ABA_LANCAMENTO = "LANCAMENTO"   # nome da aba do dia (comparado sem acento/caixa)
+
+
+def _sem_acento(texto):
+    base = unicodedata.normalize("NFKD", str(texto if texto is not None else ""))
+    return "".join(c for c in base if not unicodedata.combining(c)).upper().strip()
+
+
+def _chave_frota(valor):
+    """Número da frota comparável: 1, 1.0, '01' e '01 · ABC1D23' viram '1'."""
+    if valor is None:
+        return ""
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)
+    texto = str(valor).strip().upper()
+    if "·" in texto:
+        texto = texto.split("·", 1)[0].strip()
+    if texto.isdigit():
+        return str(int(texto))
+    return texto.replace(" ", "")
+
+
+def _vazio(valor):
+    return valor is None or str(valor).strip() == ""
+
+
+def _limpa_placa(valor):
+    """Placa comparável: maiúscula, sem hífen/espaço e SEM os números da frota
+    que o cadastro guarda na frente (ex.: '01JBH6B46' e '01-JBH6B46' viram
+    'JBH6B46'). Placa de verdade nunca começa com número, então qualquer
+    dígito inicial é prefixo da frota."""
+    texto = re.sub(r"[^A-Z0-9]", "", str(valor if valor is not None else "").upper())
+    return re.sub(r"^\d+", "", texto)
+
+
+def _separar_frota(bruto):
+    """Separa o rótulo da planilha em (nº da frota, placa).
+
+    '01-JBH6B46' -> ('01', 'JBH6B46'); '15RQY7I16' -> ('15', 'RQY7I16');
+    '7' -> ('7', ''); 'JBH6B46' -> ('', 'JBH6B46').
+    """
+    texto = str(bruto if bruto is not None else "").strip().upper()
+    if isinstance(bruto, float) and bruto.is_integer():
+        texto = str(int(bruto))
+    achou = re.match(r"^(\d+)\s*[-–—·]?\s*([A-Z0-9]{5,8})?$", texto)
+    if achou:
+        return achou.group(1), achou.group(2) or ""
+    return "", _limpa_placa(texto) if re.search(r"[A-Z]", texto) else ""
+
+
+def _data_da_planilha(valor):
+    """Aceita data real do Excel, número de série do Excel, dd/mm/aaaa e ISO."""
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool) and 20000 < valor < 80000:
+        return date(1899, 12, 30) + timedelta(days=int(valor))
+    texto = str(valor).strip()
+    for formato in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            pass
+    return ler_data(valor, "DATA")
+
+
+def _milhar(numero):
+    return f"{numero:,.0f}".replace(",", ".")
+
+
+def _cabecalho_abastecimentos(ws):
+    """Acha a linha de títulos (1ª das 10 primeiras com VEÍCULO e DATA)."""
+    for numero, linha in enumerate(ws.iter_rows(min_row=1, max_row=10, values_only=True), start=1):
+        titulos = [_sem_acento(str(c).replace("*", "")) if c is not None else "" for c in linha]
+        if "VEICULO" in titulos and "DATA" in titulos:
+            indices = {}
+            for pos, titulo in enumerate(titulos):
+                if titulo:
+                    indices.setdefault(titulo, pos)
+            return indices, numero
+    return None, None
+
+
+def _escolher_aba_abastecimentos(wb):
+    """Prefere a aba LANÇAMENTO; depois qualquer aba visível com as colunas
+    certas; por último uma aba oculta (ex.: a base LANÇAM)."""
+    candidatas = []
+    for ws in wb.worksheets:
+        indices, linha_titulos = _cabecalho_abastecimentos(ws)
+        if not indices or not all(t in indices for t in ("VEICULO", "DATA", "LITROS", "KM")):
+            continue
+        if _sem_acento(ws.title) == ABA_LANCAMENTO:
+            prioridade = 0
+        elif getattr(ws, "sheet_state", "visible") == "visible":
+            prioridade = 1
+        else:
+            prioridade = 2
+        candidatas.append((prioridade, ws, indices, linha_titulos))
+    if not candidatas:
+        return None
+    candidatas.sort(key=lambda c: c[0])
+    return candidatas[0][1:]
 
 
 def ler_abastecimentos(arquivo):
+    """Confere a planilha do dia SEM gravar nada e devolve a prévia.
+
+    Regras que evitam sujeira no painel:
+    - linha sem LITROS e sem KM = veículo que não abasteceu no dia (não é
+      erro; só é listada à parte); a linha TOTAL é ignorada;
+    - o nº da frota casa com o prefixo do cadastro mesmo com/sem zero à
+      esquerda (1 = 01) ou pela placa;
+    - KM menor que o último já lançado para o veículo, ou um salto absurdo
+      (mais de LIMITE_SALTO_KM), é recusado — faria o km/L e os gráficos
+      saírem errados;
+    - veículo já lançado no mesmo dia (no sistema ou na própria planilha)
+      é recusado — evita litros em dobro ao reenviar o arquivo.
+    """
     try:
         wb = load_workbook(arquivo, data_only=True, read_only=True)
     except Exception:
         raise ErroNegocio("Não consegui abrir a planilha. Envie um arquivo .xlsx ou .xlsm.")
 
-    ws = wb.active
-    linhas = list(ws.iter_rows(values_only=True))
-    if not linhas:
-        raise ErroNegocio("A planilha de abastecimentos está vazia.")
+    escolhida = _escolher_aba_abastecimentos(wb)
+    if not escolhida:
+        raise ErroNegocio("Não encontrei uma aba com as colunas VEÍCULO, DATA, LITROS e KM. "
+                          "Use a aba LANÇAMENTO do modelo de lançamento de diesel.")
+    ws, indices, linha_titulos = escolhida
 
-    cabecalho = [str(c).replace("*", "").strip().upper() if c is not None else ""
-                 for c in linhas[0]]
-    indices = {titulo: cabecalho.index(titulo) for titulo, *_ in COLUNAS_ABASTECIMENTOS
-               if titulo in cabecalho}
-    faltando = [titulo for titulo, *_ in COLUNAS_ABASTECIMENTOS if titulo not in indices]
-    if faltando:
-        raise ErroNegocio("A planilha não tem as colunas: " + ", ".join(faltando) +
-                          ". Use o modelo de lançamento de diesel.")
-
-    # Índice por prefixo. Aceita prefixos numéricos (1, 2, 3) e texto (FR-101).
+    # Cadastro da frota: prefixo exato, prefixo normalizado (1 = 01) e placa.
     veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
-    por_prefixo = {}
+    por_prefixo, por_prefixo_normal, por_placa = {}, defaultdict(list), {}
     for v in veiculos:
-        chave = str(v.prefixo or "").strip().upper()
-        if chave:
-            por_prefixo[chave] = v
+        prefixo = str(v.prefixo or "").strip().upper()
+        if prefixo:
+            por_prefixo[prefixo] = v
+            por_prefixo_normal[_chave_frota(prefixo)].append(v)
+        if v.placa:
+            por_placa[_limpa_placa(v.placa)] = v
 
-    # Também permite placa no campo VEÍCULO, como tolerância útil.
-    por_placa = {str(v.placa or "").strip().upper().replace("-", ""): v
-                 for v in veiculos if v.placa}
+    def localizar(bruto):
+        """Aceita '1', '01', '01-JBH6B46', 'JBH6B46'. A placa é a chave mais
+        segura; o nº da frota vale quando a placa não vem, e se vier
+        divergente do cadastro a linha é recusada (evita lançar no veículo
+        errado por causa de um erro de digitação na placa)."""
+        texto = str(bruto if bruto is not None else "").strip().upper()
+        if texto in por_prefixo:
+            return por_prefixo[texto], None
+        numero, placa = _separar_frota(bruto)
+        v_placa = por_placa.get(placa) if placa else None
+        candidatos = por_prefixo_normal.get(_chave_frota(numero), []) if numero else []
+        if len(candidatos) > 1:
+            return None, f"frota '{numero}' aparece em mais de um prefixo do cadastro"
+        v_numero = candidatos[0] if candidatos else None
+        if v_placa and v_numero and v_placa is not v_numero:
+            return None, (f"frota {numero} e placa {placa} apontam para veículos diferentes "
+                          f"no cadastro ({v_numero.rotulo} × {v_placa.rotulo})")
+        if v_placa:
+            return v_placa, None
+        if v_numero:
+            if placa and v_numero.placa and _limpa_placa(v_numero.placa) != placa:
+                return None, (f"placa {placa} não confere com o cadastro "
+                              f"(frota {numero} = {v_numero.placa_exibicao}) — corrija a planilha")
+            return v_numero, None
+        return None, f"veículo '{texto}' não encontrado no cadastro da frota"
 
-    prontas, problemas = [], []
-    vistos = set()
-
-    for numero, bruta in enumerate(linhas[1:], start=2):
-        if numero - 1 > LIMITE_ABASTECIMENTOS:
-            problemas.append({"linha": numero,
-                              "erro": f"A planilha passa de {LIMITE_ABASTECIMENTOS} linhas. Divida em partes."})
-            break
+    # ---- 1ª passada: lê e converte cada linha (sem consultar o banco) ------
+    linhas, sem_abastecimento, lidas = [], [], 0
+    for numero, bruta in enumerate(ws.iter_rows(min_row=linha_titulos + 1, values_only=True),
+                                   start=linha_titulos + 1):
         if not any(c is not None and str(c).strip() != "" for c in bruta):
             continue
 
-        bruto_veiculo = bruta[indices["VEÍCULO"]]
-        chave_veiculo = str(bruto_veiculo or "").strip().upper()
-        chave_placa = chave_veiculo.replace("-", "")
-        veiculo = por_prefixo.get(chave_veiculo) or por_placa.get(chave_placa)
-        erros = []
-        if not veiculo:
-            erros.append(f"veículo '{chave_veiculo}' não encontrado no cadastro da frota")
-
-        dados = {"veiculo_id": veiculo.id if veiculo else None,
-                 "veiculo_nome": (f"{veiculo.prefixo} · {veiculo.placa}" if veiculo else chave_veiculo)}
-
-        for titulo, campo, tipo_campo, obrigatorio in COLUNAS_ABASTECIMENTOS[1:]:
+        def celula(titulo):
             pos = indices[titulo]
-            valor = bruta[pos] if pos < len(bruta) else None
+            return bruta[pos] if pos < len(bruta) else None
+
+        rotulo = str(celula("VEICULO") if celula("VEICULO") is not None else "").strip()
+        if _sem_acento(rotulo).startswith("TOTAL"):
+            continue
+
+        lidas += 1
+        # Nº da linha de dados: a 1ª linha abaixo dos títulos é a linha 1
+        # (frota 01 = linha 1, frota 02 = linha 2...), e não a linha 2 do Excel.
+        numero_dado = numero - linha_titulos
+        if lidas > LIMITE_ABASTECIMENTOS:
+            linhas.append({"linha": numero_dado, "erros": [
+                f"A planilha passa de {LIMITE_ABASTECIMENTOS} linhas. Divida em partes."],
+                "dados": {"veiculo_nome": rotulo}, "veiculo": None})
+            break
+
+        if _vazio(celula("LITROS")) and _vazio(celula("KM")):
+            bruto_v = celula("VEICULO")
+            sem_abastecimento.append(_chave_frota(bruto_v) if isinstance(bruto_v, (int, float)) else rotulo)
+            continue
+
+        veiculo, erro_veiculo = localizar(celula("VEICULO"))
+        erros = [erro_veiculo] if erro_veiculo else []
+        dados = {"veiculo_id": veiculo.id if veiculo else None,
+                 "veiculo_nome": (veiculo.rotulo if veiculo else rotulo)}
+
+        for titulo, campo, tipo_campo, _obrig in COLUNAS_ABASTECIMENTOS[1:]:
+            valor = celula(_sem_acento(titulo))
             try:
-                convertido = _converter(valor, tipo_campo, titulo)
-            except ValueError as e:
-                erros.append(str(e))
+                if tipo_campo == "data":
+                    convertido = None if _vazio(valor) else _data_da_planilha(valor)
+                else:
+                    convertido = _converter(valor, tipo_campo, titulo)
+            except (ValueError, TypeError, ErroNegocio):
+                erros.append(f"'{titulo}' com valor inválido: {valor}")
                 convertido = None
-            if obrigatorio and convertido in (None, ""):
+            if convertido in (None, ""):
                 erros.append(f"'{titulo}' é obrigatório")
             dados[campo] = convertido
 
@@ -383,29 +535,69 @@ def ler_abastecimentos(arquivo):
         if dados.get("km_atual") is not None and dados["km_atual"] < 0:
             erros.append("'KM' não pode ser negativo")
 
-        if veiculo and dados.get("data") and dados.get("km_atual") is not None:
-            # A mesma linha não deve ser importada duas vezes.
-            chave = (veiculo.id, dados["data"], round(float(dados["km_atual"]), 3))
-            if chave in vistos:
-                erros.append("registro repetido na própria planilha")
+        linhas.append({"linha": numero_dado, "erros": erros, "dados": dados, "veiculo": veiculo})
+
+    # ---- 2ª passada: confere com o histórico do sistema (1 consulta só) ----
+    validas = [l for l in linhas if not l["erros"] and l["veiculo"]
+               and l["dados"].get("data") and l["dados"].get("km_atual") is not None]
+    historico, no_dia = defaultdict(list), {}
+    if validas:
+        ids = {l["veiculo"].id for l in validas}
+        ate = max(l["dados"]["data"] for l in validas)
+        for vid, data, km, litros in (db.session.query(
+                Abastecimento.veiculo_id, Abastecimento.data,
+                Abastecimento.km_atual, Abastecimento.litros)
+                .filter(Abastecimento.veiculo_id.in_(ids), Abastecimento.data <= ate).all()):
+            if data is None:
+                continue
+            historico[vid].append((data, km or 0))
+            no_dia.setdefault((vid, data), ("sistema", km or 0, litros or 0))
+
+    # Em ordem de data, para que uma planilha com vários dias também confira
+    # cada dia contra o anterior.
+    for l in sorted(validas, key=lambda x: (x["dados"]["data"], x["linha"])):
+        d, v = l["dados"], l["veiculo"]
+        data, km, chave_dia = d["data"], float(d["km_atual"]), (v.id, d["data"])
+
+        if chave_dia in no_dia:
+            origem, km_antes, litros_antes = no_dia[chave_dia]
+            if origem == "planilha":
+                l["erros"].append("registro repetido na própria planilha" if abs(km_antes - km) < 0.001
+                                  else "este veículo aparece mais de uma vez nesta data na planilha")
+            elif abs(km_antes - km) < 0.001:
+                l["erros"].append("já existe no sistema para este veículo, data e km")
             else:
-                vistos.add(chave)
-                existente = Abastecimento.query.filter_by(
-                    veiculo_id=veiculo.id,
-                    data=dados["data"],
-                    km_atual=dados["km_atual"]
-                ).first()
-                if existente:
-                    erros.append("já existe no sistema para este veículo, data e km")
+                l["erros"].append(
+                    f"já existe abastecimento deste veículo em {data.strftime('%d/%m/%Y')} no sistema "
+                    f"(km {_milhar(km_antes)}, {litros_antes:g} L) — corrija ou exclua o anterior")
+            continue
 
-        # ISO para a prévia JSON.
-        if isinstance(dados.get("data"), date):
-            dados["data"] = dados["data"].isoformat()
+        anteriores = [(k, dt) for dt, k in historico[v.id] if dt <= data]
+        if anteriores:
+            maior_km, data_do_km = max(anteriores)
+            if km < maior_km:
+                l["erros"].append(
+                    f"KM {_milhar(km)} é menor que o último lançado para este veículo "
+                    f"({_milhar(maior_km)} em {data_do_km.strftime('%d/%m/%Y')})")
+                continue
+            if km - maior_km > LIMITE_SALTO_KM:
+                l["erros"].append(
+                    f"KM {_milhar(km)} está {_milhar(km - maior_km)} km acima do último lançado "
+                    f"({_milhar(maior_km)} em {data_do_km.strftime('%d/%m/%Y')}) — confira o KM digitado")
+                continue
 
-        if erros:
-            problemas.append({"linha": numero, "erro": "; ".join(erros), "dados": dados})
+        historico[v.id].append((data, km))
+        no_dia[chave_dia] = ("planilha", km, d["litros"])
+
+    prontas, problemas = [], []
+    for l in linhas:
+        d = dict(l["dados"])
+        if isinstance(d.get("data"), date):
+            d["data"] = d["data"].isoformat()      # ISO para a prévia JSON
+        if l["erros"]:
+            problemas.append({"linha": l["linha"], "erro": "; ".join(l["erros"]), "dados": d})
         else:
-            prontas.append({"linha": numero, "dados": dados})
+            prontas.append({"linha": l["linha"], "dados": d})
 
     return {
         "tipo": "abastecimentos",
@@ -414,6 +606,13 @@ def ler_abastecimentos(arquivo):
         "campos": ["veiculo_nome", "data", "litros", "km_atual"],
         "prontas": prontas,
         "problemas": problemas,
+        "sem_abastecimento": sem_abastecimento,
+        "resumo": {
+            "aba": ws.title,
+            "datas": sorted({p["dados"]["data"] for p in prontas}),
+            "litros": round(sum(p["dados"]["litros"] for p in prontas), 1),
+            "veiculos": len({p["dados"]["veiculo_id"] for p in prontas}),
+        },
         "total": len(prontas) + len(problemas),
     }
 

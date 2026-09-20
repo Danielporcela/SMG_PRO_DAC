@@ -158,15 +158,13 @@ def _verificar_valor_os(obj):
     custo de mão de obra, serviços e peças zerados costuma ser esquecimento
     de preenchimento, não um serviço legítimo de custo zero.
 
-    Exceção: login com cargo Almoxarifado pode finalizar uma OS que não
-    teve nenhuma peça/serviço lançado na aba "Peças e serviços" — nesse
-    caso não é esquecimento, é uma OS que realmente não precisou de peça
-    (ex.: mecânico resolveu só com mão de obra já contabilizada em outro
-    lugar, ou serviço que não gerou custo)."""
+    Exceção (qualquer cargo com permissão para finalizar): uma OS que não
+    teve nenhuma peça lançada na aba "Peças e serviços" pode ser finalizada
+    mesmo com custo zerado — significa que não foi usada peça do estoque
+    (ex.: serviço resolvido só com mão de obra, sem custo a lançar)."""
     if obj.status != "Finalizada" or obj.custo_total > 0:
         return
-    cargo_atual = (session.get("cargo") or "").strip().upper()
-    if cargo_atual == "ALMOXARIFADO" and not obj.itens:
+    if not any(item.eh_peca for item in obj.itens):
         return
     raise ErroNegocio(
         "Não é possível finalizar a OS com o custo total zerado. "
@@ -964,6 +962,22 @@ def painel_resumo():
 def painel_graficos():
     return jsonify(indicadores.series_graficos(request.args.get("inicio"),
                                                request.args.get("fim")))
+
+
+@bp_api.get("/painel/combustivel-diario")
+@visualizar_tela("dashboard")
+def painel_combustivel_diario():
+    """Litros e km/L por dia no período (gráfico 'Litros abastecidos por dia')."""
+    return jsonify(indicadores.combustivel_por_dia(request.args.get("inicio"),
+                                                   request.args.get("fim")))
+
+
+@bp_api.get("/painel/consumo-frotas")
+@visualizar_tela("dashboard")
+def painel_consumo_frotas():
+    """Km/L de todas as frotas no período e no anterior (impressão do painel)."""
+    return jsonify(indicadores.consumo_frotas(request.args.get("inicio"),
+                                              request.args.get("fim")))
 
 
 @bp_api.get("/consumo-diario/historico")

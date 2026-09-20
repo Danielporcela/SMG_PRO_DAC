@@ -16,7 +16,7 @@
         <i class="fa-solid fa-download me-1"></i> Baixar modelo
       </a>
       <input type="file" id="arquivoAbastecimentos" accept=".xlsx,.xlsm" hidden>
-      <span class="form-text ms-md-2">A planilha deve ter: VEÍCULO, DATA, LITROS e KM. KM PERC e KM/L são recalculados automaticamente.</span>
+      <span class="form-text ms-md-2">Envie a planilha do dia (aba LANÇAMENTO) com VEÍCULO, DATA, LITROS e KM. Veículos sem litros e sem KM são ignorados; KM PERC e KM/L são recalculados pelo sistema.</span>
     </div>
   </div>
 </div>
@@ -61,6 +61,9 @@ document.getElementById('arquivoAbastecimentos').onchange = async (evento) => {
 
 function mostrarPreviaAbastecimentos(d) {
   const prontas = d.prontas.length, problemas = d.problemas.length;
+  const resumo = d.resumo || {};
+  const semAbastecimento = d.sem_abastecimento || [];
+  const datasArquivo = (resumo.datas || []).map(x => SGMF.data(x)).join(', ') || '—';
   const tabela = prontas ? `
     <div class="cartao mt-3">
       <div class="cartao-topo">
@@ -91,17 +94,21 @@ function mostrarPreviaAbastecimentos(d) {
       </div>
       <div class="cartao-corpo p-0" style="max-height:300px;overflow:auto">
         <table class="table table-sm mb-0" style="font-size:12.5px">
-          <thead><tr><th class="ps-3">Linha</th><th>Motivo</th></tr></thead>
-          <tbody>${d.problemas.map(p => `<tr><td class="ps-3 num">${p.linha}</td><td style="color:var(--alerta)">${SGMF.esc(p.erro)}</td></tr>`).join('')}</tbody>
+          <thead><tr><th class="ps-3">Linha</th><th>Veículo</th><th>Motivo</th></tr></thead>
+          <tbody>${d.problemas.map(p => `<tr><td class="ps-3 num">${p.linha}</td><td>${SGMF.esc((p.dados && p.dados.veiculo_nome) || '')}</td><td style="color:var(--alerta)">${SGMF.esc(p.erro)}</td></tr>`).join('')}</tbody>
         </table>
       </div>
     </div>` : '';
 
   document.getElementById('previaImportacaoAbastecimentos').innerHTML = `
     <div class="instrumentos">
-      <div class="medidor"><div class="rotulo">Linhas na planilha</div><div class="valor num">${d.total}</div></div>
+      <div class="medidor"><div class="rotulo">Data do arquivo</div>
+        <div class="valor num" style="font-size:20px">${datasArquivo}</div></div>
       <div class="medidor ok"><div class="rotulo">Prontas</div><div class="valor num">${prontas}</div></div>
+      <div class="medidor"><div class="rotulo">Litros a lançar</div><div class="valor num">${SGMF.numero(resumo.litros || 0, 1)}</div></div>
       <div class="medidor ${problemas ? 'critico' : ''}"><div class="rotulo">Recusadas</div><div class="valor num">${problemas}</div></div>
+      <div class="medidor"><div class="rotulo">Sem abastecimento</div><div class="valor num">${semAbastecimento.length}</div>
+        ${semAbastecimento.length ? `<div class="nota">Frotas: ${SGMF.esc(semAbastecimento.join(', '))}</div>` : ''}</div>
     </div>
     ${tabela}${erros}
     <div class="mt-3 mb-3 d-flex gap-2">
@@ -138,7 +145,7 @@ async function gravarAbastecimentos() {
     await Swal.fire({
       icon: 'success',
       title: 'Importação concluída',
-      text: `${r.gravadas} abastecimento(s) foram inseridos. O consumo por frota foi recalculado.`,
+      text: `${r.gravadas} abastecimento(s) foram inseridos. Os gráficos do painel já refletem esses lançamentos.`,
       confirmButtonColor: '#0F3D56'
     });
     document.getElementById('previaImportacaoAbastecimentos').innerHTML = '';
