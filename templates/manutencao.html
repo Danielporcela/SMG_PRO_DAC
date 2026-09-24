@@ -56,6 +56,17 @@
           <div id="itemPecaEscolhida" class="form-text mt-1"></div>
         </div>{% endif %}
 
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <div>
+            <strong>Serviços externos</strong>
+            <div class="form-text">Registre o serviço do posto de molas diretamente nesta OS, sem abrir outra tela.</div>
+          </div>
+          <button type="button" class="btn btn-primario btn-sm" id="botaoPostoMolas" data-bs-toggle="modal" data-bs-target="#modalPostoMolas">
+            <i class="fa-solid fa-wrench me-1"></i> Abrir aba Posto de Molas
+          </button>
+        </div>
+        <div id="resumoPostoMolas" class="mb-3"></div>
+
         <div class="row g-2 align-items-end mb-3">
           {% if not is_cco %}<div class="col-md-4" id="colunaPecaEstoque">
             <label class="form-label" for="itemPeca">Peça do estoque (lista completa)</label>
@@ -85,9 +96,75 @@
         <p class="form-text mt-0" id="itemAjuda">Peças do estoque saem do saldo automaticamente ao serem adicionadas
           e voltam se o item for removido.</p>
         <div id="listaItens"></div>
+        <div id="listaPostosMolas" class="mt-3"></div>
       </div>
       <div class="modal-footer justify-content-between">
         <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Aba/formulário interno do SGMF: Posto de Molas. Não usa prompt do navegador. -->
+<div class="modal fade" id="modalPostoMolas" tabindex="-1" aria-labelledby="modalPostoMolasLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="modalPostoMolasLabel"><i class="fa-solid fa-wrench me-2"></i>Posto de Molas</h5>
+          <small style="color:var(--hi-vis)">Lançamento vinculado à Ordem de Serviço e ao caminhão</small>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="postoMolasOsId">
+        <div class="alert alert-secondary py-2 mb-3">
+          <div class="row g-2">
+            <div class="col-md-4"><strong>OS:</strong> <span id="postoMolasOsNumero">—</span></div>
+            <div class="col-md-4"><strong>Veículo:</strong> <span id="postoMolasVeiculo">—</span></div>
+            <div class="col-md-4"><strong>Custo lançado:</strong> <span id="postoMolasCustoAtual">R$ 0,00</span></div>
+          </div>
+        </div>
+        <form id="formPostoMolas" novalidate>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label" for="postoMolasData">Data do serviço *</label>
+              <input type="date" class="form-control" id="postoMolasData" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label" for="postoMolasPrestador">Posto de molas / empresa *</label>
+              <input class="form-control" id="postoMolasPrestador" maxlength="120" placeholder="Nome do posto de molas" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label" for="postoMolasDescricao">Serviço realizado *</label>
+              <input class="form-control" id="postoMolasDescricao" maxlength="300" placeholder="Ex.: troca de feixe e buchas da suspensão traseira" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="postoMolasNF">NF *</label>
+              <input class="form-control" id="postoMolasNF" maxlength="80" placeholder="000123" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="postoMolasPecas">Peças fornecidas pelo posto</label>
+              <input type="text" inputmode="decimal" class="form-control text-end" id="postoMolasPecas" value="0,00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="postoMolasMao">Mão de obra</label>
+              <input type="text" inputmode="decimal" class="form-control text-end" id="postoMolasMao" value="0,00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="postoMolasVencimento">Vencimento</label>
+              <input type="date" class="form-control" id="postoMolasVencimento">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Total do serviço</label>
+              <div class="form-control text-end fw-bold" id="postoMolasTotal">R$ 0,00</div>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primario" id="salvarPostoMolas"><i class="fa-solid fa-floppy-disk me-1"></i> Salvar lançamento</button>
       </div>
     </div>
   </div>
@@ -122,7 +199,7 @@
    (select) e no filtro do gráfico de evolução, em ordem alfabética. */
 const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
   'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
-  'Reny', 'Rodrigo', 'Vinícius', 'Cristiano','Marcos soldador Dia ' ,'Luiz soldador Noite '];
+  'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
 
 let linhasOS = [];   // últimas OS carregadas; usada pela delegação de cliques abaixo
 
@@ -423,6 +500,7 @@ async function abrirPecas(os) {
   atualizarTipoItem();
   limparEscolhaPeca(false);
   await recarregarItens(os.id);
+  await carregarPostosMolas(os.id);
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
 
@@ -471,6 +549,112 @@ function ehItemPneu(descricao, peca) {
   return [descricao, peca && peca.grupo, peca && peca.descricao]
     .some(t => semAcento(t).includes('pneu'));
 }
+
+
+async function carregarPostosMolas(osId) {
+  const area = document.getElementById('listaPostosMolas');
+  const resumo = document.getElementById('resumoPostoMolas');
+  try {
+    const registros = await SGMF.get(`/api/ordens/${osId}/postos-molas`);
+    const total = registros.reduce((s, x) => s + Number(x.valor || 0), 0);
+    const pecas = registros.reduce((s, x) => s + Number(x.valor_pecas || 0), 0);
+    const mao = registros.reduce((s, x) => s + Number(x.valor_mao_obra || 0), 0);
+    resumo.innerHTML = registros.length ? `
+      <div class="instrumentos">
+        <div class="medidor"><div class="rotulo">Serviços posto de molas</div><div class="valor num">${registros.length}</div></div>
+        <div class="medidor"><div class="rotulo">Peças</div><div class="valor num">${SGMF.moeda(pecas)}</div></div>
+        <div class="medidor"><div class="rotulo">Mão de obra</div><div class="valor num">${SGMF.moeda(mao)}</div></div>
+        <div class="medidor atencao"><div class="rotulo">Total posto de molas</div><div class="valor num">${SGMF.moeda(total)}</div></div>
+      </div>` : '';
+    area.innerHTML = registros.length ? `
+      <div class="cartao">
+        <div class="cartao-topo"><h3 style="font-size:15px">Serviços de posto de molas vinculados à OS</h3></div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>Data</th><th>Posto</th><th>NF</th><th>Descrição</th><th class="text-end">Peças</th><th class="text-end">M/O</th><th class="text-end">Total</th><th>Vencimento</th><th></th></tr></thead>
+          <tbody>${registros.map(x => `<tr>
+            <td>${SGMF.data(x.data)}</td><td>${SGMF.esc(x.prestador)}</td><td>${SGMF.esc(x.nota_fiscal || '—')}</td>
+            <td>${SGMF.esc(x.descricao)}</td><td class="text-end">${SGMF.moeda(x.valor_pecas)}</td>
+            <td class="text-end">${SGMF.moeda(x.valor_mao_obra)}</td><td class="text-end"><strong>${SGMF.moeda(x.valor)}</strong></td>
+            <td>${SGMF.data(x.vencimento)}</td>
+            <td class="text-end"><button class="btn btn-contorno btn-icone" data-excluir-posto-molas="${x.id}" title="Excluir"><i class="fa-solid fa-trash"></i></button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>` : '';
+    area.querySelectorAll('[data-excluir-posto-molas]').forEach(btn => btn.onclick = async () => {
+      if (!await SGMF.confirmar('Excluir serviço de posto de molas?', 'O valor será retirado do custo da OS e do relatório específico.', 'Excluir')) return;
+      try {
+        await SGMF.del(`/api/ordens/${osId}/postos-molas/${btn.dataset.excluirPostoMolas}`);
+        SGMF.sucesso('Serviço excluído');
+        await carregarPostosMolas(osId);
+        await recarregarItens(osId);
+        telaOS.carregar();
+      } catch (e) { SGMF.falha(e.message); }
+    });
+  } catch (e) { area.innerHTML = `<div class="alert alert-danger">${SGMF.esc(e.message)}</div>`; }
+}
+
+function abrirAbaPostoMolas() {
+  const osId = document.getElementById('pecasOsId').value;
+  document.getElementById('postoMolasOsId').value = osId || '';
+  document.getElementById('postoMolasData').value = SGMF.hoje();
+  document.getElementById('postoMolasVencimento').value = '';
+  document.getElementById('postoMolasPrestador').value = '';
+  document.getElementById('postoMolasDescricao').value = '';
+  document.getElementById('postoMolasNF').value = '';
+  document.getElementById('postoMolasPecas').value = '0,00';
+  document.getElementById('postoMolasMao').value = '0,00';
+  atualizarTotalPostoMolas();
+  const sub = document.getElementById('pecasSubtitulo');
+  const texto = sub ? sub.textContent : '';
+  document.getElementById('postoMolasOsNumero').textContent = texto || osId || '—';
+  document.getElementById('postoMolasVeiculo').textContent = telaOS.veiculoAtual || '—';
+}
+
+function valorPostoMolas(id) {
+  const v = document.getElementById(id)?.value || '0';
+  return Number(String(v).replace(/\./g, '').replace(',', '.')) || 0;
+}
+function atualizarTotalPostoMolas() {
+  const total = Math.round((valorPostoMolas('postoMolasPecas') + valorPostoMolas('postoMolasMao')) * 100) / 100;
+  document.getElementById('postoMolasTotal').textContent = SGMF.moeda(total);
+}
+
+async function salvarPostoMolas() {
+  const osId = document.getElementById('postoMolasOsId').value;
+  const data = document.getElementById('postoMolasData').value;
+  const prestador = document.getElementById('postoMolasPrestador').value.trim();
+  const descricao = document.getElementById('postoMolasDescricao').value.trim();
+  const nf = document.getElementById('postoMolasNF').value.trim();
+  const vencimento = document.getElementById('postoMolasVencimento').value;
+  const valorPecas = valorPostoMolas('postoMolasPecas');
+  const valorMao = valorPostoMolas('postoMolasMao');
+  const valor = Math.round((valorPecas + valorMao) * 100) / 100;
+
+  if (!osId) return SGMF.aviso('Não foi possível identificar a Ordem de Serviço.');
+  if (!data) return SGMF.aviso('Informe a data do serviço.');
+  if (!prestador) return SGMF.aviso('Informe o posto de molas.');
+  if (!descricao) return SGMF.aviso('Informe o serviço realizado.');
+  if (!nf) return SGMF.aviso('Informe o número da NF.');
+  if (valor <= 0) return SGMF.aviso('Informe um valor de peças e/ou mão de obra maior que zero.');
+
+  try {
+    await SGMF.post(`/api/ordens/${osId}/posto-molas`, {
+      data, prestador, descricao, nota_fiscal: nf, vencimento,
+      valor_pecas: valorPecas, valor_mao_obra: valorMao, valor
+    });
+    const modal = bootstrap.Modal.getInstance(document.getElementById('modalPostoMolas'));
+    if (modal) modal.hide();
+    SGMF.sucesso(`Posto de molas lançado: ${SGMF.moeda(valor)}`);
+    await carregarPostosMolas(osId);
+    telaOS.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+document.getElementById('botaoPostoMolas').onclick = abrirAbaPostoMolas;
+document.getElementById('salvarPostoMolas').onclick = salvarPostoMolas;
+['postoMolasPecas','postoMolasMao'].forEach(id => {
+  document.getElementById(id).addEventListener('input', atualizarTotalPostoMolas);
+});
 
 
 document.getElementById('itemAdicionar').onclick = async () => {

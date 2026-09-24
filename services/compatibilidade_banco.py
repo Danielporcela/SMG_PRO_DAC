@@ -197,6 +197,37 @@ def garantir_servicos_terceiros_financeiros():
         return
     if "servicos_terceiros" not in tabelas:
         ServicoTerceiro.__table__.create(engine, checkfirst=True)
+        return
+
+    existentes = {c["name"] for c in inspect(engine).get_columns("servicos_terceiros")}
+    esperadas = {
+        "categoria": "VARCHAR(40)",
+        "valor_pecas": "FLOAT",
+        "valor_mao_obra": "FLOAT",
+        "nota_fiscal": "VARCHAR(80)",
+        "vencimento": "DATE",
+        "status_financeiro": "VARCHAR(20)",
+    }
+    with engine.begin() as conn:
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "servicos_terceiros" ADD COLUMN "{nome}" {tipo}'))
+        # Registros antigos continuam válidos como serviços genéricos.
+        if "categoria" in existentes or True:
+            conn.execute(text(
+                "UPDATE \"servicos_terceiros\" SET \"categoria\" = 'Serviço de terceiros' "
+                'WHERE "categoria" IS NULL'
+            ))
+            conn.execute(text(
+                'UPDATE "servicos_terceiros" SET "valor_pecas" = 0 WHERE "valor_pecas" IS NULL'
+            ))
+            conn.execute(text(
+                'UPDATE "servicos_terceiros" SET "valor_mao_obra" = 0 WHERE "valor_mao_obra" IS NULL'
+            ))
+            conn.execute(text(
+                "UPDATE \"servicos_terceiros\" SET \"status_financeiro\" = 'Pendente' "
+                'WHERE "status_financeiro" IS NULL'
+            ))
 
 def garantir_lavagens_financeiro():
     """Cria a tabela dos lançamentos financeiros de lavagem.

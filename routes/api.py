@@ -92,6 +92,13 @@ def _validar_servico_terceiro(obj, dados, anterior):
         raise ErroNegocio("Descreva o serviço executado.")
     if (obj.valor or 0) <= 0:
         raise ErroNegocio("Informe um valor maior que zero para o serviço.")
+    if obj.categoria == "Posto de Molas":
+        obj.valor_pecas = round(obj.valor_pecas or 0, 2)
+        obj.valor_mao_obra = round(obj.valor_mao_obra or 0, 2)
+        if round((obj.valor_pecas or 0) + (obj.valor_mao_obra or 0), 2) != round(obj.valor or 0, 2):
+            raise ErroNegocio("No posto de molas, peças + mão de obra devem ser iguais ao valor total.")
+        if not obj.nota_fiscal and not obj.documento:
+            raise ErroNegocio("Informe a NF ou documento do serviço do posto de molas.")
     if obj.ordem_servico_id:
         ordem = db.session.get(OrdemServico, obj.ordem_servico_id)
         if not ordem:
@@ -112,7 +119,9 @@ registrar_crud(
     bp_api, "servicos-terceiros", ServicoTerceiro,
     campos={"data": "date", "veiculo_id": "int", "ordem_servico_id": "int",
             "prestador": "str", "tipo_servico": "str", "descricao": "str",
-            "valor": "float", "documento": "str", "observacao": "str"},
+            "valor": "float", "documento": "str", "observacao": "str",
+            "categoria": "str", "valor_pecas": "float", "valor_mao_obra": "float",
+            "nota_fiscal": "str", "vencimento": "date", "status_financeiro": "str"},
     ordem=ServicoTerceiro.data.desc(),
     obrigatorios=("data", "veiculo_id", "prestador", "descricao", "valor"),
     tela="manutencao", antes_salvar=_validar_servico_terceiro,
@@ -158,13 +167,15 @@ def _verificar_valor_os(obj):
     custo de mão de obra, serviços e peças zerados costuma ser esquecimento
     de preenchimento, não um serviço legítimo de custo zero.
 
-    Exceção (qualquer cargo com permissão para finalizar): uma OS que não
-    teve nenhuma peça lançada na aba "Peças e serviços" pode ser finalizada
-    mesmo com custo zerado — significa que não foi usada peça do estoque
-    (ex.: serviço resolvido só com mão de obra, sem custo a lançar)."""
+    Exceção: login com cargo Almoxarifado pode finalizar uma OS que não
+    teve nenhuma peça/serviço lançado na aba "Peças e serviços" — nesse
+    caso não é esquecimento, é uma OS que realmente não precisou de peça
+    (ex.: mecânico resolveu só com mão de obra já contabilizada em outro
+    lugar, ou serviço que não gerou custo)."""
     if obj.status != "Finalizada" or obj.custo_total > 0:
         return
-    if not any(item.eh_peca for item in obj.itens):
+    cargo_atual = (session.get("cargo") or "").strip().upper()
+    if cargo_atual == "ALMOXARIFADO" and not obj.itens:
         return
     raise ErroNegocio(
         "Não é possível finalizar a OS com o custo total zerado. "
@@ -299,6 +310,77 @@ def consultar_ordens_por_frota():
 def listar_itens(os_id):
     ordem = db.get_or_404(OrdemServico, os_id)
     return jsonify(ordem.to_dict(com_itens=True))
+
+
+@bp_api.post("/ordens/<int:os_id>/posto-molas")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
+def adicionar_posto_molas(os_id):
+    """Lança um serviço de posto de molas diretamente na OS.
+
+    O valor passa a compor o custo da manutenção da OS e continua separado
+    para o relatório específico de postos de molas.
+    """
+    ordem = db.get_or_404(OrdemServico, os_id)
+    if ordem.status == "Finalizada":
+        return jsonify({"erro": "A OS já está finalizada e não aceita novo serviço de posto de molas."}), 400
+    dados = request.get_json(silent=True) or {}
+    try:
+        servico = ServicoTerceiro(
+            data=ler_data(dados.get("data"), "data") or hoje(),
+            veiculo_id=ordem.veiculo_id,
+            ordem_servico_id=ordem.id,
+            prestador=(dados.get("prestador") or "").strip(),
+            tipo_servico="Posto de Molas",
+            categoria="Posto de Molas",
+            descricao=(dados.get("descricao") or "").strip(),
+            valor=float(dados.get("valor") or 0),
+            valor_pecas=float(dados.get("valor_pecas") or 0),
+            valor_mao_obra=float(dados.get("valor_mao_obra") or 0),
+            nota_fiscal=(dados.get("nota_fiscal") or dados.get("documento") or "").strip(),
+            documento=(dados.get("nota_fiscal") or dados.get("documento") or "").strip(),
+            vencimento=ler_data(dados.get("vencimento"), "vencimento"),
+            status_financeiro=(dados.get("status_financeiro") or "Pendente").strip(),
+            observacao=(dados.get("observacao") or "").strip() or None,
+        )
+        _validar_servico_terceiro(servico, dados, None)
+        db.session.add(servico)
+        db.session.flush()
+        registrar_log("criar", "servicos_terceiros", servico.id,
+                      f"Posto de Molas · OS {ordem.numero} · veículo {ordem.veiculo_id}")
+        db.session.commit()
+        return jsonify(ordem.to_dict(com_itens=True)), 201
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+
+
+@bp_api.get("/ordens/<int:os_id>/postos-molas")
+@visualizar_tela("manutencao")
+def listar_postos_molas_os(os_id):
+    ordem = db.get_or_404(OrdemServico, os_id)
+    registros = (ServicoTerceiro.query
+                 .filter_by(ordem_servico_id=ordem.id, categoria="Posto de Molas")
+                 .order_by(ServicoTerceiro.data.desc(), ServicoTerceiro.id.desc())
+                 .all())
+    return jsonify([s.to_dict() for s in registros])
+
+
+@bp_api.delete("/ordens/<int:os_id>/postos-molas/<int:servico_id>")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
+def excluir_posto_molas_os(os_id, servico_id):
+    ordem = db.get_or_404(OrdemServico, os_id)
+    servico = db.get_or_404(ServicoTerceiro, servico_id)
+    if servico.ordem_servico_id != ordem.id or servico.categoria != "Posto de Molas":
+        return jsonify({"erro": "Serviço de posto de molas não pertence a esta OS."}), 400
+    try:
+        registrar_log("excluir", "servicos_terceiros", servico.id,
+                      f"Posto de Molas · OS {ordem.numero}")
+        db.session.delete(servico)
+        db.session.commit()
+        return jsonify(ordem.to_dict(com_itens=True))
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível excluir: {e.__class__.__name__}."}), 400
 
 
 @bp_api.post("/ordens/<int:os_id>/itens")

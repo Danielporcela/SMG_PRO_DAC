@@ -18,7 +18,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from extensions import db
 from models import (Abastecimento, GrupoConsumo, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Peca, Pneu, Veiculo)
+                    Peca, Pneu, ServicoTerceiro, Veiculo)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
 from services.restauracao import restaurar
@@ -38,6 +38,7 @@ TITULOS = {
     "custos": "Custos por veículo",
     "custos_grupos": "Custos por grupo de consumo",
     "gastos_nf": "Gastos com notas fiscais",
+    "posto_molas": "Gastos com postos de molas",
 }
 
 
@@ -255,6 +256,30 @@ def montar_dados(relatorio):
         linhas = [[d["nome"], d["movimentos"], d["quantidade"], d["realizado"],
                    d["meta"], d["saldo_meta"], d["situacao"]] for d in dados]
 
+    elif relatorio == "posto_molas":
+        q = ServicoTerceiro.query.filter(
+            ServicoTerceiro.categoria == "Posto de Molas",
+            ServicoTerceiro.data.between(inicio, fim)
+        )
+        if veiculo_id:
+            q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
+        registros = q.order_by(ServicoTerceiro.data, ServicoTerceiro.id).all()
+        cab = ["Data", "OS", "Veículo", "Posto de molas", "NF", "Descrição",
+               "Peças R$", "Mão de obra R$", "Total R$", "Vencimento"]
+        linhas = []
+        for s in registros:
+            os_numero = s.ordem.numero if s.ordem else "—"
+            veiculo = (f"{s.veiculo.prefixo}/{s.veiculo.placa}"
+                       if s.veiculo else "—")
+            linhas.append([
+                s.data.strftime("%d/%m/%Y") if s.data else "—",
+                os_numero, veiculo, s.prestador or "—",
+                s.nota_fiscal or s.documento or "—", s.descricao or "—",
+                round(s.valor_pecas or 0, 2), round(s.valor_mao_obra or 0, 2),
+                round(s.valor or 0, 2),
+                s.vencimento.strftime("%d/%m/%Y") if s.vencimento else "—"
+            ])
+
     elif relatorio == "gastos_nf":
         # Gasto real de compra de peças (Módulo 11): só entra a nota já
         # finalizada (deu entrada de fato no estoque), contada pela data de
@@ -302,6 +327,8 @@ def _descricao_filtros(relatorio):
     grupo_consumo_id = request.args.get("grupo_consumo_id", type=int)
     if relatorio == "estoque":
         partes.append(_rotulo_status_peca())
+    if relatorio == "posto_molas":
+        pass
     if grupo:
         partes.append(f"Grupo: {grupo}")
     return " · ".join(partes)

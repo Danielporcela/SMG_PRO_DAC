@@ -803,9 +803,19 @@ class OrdemServico(db.Model):
 
     @property
     def custo_servicos_lancados(self):
-        """Serviços lançados como itens da OS, inclusive serviços de terceiros."""
-        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0)
-                         for i in self.itens if not i.eh_peca), 2)
+        """Serviços lançados como itens da OS, inclusive serviços de terceiros.
+
+        Serviços de posto de molas são registrados em ServicoTerceiro e entram
+        aqui uma única vez, evitando duplicidade com os itens da OS.
+        """
+        itens = round(sum((i.quantidade or 0) * (i.valor_unitario or 0)
+                          for i in self.itens if not i.eh_peca), 2)
+        posto_molas = round(sum((s.valor or 0) for s in
+                                ServicoTerceiro.query.filter_by(
+                                    ordem_servico_id=self.id,
+                                    categoria="Posto de Molas"
+                                ).all()), 2)
+        return round(itens + posto_molas, 2)
 
     @property
     def custo_servicos_total(self):
@@ -935,6 +945,13 @@ class ServicoTerceiro(db.Model):
     valor = db.Column(db.Float, default=0, nullable=False)
     documento = db.Column(db.String(80))
     observacao = db.Column(db.Text)
+    # Campos específicos para serviços de posto de molas.
+    categoria = db.Column(db.String(40), default="Serviço de terceiros", index=True)
+    valor_pecas = db.Column(db.Float, default=0, nullable=False)
+    valor_mao_obra = db.Column(db.Float, default=0, nullable=False)
+    nota_fiscal = db.Column(db.String(80))
+    vencimento = db.Column(db.Date)
+    status_financeiro = db.Column(db.String(20), default="Pendente", nullable=False)
     criado_em = db.Column(db.DateTime, default=_agora)
 
     veiculo = db.relationship("Veiculo")
@@ -955,6 +972,12 @@ class ServicoTerceiro(db.Model):
             "valor": round(self.valor or 0, 2),
             "documento": self.documento,
             "observacao": self.observacao,
+            "categoria": self.categoria or "Serviço de terceiros",
+            "valor_pecas": round(self.valor_pecas or 0, 2),
+            "valor_mao_obra": round(self.valor_mao_obra or 0, 2),
+            "nota_fiscal": self.nota_fiscal or self.documento,
+            "vencimento": self.vencimento.isoformat() if self.vencimento else None,
+            "status_financeiro": self.status_financeiro or "Pendente",
             "identificacao": f"{self.descricao} · {self.prestador}",
         }
 
