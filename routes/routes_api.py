@@ -146,12 +146,38 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _verificar_os_duplicada(obj, anterior=None):
-    """Permite múltiplas OS abertas para o mesmo veículo/placa.
-
-    A existência de outra OS aberta não impede criar, editar ou finalizar
-    esta OS.
+    """Bloqueia abertura de nova OS quando já existe uma OS aberta com o mesmo
+    problema relatado para o mesmo equipamento/veículo.
+    
+    A criação de nova OS é bloqueada quando:
+    1. É uma CRIAÇÃO NOVA (anterior is None)
+    2. O problema relatado não está vazio
+    3. Já existe OUTRA OS com o MESMO PROBLEMA e status "Aberta"
+    
+    Permite múltiplas OS abertas para o mesmo veículo se o problema for diferente.
     """
-    return
+    # Apenas bloqueia em criação nova (não na edição)
+    if anterior is not None:
+        return
+    
+    # Bloqueia apenas se há um problema relatado
+    problema = (obj.problema or "").strip()
+    if not problema:
+        return
+    
+    # Procura por outra OS aberta com o MESMO PROBLEMA
+    os_duplicada = (OrdemServico.query
+                    .filter(OrdemServico.problema == problema,
+                            OrdemServico.status == "Aberta",
+                            OrdemServico.id != obj.id)  # exclui a própria OS se for edição
+                    .order_by(OrdemServico.numero.desc())
+                    .first())
+    
+    if os_duplicada:
+        raise ErroNegocio(
+            f"Já existe a OS #{os_duplicada.numero} aberta com o problema: "
+            f"\"{problema}\". Feche ou finalize essa OS antes de abrir uma nova "
+            f"com o mesmo problema.")
 
 def _verificar_valor_os(obj):
     """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
