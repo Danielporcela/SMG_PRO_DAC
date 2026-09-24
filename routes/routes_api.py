@@ -165,9 +165,11 @@ def _verificar_os_duplicada(obj, anterior=None):
     if not problema:
         return
     
-    # Procura por outra OS aberta com o MESMO PROBLEMA
+    # Procura por outra OS aberta com o MESMO PROBLEMA (case-insensitive)
+    # Normaliza para lowercase para comparação não diferenciar maiúscula/minúscula
+    problema_normalizado = problema.lower()
     os_duplicada = (OrdemServico.query
-                    .filter(OrdemServico.problema == problema,
+                    .filter(func.lower(OrdemServico.problema) == problema_normalizado,
                             OrdemServico.status == "Aberta",
                             OrdemServico.id != obj.id)  # exclui a própria OS se for edição
                     .order_by(OrdemServico.numero.desc())
