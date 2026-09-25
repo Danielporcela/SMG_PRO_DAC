@@ -246,6 +246,24 @@ def garantir_lavagens_financeiro():
     if "lavagens" not in tabelas:
         Lavagem.__table__.create(engine, checkfirst=True)
 
+
+def garantir_notas_fiscais_uniforme():
+    """Garante as tabelas das notas fiscais de uniformes em bancos existentes."""
+    from models import ItemNotaFiscalUniforme, NotaFiscalUniforme
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    # Banco novo: db.create_all() criará as tabelas com as FKs normalmente.
+    if "fornecedores" not in tabelas or "itens_uniforme" not in tabelas:
+        return
+
+    if "notas_fiscais_uniforme" not in tabelas:
+        NotaFiscalUniforme.__table__.create(engine, checkfirst=True)
+    if "itens_nota_fiscal_uniforme" not in tabelas:
+        ItemNotaFiscalUniforme.__table__.create(engine, checkfirst=True)
+
 def garantir_usuario_movimentos_estoque():
     """Adiciona a identificação do responsável sem alterar registros existentes."""
     engine = db.engine

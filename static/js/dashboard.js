@@ -50,12 +50,15 @@
       medidor('Compras (NF)', SGMF.moeda(d.gasto_compras), {
         icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
         nota: `${d.notas_fiscais_qtd} nota(s) finalizada(s)` }),
+      medidor('Uniformes (NF)', SGMF.moeda(d.gasto_uniformes), {
+        icone: 'fa-shirt', estilo: 'font-size:19px',
+        nota: `${d.notas_uniformes_qtd} nota(s) finalizada(s)` }),
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
       medidor('Gasto total geral', SGMF.moeda(d.gasto_total_geral), {
         icone: 'fa-coins', estilo: 'font-size:19px',
-        nota: 'frota + compras de peças (NF)' }),
+        nota: 'frota + compras de peças + uniformes (NF)' }),
       medidor('Economia no período', d.economia_periodo === null
           ? '—' : SGMF.moeda(Math.abs(d.economia_periodo)), {
         classe: d.economia_periodo === null ? '' : (d.economia_periodo >= 0 ? 'ok' : 'critico'),
@@ -91,6 +94,8 @@
             backgroundColor: '#4FB0C6', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Compras (NF)', data: g.compras_mes,
             backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },
+          { type: 'bar', label: 'Uniformes (NF)', data: g.uniformes_mes,
+            backgroundColor: '#8B6F47', stack: 'gasto', borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
             borderWidth: 2, borderDash: [5, 4], pointRadius: 2, tension: .25, fill: false }
         ]
@@ -443,7 +448,8 @@
     const g = precisaGraficos(); if (!g) return;
     const linhas = g.meses.map((mes, i) => ({
       mes, combustivel: g.combustivel_mes[i], manutencao: g.manutencao_mes[i],
-      compras: g.compras_mes[i], meta: g.meta_mes[i], realizado: g.realizado_mes[i],
+      compras: g.compras_mes[i], uniformes: g.uniformes_mes[i],
+      meta: g.meta_mes[i], realizado: g.realizado_mes[i],
       realizadoGeral: g.realizado_geral_mes[i]
     }));
     abrirImpressaoRelatorio({
@@ -453,6 +459,7 @@
         { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
         { rotulo: 'Compras (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.compras) },
+        { rotulo: 'Uniformes (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.uniformes) },
         { rotulo: 'Meta', classe: 'text-end num', render: l => SGMF.moeda(l.meta) },
         { rotulo: 'Realizado (frota)', classe: 'text-end num', render: l => SGMF.moeda(l.realizado) },
         { rotulo: 'Realizado geral', classe: 'text-end num', render: l => SGMF.moeda(l.realizadoGeral) }

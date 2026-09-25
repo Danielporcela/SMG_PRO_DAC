@@ -1484,6 +1484,89 @@ class MovimentoUniforme(db.Model):
                 "documento": self.documento, "observacao": self.observacao}
 
 
+
+class NotaFiscalUniforme(db.Model):
+    """Nota fiscal de compra de uniformes.
+
+    A nota permanece Aberta enquanto está sendo conferida. Somente ao
+    finalizar ela gera entradas no estoque por tamanho e passa a compor o
+    gasto financeiro do período.
+    """
+    __tablename__ = "notas_fiscais_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    numero = db.Column(db.String(30), nullable=False, index=True)
+    serie = db.Column(db.String(10))
+    data_emissao = db.Column(db.Date, default=_hoje)
+    data_entrada = db.Column(db.Date)
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"), nullable=False)
+    status = db.Column(db.String(20), default="Aberta")  # Aberta | Finalizada | Cancelada
+    observacao = db.Column(db.String(200))
+    fornecedor = db.relationship("Fornecedor")
+    itens = db.relationship("ItemNotaFiscalUniforme", backref="nota",
+                            cascade="all, delete-orphan", lazy="selectin")
+
+    @property
+    def valor_total(self):
+        return round(sum(i.subtotal for i in self.itens), 2)
+
+    @property
+    def quantidade_total(self):
+        return round(sum(i.quantidade or 0 for i in self.itens), 3)
+
+    def to_dict(self, com_itens=False):
+        d = {
+            "id": self.id,
+            "numero": self.numero,
+            "serie": self.serie,
+            "data_emissao": self.data_emissao.isoformat() if self.data_emissao else None,
+            "data_entrada": self.data_entrada.isoformat() if self.data_entrada else None,
+            "fornecedor_id": self.fornecedor_id,
+            "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
+            "status": self.status,
+            "observacao": self.observacao,
+            "valor_total": self.valor_total,
+            "quantidade_total": self.quantidade_total,
+            "qtd_itens": len(self.itens),
+            "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else ""),
+        }
+        if com_itens:
+            d["itens"] = [i.to_dict() for i in self.itens]
+        return d
+
+
+class ItemNotaFiscalUniforme(db.Model):
+    """Uma linha da NF = um uniforme em um tamanho específico."""
+    __tablename__ = "itens_nota_fiscal_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    nota_fiscal_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais_uniforme.id"),
+                               nullable=False)
+    item_uniforme_id = db.Column(db.Integer, db.ForeignKey("itens_uniforme.id"),
+                                 nullable=False)
+    tamanho = db.Column(db.String(10), nullable=False)
+    quantidade = db.Column(db.Float, default=1, nullable=False)
+    valor_unitario = db.Column(db.Float, default=0, nullable=False)
+    item_uniforme = db.relationship("ItemUniforme")
+
+    @property
+    def subtotal(self):
+        return round((self.quantidade or 0) * (self.valor_unitario or 0), 2)
+
+    def to_dict(self):
+        item = self.item_uniforme
+        return {
+            "id": self.id,
+            "nota_fiscal_id": self.nota_fiscal_id,
+            "item_uniforme_id": self.item_uniforme_id,
+            "item_descricao": f"{item.codigo} · {item.descricao}" if item else None,
+            "unidade": item.unidade if item else None,
+            "tipo_tamanho": item.tipo_tamanho if item else None,
+            "tamanho": self.tamanho,
+            "quantidade": self.quantidade or 0,
+            "valor_unitario": self.valor_unitario or 0,
+            "valor_total": self.subtotal,
+        }
+
+
 class EntregaUniforme(db.Model):
     """Entrega (baixa) de um item de uniforme para um funcionário.
 

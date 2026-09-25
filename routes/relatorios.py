@@ -18,7 +18,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from extensions import db
 from models import (Abastecimento, GrupoConsumo, ItemOS, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Peca, Pneu, ServicoTerceiro, Veiculo)
+                    Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme)
 from services import indicadores
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_log, visualizar_tela
 from services.restauracao import restaurar
@@ -38,6 +38,7 @@ TITULOS = {
     "custos": "Custos por veículo",
     "custos_grupos": "Custos por grupo de consumo",
     "gastos_nf": "Gastos com notas fiscais",
+    "gastos_uniformes": "Gastos com notas fiscais de uniformes",
     "posto_molas": "Gastos com postos de molas",
 }
 
@@ -278,6 +279,41 @@ def montar_dados(relatorio):
                 round(s.valor_pecas or 0, 2), round(s.valor_mao_obra or 0, 2),
                 round(s.valor or 0, 2),
                 s.vencimento.strftime("%d/%m/%Y") if s.vencimento else "—"
+            ])
+
+
+    elif relatorio == "gastos_uniformes":
+        q = NotaFiscalUniforme.query.filter(
+            NotaFiscalUniforme.status == "Finalizada",
+            NotaFiscalUniforme.data_entrada.between(inicio, fim)
+        )
+        if fornecedor_id:
+            q = q.filter(NotaFiscalUniforme.fornecedor_id == fornecedor_id)
+        notas = q.order_by(NotaFiscalUniforme.data_entrada, NotaFiscalUniforme.id).all()
+        cab = ["NF", "Emissão", "Entrada", "Fornecedor", "Uniforme", "Tamanho",
+               "Quantidade", "Valor unit. R$", "Subtotal R$"]
+        linhas = []
+        for n in notas:
+            for item in n.itens:
+                linhas.append([
+                    n.identificacao,
+                    n.data_emissao.strftime("%d/%m/%Y") if n.data_emissao else "—",
+                    n.data_entrada.strftime("%d/%m/%Y") if n.data_entrada else "—",
+                    n.fornecedor.nome if n.fornecedor else "—",
+                    item.item_uniforme.descricao if item.item_uniforme else "—",
+                    item.tamanho,
+                    round(item.quantidade or 0, 2),
+                    round(item.valor_unitario or 0, 2),
+                    round(item.subtotal, 2),
+                ])
+        # O relatório é por linha de uniforme/tamanho; a linha de total geral
+        # fica no rodapé do PDF/Excel como um registro explícito.
+        if notas:
+            linhas.append([
+                "TOTAL", "", "", "", "", "",
+                round(sum(n.quantidade_total for n in notas), 2),
+                "",
+                round(sum(n.valor_total for n in notas), 2),
             ])
 
     elif relatorio == "gastos_nf":

@@ -8,10 +8,12 @@ cancelamento de entrega usam essa mesma função — é o que garante que a regr
 valha em qualquer caminho, hoje e nos que forem criados depois.
 """
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_
 
 from extensions import db
 from models import (ROTULOS_TIPO_TAMANHO, TAMANHOS_UNIFORME, EntregaUniforme,
-                    Funcionario, ItemUniforme, MovimentoUniforme,
+                    Funcionario, Fornecedor, ItemNotaFiscalUniforme,
+                    ItemUniforme, MovimentoUniforme, NotaFiscalUniforme,
                     garantir_saldos, normalizar_tipo_tamanho,
                     proximo_codigo_item_uniforme, recalcular_total_uniforme,
                     saldo_do_tamanho)
@@ -186,6 +188,155 @@ def criar_movimento_uniforme():
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     return jsonify({"ok": True, "item": item.to_dict()}), 201
+
+
+
+# ----------------------------------------------- Notas fiscais de uniformes
+def _nota_uniforme_aberta(nota):
+    if nota.status != "Aberta":
+        raise ErroNegocio("Esta nota já foi finalizada ou cancelada e não pode mais ser alterada.")
+
+
+def _verificar_nf_uniforme_duplicada(fornecedor_id, numero, nota_id=None):
+    q = NotaFiscalUniforme.query.filter(
+        NotaFiscalUniforme.fornecedor_id == fornecedor_id,
+        NotaFiscalUniforme.numero == numero,
+        NotaFiscalUniforme.status.notin_(("Cancelada",))
+    )
+    if nota_id is not None:
+        q = q.filter(NotaFiscalUniforme.id != nota_id)
+    if q.first():
+        raise ErroNegocio("Já existe uma nota fiscal de uniformes com esse número para este fornecedor.")
+
+
+@bp_uniformes.get("/uniformes/notas_fiscais")
+@visualizar_tela("uniformes")
+def listar_notas_fiscais_uniforme():
+    q = NotaFiscalUniforme.query
+    inicio = ler_data(request.args.get("inicio"), "início do período")
+    fim = ler_data(request.args.get("fim"), "fim do período")
+    if inicio:
+        q = q.filter(or_(NotaFiscalUniforme.data_emissao >= inicio,
+                         NotaFiscalUniforme.data_entrada >= inicio))
+    if fim:
+        q = q.filter(or_(NotaFiscalUniforme.data_emissao <= fim,
+                         NotaFiscalUniforme.data_entrada <= fim))
+    status = (request.args.get("status") or "").strip()
+    if status:
+        q = q.filter(NotaFiscalUniforme.status == status)
+    return jsonify([n.to_dict(com_itens=True)
+                    for n in q.order_by(NotaFiscalUniforme.data_emissao.desc(),
+                                        NotaFiscalUniforme.id.desc()).limit(300).all()])
+
+
+@bp_uniformes.get("/uniformes/notas_fiscais/<int:nota_id>")
+@visualizar_tela("uniformes")
+def obter_nota_fiscal_uniforme(nota_id):
+    nota = db.session.get(NotaFiscalUniforme, nota_id)
+    if not nota:
+        return jsonify({"erro": "Nota fiscal não encontrada."}), 404
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_uniformes.post("/uniformes/notas_fiscais")
+@editar_tela("uniformes")
+def criar_nota_fiscal_uniforme():
+    dados = request.get_json(silent=True) or {}
+    try:
+        numero = str(dados.get("numero") or "").strip()
+        fornecedor_id = dados.get("fornecedor_id")
+        if not numero or not fornecedor_id:
+            raise ErroNegocio("Informe o número da nota fiscal e o fornecedor.")
+        fornecedor = db.session.get(Fornecedor, int(fornecedor_id))
+        if not fornecedor:
+            raise ErroNegocio("Fornecedor não encontrado.")
+        _verificar_nf_uniforme_duplicada(fornecedor.id, numero)
+
+        nota = NotaFiscalUniforme(
+            numero=numero,
+            serie=(dados.get("serie") or "").strip() or None,
+            data_emissao=ler_data(dados.get("data_emissao"), "data de emissão") or hoje(),
+            fornecedor_id=fornecedor.id,
+            observacao=(dados.get("observacao") or "").strip() or None,
+            status="Aberta",
+        )
+        db.session.add(nota)
+        db.session.flush()
+
+        for linha in (dados.get("itens") or []):
+            item = _item(linha.get("item_uniforme_id"))
+            tamanho = _validar_tamanho(item, linha.get("tamanho"))
+            quantidade = float(linha.get("quantidade") or 0)
+            valor_unitario = float(linha.get("valor_unitario") or 0)
+            if quantidade <= 0:
+                raise ErroNegocio(f"Quantidade inválida para {item.descricao} tamanho {tamanho}.")
+            if valor_unitario < 0:
+                raise ErroNegocio("O valor unitário não pode ser negativo.")
+            db.session.add(ItemNotaFiscalUniforme(
+                nota_fiscal_id=nota.id,
+                item_uniforme_id=item.id,
+                tamanho=tamanho,
+                quantidade=quantidade,
+                valor_unitario=valor_unitario,
+            ))
+        if not nota.itens:
+            raise ErroNegocio("Lance ao menos um uniforme/tamanho na nota fiscal.")
+
+        registrar_log("criar", "notas_fiscais_uniforme", nota.id, f"NF {nota.numero}")
+        db.session.commit()
+        return jsonify(nota.to_dict(com_itens=True)), 201
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+
+
+@bp_uniformes.delete("/uniformes/notas_fiscais/<int:nota_id>")
+@editar_tela("uniformes")
+def excluir_nota_fiscal_uniforme(nota_id):
+    nota = db.session.get(NotaFiscalUniforme, nota_id)
+    if not nota:
+        return jsonify({"erro": "Nota fiscal não encontrada."}), 404
+    try:
+        _nota_uniforme_aberta(nota)
+        registrar_log("excluir", "notas_fiscais_uniforme", nota.id, f"NF {nota.numero}")
+        db.session.delete(nota)
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@bp_uniformes.post("/uniformes/notas_fiscais/<int:nota_id>/finalizar")
+@editar_tela("uniformes")
+def finalizar_nota_fiscal_uniforme(nota_id):
+    """Finaliza a NF, dá entrada por tamanho e passa a contar no financeiro."""
+    nota = db.session.get(NotaFiscalUniforme, nota_id)
+    if not nota:
+        return jsonify({"erro": "Nota fiscal não encontrada."}), 404
+    try:
+        _nota_uniforme_aberta(nota)
+        if not nota.itens:
+            raise ErroNegocio("Lance ao menos um uniforme antes de finalizar a nota.")
+
+        documento = f"NF Uniformes {nota.numero}" + (f"/{nota.serie}" if nota.serie else "")
+        data_entrada = hoje()
+        for linha in nota.itens:
+            item = _item(linha.item_uniforme_id)
+            _mover_saldo(
+                item, linha.tamanho, "entrada", linha.quantidade,
+                documento=documento,
+                observacao=f"Entrada pela nota fiscal de uniformes #{nota.id}",
+                data=data_entrada,
+            )
+        nota.status = "Finalizada"
+        nota.data_entrada = data_entrada
+        registrar_log("finalizar", "notas_fiscais_uniforme", nota.id, f"NF {nota.numero}")
+        db.session.commit()
+        return jsonify(nota.to_dict(com_itens=True))
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
 
 
 # --------------------------------------------- Entregas de uniforme (baixas)

@@ -7,7 +7,7 @@ from sqlalchemy import case, func
 
 from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo)
+                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme)
 from services.auditoria_estoque import contar_os_pendentes
 from services.tempo import hoje as data_de_hoje
 
@@ -59,6 +59,13 @@ def _notas_finalizadas(inicio, fim):
         NotaFiscal.status == "Finalizada",
         NotaFiscal.data_entrada.between(inicio, fim)).all()
 
+
+
+def _notas_uniformes_finalizadas(inicio, fim):
+    """Notas de uniformes que efetivamente deram entrada no estoque."""
+    return NotaFiscalUniforme.query.filter(
+        NotaFiscalUniforme.status == "Finalizada",
+        NotaFiscalUniforme.data_entrada.between(inicio, fim)).all()
 
 def _custo_km_historico(ate, veiculo_id=None):
     """Custo por km da frota antes do período — a régua da comparação."""
@@ -117,6 +124,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     gasto_comb = round(sum(a.valor_total or 0 for a in abastecimentos), 2)
     notas_compra = _notas_finalizadas(inicio, fim)
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
+    notas_uniformes = _notas_uniformes_finalizadas(inicio, fim)
+    gasto_uniformes = round(sum(n.valor_total for n in notas_uniformes), 2)
     litros = sum(a.litros or 0 for a in abastecimentos)
     km_rodados = sum(a.km_percorridos or 0 for a in abastecimentos)
     # "média da média" da frota: média simples do km/L de cada abastecimento
@@ -168,10 +177,12 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_total": round(gasto_comb + gasto_manut + gasto_lavagem, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
+        "gasto_uniformes": gasto_uniformes,
+        "notas_uniformes_qtd": len(notas_uniformes),
         # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
         # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
         # aderência ao orçamento por veículo sempre significaram no painel.
-        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_lavagem + gasto_compras, 2),
+        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_lavagem + gasto_compras + gasto_uniformes, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "consumo_medio_media_da_media": consumo_medio_media_da_media,
@@ -242,7 +253,7 @@ def series_graficos(inicio=None, fim=None):
     hoje = data_de_hoje()
 
     # 12 meses móveis de gasto
-    meses, comb_mes, manut_mes, compras_mes, meta_mes, lavagem_mes = [], [], [], [], [], []
+    meses, comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], []
     for i in range(11, -1, -1):
         ref = (hoje.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
         ini = ref
@@ -256,6 +267,7 @@ def series_graficos(inicio=None, fim=None):
                                + sum(s.valor or 0 for s in terceiros), 2))
         lavagem_mes.append(round(sum(l.valor or 0 for l in _lavagens(ini, f)), 2))
         compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
+        uniformes_mes.append(round(sum(n.valor_total for n in _notas_uniformes_finalizadas(ini, f)), 2))
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
                               .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month,
                                       Orcamento.grupo_consumo_id.is_(None),
@@ -358,11 +370,11 @@ def series_graficos(inicio=None, fim=None):
 
     return {
         "meses": meses, "combustivel_mes": comb_mes, "manutencao_mes": manut_mes,
-        "compras_mes": compras_mes, "lavagem_mes": lavagem_mes,
+        "compras_mes": compras_mes, "uniformes_mes": uniformes_mes, "lavagem_mes": lavagem_mes,
         "meta_mes": meta_mes,
         "realizado_mes": [round(c + m + l, 2) for c, m, l in zip(comb_mes, manut_mes, lavagem_mes)],
-        "realizado_geral_mes": [round(c + m + l + p, 2)
-                                for c, m, l, p in zip(comb_mes, manut_mes, lavagem_mes, compras_mes)],
+        "realizado_geral_mes": [round(c + m + l + p + u, 2)
+                                for c, m, l, p, u in zip(comb_mes, manut_mes, lavagem_mes, compras_mes, uniformes_mes)],
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
