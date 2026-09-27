@@ -137,8 +137,12 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     finalizadas = [o for o in ordens if o.status == "Finalizada" and o.data_fechamento]
     corretivas = [o for o in ordens if o.tipo in ("Corretiva", "Emergencial")]
     dias_periodo = max((fim - inicio).days + 1, 1)
-    horas_paradas = sum(o.dias_parado * 24 for o in ordens)
-    horas_disponiveis = total_veic * dias_periodo * 24
+
+    # Disponibilidade real da frota: considera a situação atual dos veículos
+    # ativos, sem transformar os dias_parado das OS em horas acumuladas.
+    # Assim, cada veículo conta uma única vez no indicador.
+    veiculos_disponiveis = sum(1 for v in veiculos if v.situacao == "Disponível")
+    disponibilidade = round((veiculos_disponiveis / len(veiculos)) * 100, 1) if veiculos else 100.0
 
     mttr = round(sum(o.dias_parado for o in finalizadas) / len(finalizadas), 1) if finalizadas else 0
     mtbf = round((total_veic * dias_periodo) / len(corretivas), 1) if corretivas else 0
@@ -164,7 +168,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "periodo": {"inicio": inicio.isoformat(), "fim": fim.isoformat()},
         "veiculos_total": len(veiculos),
         "veiculos_manutencao": sum(1 for v in veiculos if v.situacao == "Em manutenção"),
-        "veiculos_disponiveis": sum(1 for v in veiculos if v.situacao == "Disponível"),
+        "veiculos_disponiveis": veiculos_disponiveis,
         "abastecimentos": len(abastecimentos),
         "litros": round(litros, 1),
         "gasto_combustivel": gasto_comb,
@@ -187,8 +191,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "consumo_medio_media_da_media": consumo_medio_media_da_media,
         "custo_por_km": round((gasto_comb + gasto_manut + gasto_lavagem) / km_rodados, 2) if km_rodados else 0,
-        "disponibilidade": round(max(0, (horas_disponiveis - horas_paradas)) / horas_disponiveis * 100, 1)
-        if horas_disponiveis else 100,
+        "disponibilidade": disponibilidade,
         "mttr_dias": mttr,
         "mtbf_dias": mtbf,
         "economia_periodo": economia,

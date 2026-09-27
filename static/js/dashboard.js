@@ -29,7 +29,8 @@
         classe: d.veiculos_manutencao ? 'atencao' : 'ok', icone: 'fa-screwdriver-wrench',
         nota: `${d.os_abertas} OS em aberto` }),
       medidor('Disponibilidade', `${SGMF.numero(d.disponibilidade, 1)}<small>%</small>`, {
-        classe: d.disponibilidade >= 90 ? 'ok' : 'atencao', icone: 'fa-circle-check' }),
+        classe: d.disponibilidade >= 90 ? 'ok' : 'atencao', icone: 'fa-circle-check',
+        nota: `${d.veiculos_disponiveis} de ${d.veiculos_total} veículos ativos disponíveis` }),
       medidor('Km rodados', SGMF.numero(d.km_rodados), { icone: 'fa-road', nota: 'no período' }),
       medidor('Consumo médio', `${SGMF.numero(d.consumo_medio, 2)} <small>km/L</small>`, {
         icone: 'fa-gas-pump',
