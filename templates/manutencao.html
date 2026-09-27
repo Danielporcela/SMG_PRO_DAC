@@ -309,6 +309,109 @@ const telaOS = SGMF.tela({
   }
 });
 
+/* ------------------------------------------------- bloqueio de problema duplicado na mesma frota */
+(function ligarBloqueioProblemaOS() {
+  const modal = document.getElementById('modal_ordens');
+  if (!modal) return;
+
+  const campoProblema = document.getElementById('campo_problema');
+  const campoFrota = document.getElementById('campo_veiculo_id');
+  const botaoSalvar = document.getElementById('modal_ordens_salvar');
+  const campoId = document.getElementById('modal_ordens_id');
+  if (!campoProblema || !campoFrota || !botaoSalvar || !campoId) return;
+
+  let bloqueadoPorDuplicidade = false;
+  let avisoExibido = false;
+  let sequenciaConsulta = 0;
+
+  const normalizar = valor => String(valor || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+
+  const problemaCadastrado = valor => {
+    const alvo = normalizar(valor);
+    return alvo && PROBLEMAS_OS.some(p => normalizar(p) === alvo);
+  };
+
+  const obterAlerta = () => {
+    let alerta = document.getElementById('alerta-problema-os-duplicado');
+    if (!alerta) {
+      alerta = document.createElement('div');
+      alerta.id = 'alerta-problema-os-duplicado';
+      alerta.className = 'alert alert-danger py-2 px-3 mt-2 mb-0';
+      alerta.setAttribute('role', 'alert');
+      campoProblema.parentElement.appendChild(alerta);
+    }
+    return alerta;
+  };
+
+  const limparBloqueio = () => {
+    bloqueadoPorDuplicidade = false;
+    avisoExibido = false;
+    const alerta = document.getElementById('alerta-problema-os-duplicado');
+    if (alerta) { alerta.classList.add('d-none'); alerta.textContent = ''; }
+    if (!campoId.value) botaoSalvar.disabled = false;
+  };
+
+  const verificar = async () => {
+    const minhaConsulta = ++sequenciaConsulta;
+
+    // A regra vale somente para abertura de uma nova OS.
+    if (campoId.value) {
+      limparBloqueio();
+      return;
+    }
+
+    const veiculoId = campoFrota.value;
+    const problema = campoProblema.value.trim();
+    if (!veiculoId || !problemaCadastrado(problema)) {
+      limparBloqueio();
+      return;
+    }
+
+    try {
+      const dados = await SGMF.get(`/api/ordens/verificar-problema-aberto?veiculo_id=${encodeURIComponent(veiculoId)}&problema=${encodeURIComponent(problema)}`);
+      if (minhaConsulta !== sequenciaConsulta) return;
+
+      if (dados.duplicada) {
+        bloqueadoPorDuplicidade = true;
+        botaoSalvar.disabled = true;
+        const alerta = obterAlerta();
+        alerta.textContent = `Não é possível abrir esta OS: a frota ${dados.frota} já possui a OS #${dados.numero} aberta com o mesmo problema (${problema}).`;
+        alerta.classList.remove('d-none');
+        if (!avisoExibido) {
+          avisoExibido = true;
+          SGMF.aviso(`A frota ${dados.frota} já possui a OS #${dados.numero} aberta com o mesmo problema.`);
+        }
+      } else {
+        limparBloqueio();
+      }
+    } catch (e) {
+      if (minhaConsulta !== sequenciaConsulta) return;
+      // Se a consulta falhar, não bloqueia a tela por erro de rede;
+      // a validação definitiva continua protegendo o salvamento no backend.
+      limparBloqueio();
+    }
+  };
+
+  campoProblema.addEventListener('input', verificar);
+  campoFrota.addEventListener('change', verificar);
+
+  modal.addEventListener('show.bs.modal', () => {
+    bloqueadoPorDuplicidade = false;
+    avisoExibido = false;
+    sequenciaConsulta++;
+    const alerta = document.getElementById('alerta-problema-os-duplicado');
+    if (alerta) { alerta.classList.add('d-none'); alerta.textContent = ''; }
+  });
+
+  modal.addEventListener('hide.bs.modal', () => {
+    sequenciaConsulta++;
+    bloqueadoPorDuplicidade = false;
+    avisoExibido = false;
+  });
+})();
+
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
 

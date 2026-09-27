@@ -165,21 +165,29 @@ def _verificar_os_duplicada(obj, anterior=None):
     if not problema:
         return
     
-    # Procura por outra OS aberta com o MESMO PROBLEMA (case-insensitive)
-    # Normaliza para lowercase para comparação não diferenciar maiúscula/minúscula
+    # A duplicidade é verificada SOMENTE dentro da mesma frota/veículo.
+    # Outra frota pode ter o mesmo sintoma simultaneamente sem bloquear a abertura.
+    if not obj.veiculo_id or not db.session.get(Veiculo, obj.veiculo_id):
+        raise ErroNegocio("Selecione uma frota válida antes de informar o problema.")
+
+    # Procura por outra OS aberta com o MESMO PROBLEMA e da MESMA FROTA
+    # (case-insensitive).
     problema_normalizado = problema.lower()
     os_duplicada = (OrdemServico.query
                     .filter(func.lower(OrdemServico.problema) == problema_normalizado,
                             OrdemServico.status == "Aberta",
+                            OrdemServico.veiculo_id == obj.veiculo_id,
                             OrdemServico.id != obj.id)  # exclui a própria OS se for edição
                     .order_by(OrdemServico.numero.desc())
                     .first())
     
     if os_duplicada:
+        frota = db.session.get(Veiculo, obj.veiculo_id)
+        identificacao_frota = frota.prefixo if frota else str(obj.veiculo_id)
         raise ErroNegocio(
-            f"Já existe a OS #{os_duplicada.numero} aberta com o problema: "
-            f"\"{problema}\". Feche ou finalize essa OS antes de abrir uma nova "
-            f"com o mesmo problema.")
+            f"A frota {identificacao_frota} já possui a OS #{os_duplicada.numero} aberta "
+            f"com o problema: \"{problema}\". "
+            f"Feche ou finalize essa OS antes de abrir outra com o mesmo problema.")
 
 def _verificar_valor_os(obj):
     """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
@@ -295,6 +303,45 @@ registrar_crud(
     # mas não podem alterá-los pela API.
     campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
                                    "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+
+
+@bp_api.get("/ordens/verificar-problema-aberto")
+@visualizar_tela("manutencao")
+def verificar_problema_os_aberta():
+    """Verifica se a frota já possui uma OS aberta com o mesmo problema.
+
+    Usada pela tela de nova OS para avisar imediatamente o usuário antes
+    do salvamento. A regra definitiva também permanece no backend, em
+    _verificar_os_duplicada(), para impedir duplicidades por requisições
+    externas ou concorrentes.
+    """
+    veiculo_id = request.args.get("veiculo_id", type=int)
+    problema = (request.args.get("problema") or "").strip()
+
+    if not veiculo_id or not problema:
+        return jsonify({"duplicada": False})
+
+    veiculo = db.session.get(Veiculo, veiculo_id)
+    if not veiculo:
+        return jsonify({"duplicada": False})
+
+    problema_normalizado = problema.lower()
+    os_aberta = (OrdemServico.query
+                 .filter(func.lower(OrdemServico.problema) == problema_normalizado,
+                         OrdemServico.status == "Aberta",
+                         OrdemServico.veiculo_id == veiculo_id)
+                 .order_by(OrdemServico.numero.desc())
+                 .first())
+
+    if not os_aberta:
+        return jsonify({"duplicada": False})
+
+    return jsonify({
+        "duplicada": True,
+        "numero": os_aberta.numero,
+        "frota": veiculo.prefixo,
+        "problema": os_aberta.problema
+    })
 
 
 @bp_api.get("/ordens/consulta-frota")

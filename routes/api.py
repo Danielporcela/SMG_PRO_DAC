@@ -155,12 +155,52 @@ registrar_crud(
 
 # ------------------------------------------------------ Módulo 3: manutenção
 def _verificar_os_duplicada(obj, anterior=None):
-    """Permite múltiplas OS abertas para o mesmo veículo/placa.
+    """Impede nova OS duplicada para a mesma frota e o mesmo problema.
 
-    A existência de outra OS aberta não impede criar, editar ou finalizar
-    esta OS.
+    Regra:
+    - Só é aplicada na criação de uma nova OS.
+    - A frota/veículo deve ser o mesmo.
+    - O problema relatado deve ser o mesmo, ignorando maiúsculas/minúsculas
+      e espaços nas extremidades.
+    - A OS existente deve estar aberta.
+    - OS finalizadas não impedem a abertura de uma nova OS para o mesmo
+      problema.
     """
-    return
+    # Edição de uma OS existente não deve ser bloqueada por esta regra.
+    if anterior is not None:
+        return
+
+    problema = (obj.problema or "").strip()
+    if not problema:
+        return
+
+    if not obj.veiculo_id:
+        return
+
+    problema_normalizado = problema.lower()
+
+    # Procura somente outra OS aberta da MESMA frota com o mesmo problema.
+    os_duplicada = (
+        OrdemServico.query
+        .filter(
+            OrdemServico.veiculo_id == obj.veiculo_id,
+            func.lower(func.trim(OrdemServico.problema)) == problema_normalizado,
+            func.lower(func.trim(OrdemServico.status)) == "aberta",
+            OrdemServico.id != obj.id,
+        )
+        .order_by(OrdemServico.numero.desc())
+        .first()
+    )
+
+    if os_duplicada:
+        frota = db.session.get(Veiculo, obj.veiculo_id)
+        identificacao_frota = frota.prefixo if frota else str(obj.veiculo_id)
+        raise ErroNegocio(
+            f"A frota {identificacao_frota} já possui a OS "
+            f"#{os_duplicada.numero} aberta com o mesmo problema: "
+            f'"{os_duplicada.problema}". '
+            "Feche ou finalize essa OS antes de abrir outra com o mesmo problema."
+        )
 
 def _verificar_valor_os(obj):
     """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
@@ -262,6 +302,44 @@ registrar_crud(
     # mas não podem alterá-los pela API.
     campos_bloqueados_para_cargos={"CCO": CAMPOS_EXECUCAO_OS,
                                    "SEGURANÇA DO TRABALHO": CAMPOS_EXECUCAO_OS})
+
+
+@bp_api.get("/ordens/verificar-problema-aberto")
+@visualizar_tela("manutencao")
+def verificar_problema_os_aberta():
+    """Verifica, antes do salvamento, se a frota já possui OS aberta
+    com o mesmo problema relatado."""
+    veiculo_id = request.args.get("veiculo_id", type=int)
+    problema = (request.args.get("problema") or "").strip()
+
+    if not veiculo_id or not problema:
+        return jsonify({"duplicada": False})
+
+    veiculo = db.session.get(Veiculo, veiculo_id)
+    if not veiculo:
+        return jsonify({"duplicada": False})
+
+    problema_normalizado = problema.lower()
+    os_aberta = (
+        OrdemServico.query
+        .filter(
+            OrdemServico.veiculo_id == veiculo_id,
+            func.lower(func.trim(OrdemServico.problema)) == problema_normalizado,
+            func.lower(func.trim(OrdemServico.status)) == "aberta",
+        )
+        .order_by(OrdemServico.numero.desc())
+        .first()
+    )
+
+    if not os_aberta:
+        return jsonify({"duplicada": False})
+
+    return jsonify({
+        "duplicada": True,
+        "numero": os_aberta.numero,
+        "frota": veiculo.prefixo,
+        "problema": os_aberta.problema,
+    })
 
 
 @bp_api.get("/ordens/consulta-frota")

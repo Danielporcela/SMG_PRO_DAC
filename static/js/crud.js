@@ -126,7 +126,7 @@ SGMF.tela = function (config) {
       const mostrar = () => {
         const termo = normalizar(el.value);
         if (!termo) { fechar(); return; }
-        const achadas = opcoes.filter(o => normalizar(o).startsWith(termo)).slice(0, 20);
+        const achadas = opcoes.filter(o => normalizar(o).startsWith(termo)).slice(0, 40);
         if (!achadas.length) { fechar(); return; }
         listaEl.innerHTML = achadas.map((o, i) =>
           `<button type="button" class="sgmf-autocomplete-item" data-i="${i}">${SGMF.esc(o)}</button>`
