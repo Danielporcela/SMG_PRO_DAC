@@ -60,8 +60,10 @@
       medidor('Gasto total geral', SGMF.moeda(d.gasto_total_geral), {
         icone: 'fa-coins', estilo: 'font-size:19px',
         nota: 'frota + compras de peças + uniformes (NF)' }),
-      medidor('Economia no período', d.economia_periodo === null
-          ? '—' : SGMF.moeda(Math.abs(d.economia_periodo)), {
+      medidor(d.economia_periodo === null || d.economia_periodo >= 0
+          ? 'Economia no período'
+          : 'Despesa excedente no período',
+        d.economia_periodo === null ? '—' : SGMF.moeda(d.economia_periodo), {
         classe: d.economia_periodo === null ? '' : (d.economia_periodo >= 0 ? 'ok' : 'critico'),
         icone: d.economia_periodo >= 0 ? 'fa-arrow-trend-down' : 'fa-arrow-trend-up',
         estilo: 'font-size:19px',
