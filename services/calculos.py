@@ -2,7 +2,7 @@
 from datetime import date
 
 from flask import has_request_context, session
-from sqlalchemy import func, text
+from sqlalchemy import and_, func, or_, text
 
 from services.tempo import hoje
 
@@ -20,15 +20,23 @@ def recalcular_abastecimento(abast):
     if abast.litros and abast.valor_total and not abast.valor_litro:
         abast.valor_litro = round(abast.valor_total / abast.litros, 3)
 
+    # O abastecimento anterior é cronológico, não simplesmente o menor KM.
+    # Isso é essencial quando existe troca/reset de hodômetro.
     anterior = (Abastecimento.query
                 .filter(Abastecimento.veiculo_id == abast.veiculo_id,
                         Abastecimento.id != abast.id,
-                        Abastecimento.km_atual < (abast.km_atual or 0))
-                .order_by(Abastecimento.km_atual.desc())
+                        or_(
+                            Abastecimento.data < abast.data,
+                            and_(Abastecimento.data == abast.data,
+                                 Abastecimento.id < abast.id)))
+                .order_by(Abastecimento.data.desc(), Abastecimento.id.desc())
                 .first())
 
-    if anterior and abast.km_atual:
-        abast.km_percorridos = round(abast.km_atual - anterior.km_atual, 1)
+    if anterior and abast.km_atual is not None and anterior.km_atual is not None:
+        diferenca = float(abast.km_atual) - float(anterior.km_atual)
+        # Se o hodômetro foi substituído/resetado, esta leitura inicia uma nova
+        # série. Não geramos KM negativo nem km/L artificial.
+        abast.km_percorridos = round(diferenca, 1) if diferenca >= 0 else 0
     else:
         abast.km_percorridos = 0
 

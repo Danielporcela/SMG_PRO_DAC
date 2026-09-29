@@ -314,6 +314,7 @@ COLUNAS_ABASTECIMENTOS = [
 
 LIMITE_ABASTECIMENTOS = 5000
 LIMITE_SALTO_KM = 2000            # salto de KM acima disso quase sempre é erro de digitação
+LIMITE_REINICIO_HODOMETRO = 5000    # queda maior que isso pode indicar troca/reset do hodômetro
 ABA_LANCAMENTO = "LANCAMENTO"   # nome da aba do dia (comparado sem acento/caixa)
 
 
@@ -444,16 +445,33 @@ def ler_abastecimentos(arquivo):
                           "Use a aba LANÇAMENTO do modelo de lançamento de diesel.")
     ws, indices, linha_titulos = escolhida
 
-    # Cadastro da frota: prefixo exato, prefixo normalizado (1 = 01) e placa.
-    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
-    por_prefixo, por_prefixo_normal, por_placa = {}, defaultdict(list), {}
+    # Cadastro da frota: a importação mensal/histórica também precisa localizar
+    # veículos que hoje estejam inativos. Ex.: um caminhão pode ter abastecido no
+    # começo do mês e ter sido desativado depois. Antes, esses prefixos apareciam
+    # incorretamente como "veículo não encontrado".
+    veiculos = Veiculo.query.all()
+    por_prefixo_lista, por_prefixo_normal, por_placa_lista = defaultdict(list), defaultdict(list), defaultdict(list)
     for v in veiculos:
         prefixo = str(v.prefixo or "").strip().upper()
         if prefixo:
-            por_prefixo[prefixo] = v
+            por_prefixo_lista[prefixo].append(v)
             por_prefixo_normal[_chave_frota(prefixo)].append(v)
         if v.placa:
-            por_placa[_limpa_placa(v.placa)] = v
+            por_placa_lista[_limpa_placa(v.placa)].append(v)
+
+    def _preferir_veiculo(candidatos):
+        """Escolhe sem ambiguidade, preferindo o cadastro ativo quando houver."""
+        candidatos = list(candidatos or [])
+        if not candidatos:
+            return None, None
+        ativos = [v for v in candidatos if getattr(v, "ativo", True)]
+        if len(ativos) == 1:
+            return ativos[0], None
+        if len(ativos) > 1:
+            return None, "há mais de um veículo ativo com este prefixo/placa no cadastro"
+        if len(candidatos) == 1:
+            return candidatos[0], None
+        return None, "há mais de um veículo inativo com este prefixo/placa no cadastro"
 
     def localizar(bruto):
         """Aceita '1', '01', '01-JBH6B46', 'JBH6B46'. A placa é a chave mais
@@ -461,14 +479,18 @@ def ler_abastecimentos(arquivo):
         divergente do cadastro a linha é recusada (evita lançar no veículo
         errado por causa de um erro de digitação na placa)."""
         texto = str(bruto if bruto is not None else "").strip().upper()
-        if texto in por_prefixo:
-            return por_prefixo[texto], None
+        if texto in por_prefixo_lista:
+            v_exato, erro_exato = _preferir_veiculo(por_prefixo_lista[texto])
+            if v_exato or erro_exato:
+                return v_exato, erro_exato
         numero, placa = _separar_frota(bruto)
-        v_placa = por_placa.get(placa) if placa else None
+        v_placa, erro_placa = _preferir_veiculo(por_placa_lista.get(placa, [])) if placa else (None, None)
+        if erro_placa:
+            return None, erro_placa
         candidatos = por_prefixo_normal.get(_chave_frota(numero), []) if numero else []
-        if len(candidatos) > 1:
-            return None, f"frota '{numero}' aparece em mais de um prefixo do cadastro"
-        v_numero = candidatos[0] if candidatos else None
+        v_numero, erro_numero = _preferir_veiculo(candidatos)
+        if erro_numero:
+            return None, f"frota '{numero}': {erro_numero}"
         if v_placa and v_numero and v_placa is not v_numero:
             return None, (f"frota {numero} e placa {placa} apontam para veículos diferentes "
                           f"no cadastro ({v_numero.rotulo} × {v_placa.rotulo})")
@@ -506,7 +528,16 @@ def ler_abastecimentos(arquivo):
                 "dados": {"veiculo_nome": rotulo}, "veiculo": None})
             break
 
-        if _vazio(celula("LITROS")) and _vazio(celula("KM")):
+        # Sem litros não existe abastecimento a gravar. Algumas planilhas mantêm
+        # apenas o KM do veículo no dia; isso é informativo e não deve virar erro.
+        litros_bruto = celula("LITROS")
+        litros_zerado = False
+        if not _vazio(litros_bruto):
+            try:
+                litros_zerado = float(str(litros_bruto).replace(",", ".")) == 0
+            except (ValueError, TypeError):
+                litros_zerado = False
+        if _vazio(litros_bruto) or litros_zerado:
             bruto_v = celula("VEICULO")
             sem_abastecimento.append(_chave_frota(bruto_v) if isinstance(bruto_v, (int, float)) else rotulo)
             continue
@@ -576,10 +607,17 @@ def ler_abastecimentos(arquivo):
         if anteriores:
             maior_km, data_do_km = max(anteriores)
             if km < maior_km:
-                l["erros"].append(
-                    f"KM {_milhar(km)} é menor que o último lançado para este veículo "
-                    f"({_milhar(maior_km)} em {data_do_km.strftime('%d/%m/%Y')})")
-                continue
+                queda = maior_km - km
+                if queda >= LIMITE_REINICIO_HODOMETRO:
+                    # Queda grande é compatível com troca/reset do painel ou hodômetro.
+                    # O primeiro abastecimento após o reset vira nova referência e terá
+                    # km_percorridos = 0, evitando consumo negativo ou artificial.
+                    d["reinicio_hodometro"] = True
+                else:
+                    l["erros"].append(
+                        f"KM {_milhar(km)} é menor que o último lançado para este veículo "
+                        f"({_milhar(maior_km)} em {data_do_km.strftime('%d/%m/%Y')})")
+                    continue
             if km - maior_km > LIMITE_SALTO_KM:
                 l["erros"].append(
                     f"KM {_milhar(km)} está {_milhar(km - maior_km)} km acima do último lançado "
@@ -650,7 +688,7 @@ def gravar_abastecimentos(linhas):
         for veiculo_id in veiculos_afetados:
             historico = (Abastecimento.query
                          .filter_by(veiculo_id=veiculo_id)
-                         .order_by(Abastecimento.km_atual.asc(), Abastecimento.id.asc())
+                         .order_by(Abastecimento.data.asc(), Abastecimento.id.asc())
                          .all())
             for obj in historico:
                 recalcular_abastecimento(obj)
@@ -688,8 +726,13 @@ def _normalizar_prefixo_importacao(valor):
 
 
 def _mapa_veiculos_por_prefixo():
-    veiculos = Veiculo.query.filter(Veiculo.ativo.is_(True)).all()
-    return {_normalizar_prefixo_importacao(v.prefixo): v for v in veiculos if v.prefixo}
+    # Importação histórica deve continuar encontrando veículos que foram
+    # desativados depois do período da planilha. Em duplicidade, prefere ativo.
+    mapa = {}
+    for v in Veiculo.query.order_by(Veiculo.ativo.asc(), Veiculo.id.asc()).all():
+        if v.prefixo:
+            mapa[_normalizar_prefixo_importacao(v.prefixo)] = v
+    return mapa
 
 
 def importar_abastecimentos_workbook(workbook):
@@ -783,7 +826,7 @@ def importar_abastecimentos_workbook(workbook):
             from services.calculos import recalcular_abastecimento
             for vid in afetados:
                 historico = (Abastecimento.query.filter_by(veiculo_id=vid)
-                             .order_by(Abastecimento.km_atual.asc(), Abastecimento.id.asc()).all())
+                             .order_by(Abastecimento.data.asc(), Abastecimento.id.asc()).all())
                 for obj in historico:
                     recalcular_abastecimento(obj)
             db.session.flush()
