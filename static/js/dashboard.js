@@ -2,6 +2,7 @@
 (function () {
   const inicio = () => document.getElementById('filtroInicio').value;
   const fim = () => document.getElementById('filtroFim').value;
+  const qsPeriodo = () => `inicio=${inicio()}&fim=${fim()}&ciclo=1`;
 
   let ultimoConsumoFrotas = null; // km/L de todas as frotas (atual x anterior) para a impressão
   let ultimosGraficos = null; // guarda o retorno de /api/painel/graficos para a impressão
@@ -17,7 +18,7 @@
   }
 
   async function carregarIndicadores() {
-    const d = await SGMF.get(`/api/painel/resumo?inicio=${inicio()}&fim=${fim()}`);
+    const d = await SGMF.get(`/api/painel/resumo?${qsPeriodo()}`);
     const aderencia = d.orcamento_mes
       ? `${SGMF.numero(d.aderencia_orcamento, 1)}% do orçamento`
       : 'Sem meta cadastrada';
@@ -82,7 +83,7 @@
   }
 
   async function carregarGraficos() {
-    const g = await SGMF.get(`/api/painel/graficos?inicio=${inicio()}&fim=${fim()}`);
+    const g = await SGMF.get(`/api/painel/graficos?${qsPeriodo()}`);
     ultimosGraficos = g;
 
     SGMF.grafico('graficoMeses', {
@@ -235,11 +236,19 @@
           <strong>Sem lançamentos no período</strong>Registre abastecimentos e ordens de serviço.</div>`;
   }
 
-  // Evolução diária do consumo da frota — série própria (não depende do
-  // filtro de período do painel; sempre mostra os últimos 30 dias e é
-  // recalculada no servidor a cada carregamento).
+  // Evolução diária do consumo da frota dentro do mesmo ciclo 20→20
+  // selecionado no topo. Antes este gráfico ignorava o filtro e usava
+  // sempre os últimos 30 dias.
   async function carregarConsumoDiario() {
-    const historico = await SGMF.get('/api/consumo-diario/historico?dias=30');
+    const dados = await SGMF.get(`/api/painel/combustivel-diario?${qsPeriodo()}`);
+    const historico = (dados.dias || []).map(h => {
+      const kml = h.km_por_litro || 0;
+      const eficiencia = kml >= 3.5 ? 'EXCELENTE' : kml >= 3.0 ? 'BOM' : kml >= 2.5 ? 'NORMAL' : 'RUIM';
+      return {
+        data: h.data, km_por_litro: kml, litros_por_dia: h.litros || 0,
+        eficiencia
+      };
+    });
     ultimoConsumoDiario = historico;
     if (!historico.length) {
       document.getElementById('resumoConsumoDiario').innerHTML = '';
@@ -250,13 +259,13 @@
     const classeEficiencia = { EXCELENTE: 'ok', BOM: 'ok', NORMAL: 'atencao', RUIM: 'atencao' };
 
     document.getElementById('resumoConsumoDiario').innerHTML = [
-      medidor('Consumo médio', `${SGMF.numero(ultimo.km_por_litro, 2)} <small>km/L</small>`, { icone: 'fa-gas-pump' }),
-      medidor('Litros/dia', SGMF.numero(ultimo.litros_por_dia, 1), { icone: 'fa-droplet' }),
+      medidor('Consumo do último dia', `${SGMF.numero(ultimo.km_por_litro, 2)} <small>km/L</small>`, { icone: 'fa-gas-pump' }),
+      medidor('Litros no último dia', SGMF.numero(ultimo.litros_por_dia, 1), { icone: 'fa-droplet' }),
       medidor('Eficiência', ultimo.eficiencia, {
         classe: classeEficiencia[ultimo.eficiencia] || '', icone: 'fa-gauge-high' })
     ].join('');
     document.getElementById('consumoAtualizadoEm').textContent =
-      ultimo.atualizado_em ? `atualizado ${ultimo.atualizado_em}` : '';
+      `ciclo ${SGMF.data(inicio())} → ${SGMF.data(fim())}`;
 
     SGMF.grafico('graficoConsumoDiario', {
       type: 'line',
@@ -285,7 +294,7 @@
   // Horas trabalhadas por mecânico no período selecionado do painel
   // (mesmos filtros de data usados nos demais cards e gráficos).
   async function carregarHorasMecanicos() {
-    const dados = await SGMF.get(`/api/painel/horas-mecanicos?inicio=${inicio()}&fim=${fim()}`);
+    const dados = await SGMF.get(`/api/painel/horas-mecanicos?${qsPeriodo()}`);
     ultimoHorasMecanicos = dados;
 
     const canvasBox = document.getElementById('graficoHorasMecanicos').closest('.grafico-caixa');
@@ -427,7 +436,7 @@
     const corpoDoc = doc.createElement('div');
     corpoDoc.innerHTML = `
       <h1>${SGMF.esc(titulo)}</h1>
-      <div class="sub">${semPeriodo ? 'Últimos 12 meses' : `Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())}`}${notaExtra}
+      <div class="sub">${semPeriodo ? 'Últimos 12 ciclos (dia 20 → dia 20)' : `Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())}`}${notaExtra}
         · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
       ${imagem ? `<img class="grafico" src="${imagem}">` : ''}
       <table>
@@ -440,119 +449,6 @@
 
     janela.onload = () => { janela.focus(); janela.print(); };
     if (doc.readyState === 'complete') { janela.focus(); janela.print(); }
-  }
-
-  // Imprime uma fotografia completa do painel atual, incluindo os indicadores
-  // e todos os gráficos já renderizados. Os <canvas> do Chart.js precisam ser
-  // convertidos em imagens antes de copiar o conteúdo para a nova janela.
-  function imprimirPainelCompleto() {
-    const indicadores = document.getElementById('instrumentos');
-    const grade = document.querySelector('#instrumentos + .row');
-
-    if (!indicadores || !grade) {
-      return SGMF.aviso('Não encontrei o conteúdo do painel para imprimir.');
-    }
-
-    // window.open precisa acontecer diretamente no clique para não ser
-    // bloqueado como pop-up pelo navegador.
-    const janela = window.open('', '_blank', 'width=1200,height=850');
-    if (!janela) {
-      return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
-    }
-
-    const indicadoresClone = indicadores.cloneNode(true);
-    const gradeClone = grade.cloneNode(true);
-
-    // Remove controles que não fazem sentido no papel.
-    gradeClone.querySelectorAll('button, a').forEach(el => el.remove());
-
-    // Transforma cada canvas em PNG. Copiar o elemento canvas isoladamente
-    // produz uma área vazia na janela de impressão.
-    gradeClone.querySelectorAll('canvas').forEach(canvasClone => {
-      const original = canvasClone.id ? document.getElementById(canvasClone.id) : null;
-      if (!original) return;
-      try {
-        const img = document.createElement('img');
-        img.src = original.toDataURL('image/png', 1.0);
-        img.alt = canvasClone.id || 'Gráfico do painel';
-        img.className = 'grafico-print';
-        canvasClone.replaceWith(img);
-      } catch (_) {
-        // Se algum navegador impedir a conversão, mantém o restante do painel.
-        canvasClone.remove();
-      }
-    });
-
-    // Remove limites/rolagens usados apenas na tela para que todo o conteúdo
-    // de alertas e logins apareça na impressão.
-    gradeClone.querySelectorAll('[style]').forEach(el => {
-      el.style.maxHeight = 'none';
-      el.style.overflow = 'visible';
-    });
-
-    const periodo = `Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())}`;
-    const geradoEm = new Date().toLocaleString('pt-BR');
-    const doc = janela.document;
-
-    doc.open();
-    doc.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
-      <title>Painel da frota · SGMF Pro</title>
-      <style>
-        * { box-sizing: border-box; }
-        body { font-family: Arial, Helvetica, sans-serif; color:#182530; margin:0; padding:18px; background:#fff; }
-        h1 { margin:0 0 3px; color:#0F3D56; font-size:22px; }
-        .sub { color:#68747d; font-size:11px; margin-bottom:14px; }
-        .instrumentos { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:14px; }
-        .medidor { border:1px solid #d6dee4; border-radius:6px; padding:8px 10px; break-inside:avoid; background:#fff; }
-        .medidor .rotulo { color:#5d6a73; font-size:9px; text-transform:uppercase; font-weight:700; }
-        .medidor .valor { color:#0F3D56; font-size:17px; font-weight:700; margin-top:3px; }
-        .medidor .nota { color:#6d7880; font-size:9px; margin-top:2px; }
-        .row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-        .row > div { width:auto !important; max-width:none !important; padding:0 !important; }
-        .cartao { border:1px solid #d6dee4; border-radius:7px; overflow:hidden; break-inside:avoid; background:#fff; }
-        .cartao-topo { display:flex; align-items:center; min-height:34px; padding:7px 10px; border-bottom:1px solid #e3e8ec; background:#f7f9fa; }
-        .cartao-topo h3 { margin:0; color:#23323c; font-size:12px; }
-        .cartao-topo span { font-size:9px !important; margin-left:auto; }
-        .cartao-corpo { padding:9px !important; max-height:none !important; overflow:visible !important; }
-        .grafico-caixa { height:auto !important; min-height:0 !important; }
-        .grafico-print { display:block; width:100%; max-height:235px; object-fit:contain; }
-        table { width:100%; border-collapse:collapse; font-size:9px; }
-        th, td { border:1px solid #d8dfe4; padding:4px 5px; text-align:left; }
-        th { background:#0F3D56; color:#fff; }
-        .text-end, .num { text-align:right; }
-        .alerta-item { display:grid; grid-template-columns:20px 1fr; gap:5px; border-bottom:1px solid #e6eaed; padding:5px 3px; font-size:9px; }
-        .alerta-item .titulo { font-weight:700; }
-        .alerta-item .detalhe { color:#65717a; margin-top:1px; }
-        .etiqueta { display:inline-block; border:1px solid #c9d2d8; border-radius:3px; padding:1px 4px; }
-        .vazio { padding:12px; text-align:center; color:#6d7880; font-size:10px; }
-        .vazio strong { display:block; color:#33434d; margin-bottom:2px; }
-        .rodape { margin-top:12px; color:#7a858c; font-size:9px; }
-        @media print {
-          @page { size:A4 landscape; margin:8mm; }
-          body { padding:0; }
-          .row { gap:7px; }
-          .cartao { page-break-inside:avoid; }
-        }
-      </style></head><body>
-      <h1>SGMF Pro · Painel da frota</h1>
-      <div class="sub">${periodo} · Gerado em ${geradoEm}</div>
-      <div id="print-indicadores"></div>
-      <div id="print-grade"></div>
-      <div class="rodape">Sistema de Gestão de Manutenção de Frotas</div>
-      </body></html>`);
-    doc.close();
-
-    doc.getElementById('print-indicadores').appendChild(indicadoresClone);
-    doc.getElementById('print-grade').appendChild(gradeClone);
-
-    const dispararImpressao = () => {
-      try { janela.focus(); janela.print(); } catch (_) {}
-    };
-
-    // Imagens em data URL normalmente já estão disponíveis, mas um pequeno
-    // atraso torna a impressão mais confiável em Chrome/Edge.
-    if (doc.readyState === 'complete') setTimeout(dispararImpressao, 250);
-    else janela.onload = () => setTimeout(dispararImpressao, 250);
   }
 
   function precisaGraficos() {
@@ -569,9 +465,9 @@
       realizadoGeral: g.realizado_geral_mes[i]
     }));
     abrirImpressaoRelatorio({
-      titulo: 'Gasto mensal e meta (últimos 12 meses)', canvasId: 'graficoMeses', semPeriodo: true,
+      titulo: 'Gasto por ciclo e meta (últimos 12 ciclos)', canvasId: 'graficoMeses', semPeriodo: true,
       colunas: [
-        { rotulo: 'Mês', campo: 'mes' },
+        { rotulo: 'Ciclo', campo: 'mes' },
         { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
         { rotulo: 'Compras (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.compras) },
@@ -668,9 +564,9 @@
     const g = precisaGraficos(); if (!g) return;
     const linhas = g.meses.map((mes, i) => ({ mes, valor: g.lavagem_mes[i] }));
     abrirImpressaoRelatorio({
-      titulo: 'Gasto com lavagem (últimos 12 meses)', canvasId: 'graficoLavagem', semPeriodo: true,
+      titulo: 'Gasto com lavagem (últimos 12 ciclos)', canvasId: 'graficoLavagem', semPeriodo: true,
       colunas: [
-        { rotulo: 'Mês', campo: 'mes' },
+        { rotulo: 'Ciclo', campo: 'mes' },
         { rotulo: 'Lavagem', classe: 'text-end num', render: l => SGMF.moeda(l.valor) }
       ],
       linhas
@@ -697,7 +593,7 @@
       return SGMF.aviso('Aguarde o histórico de consumo carregar e tente novamente.');
     }
     abrirImpressaoRelatorio({
-      titulo: 'Evolução do consumo da frota (últimos 30 dias)', canvasId: 'graficoConsumoDiario', semPeriodo: true,
+      titulo: 'Evolução do consumo da frota no ciclo', canvasId: 'graficoConsumoDiario',
       colunas: [
         { rotulo: 'Data', render: l => SGMF.data(l.data) },
         { rotulo: 'Consumo (km/L)', classe: 'text-end num', render: l => SGMF.numero(l.km_por_litro, 2) },
@@ -727,7 +623,7 @@
   // Litros abastecidos por dia (barras) + km/L do dia (linha) no período do
   // filtro. Os dados vêm da planilha diária importada na tela Combustível.
   async function carregarCombustivelDiario() {
-    const d = await SGMF.get(`/api/painel/combustivel-diario?inicio=${inicio()}&fim=${fim()}`);
+    const d = await SGMF.get(`/api/painel/combustivel-diario?${qsPeriodo()}`);
     const dias = d.dias || [];
     document.getElementById('resumoCombustivelDiario').innerHTML = dias.length ? [
       medidor('Litros no período', SGMF.numero(d.total_litros, 0), { icone: 'fa-droplet', nota: `${dias.length} dia(s) com abastecimento` }),
@@ -775,11 +671,10 @@
   // Km/L de TODAS as frotas no período do filtro e no período anterior. Fica
   // guardado para o botão Imprimir do gráfico "Consumo por veículo".
   async function carregarConsumoFrotas() {
-    ultimoConsumoFrotas = await SGMF.get(`/api/painel/consumo-frotas?inicio=${inicio()}&fim=${fim()}`);
+    ultimoConsumoFrotas = await SGMF.get(`/api/painel/consumo-frotas?${qsPeriodo()}`);
   }
 
   Object.assign(window, {
-    imprimirPainelCompleto,
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
     imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas,
     imprimirGraficoConsumoDiario, imprimirHorasMecanicos
@@ -792,6 +687,25 @@
     } catch (e) { SGMF.falha(e.message); }
   }
 
+  function definirCicloOperacionalInicial() {
+    const agora = new Date();
+    const ano = agora.getFullYear();
+    const mes = agora.getMonth();
+    const inicioCiclo = agora.getDate() >= 20
+      ? new Date(ano, mes, 20)
+      : new Date(ano, mes - 1, 20);
+    const fimCiclo = new Date(inicioCiclo.getFullYear(), inicioCiclo.getMonth() + 1, 20);
+    const isoLocal = d => {
+      const a = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dia = String(d.getDate()).padStart(2, '0');
+      return `${a}-${m}-${dia}`;
+    };
+    document.getElementById('filtroInicio').value = isoLocal(inicioCiclo);
+    document.getElementById('filtroFim').value = isoLocal(fimCiclo);
+  }
+
+  definirCicloOperacionalInicial();
   document.getElementById('botaoAtualizar').onclick = atualizar;
   ['filtroInicio', 'filtroFim'].forEach(id =>
     document.getElementById(id).addEventListener('change', atualizar));

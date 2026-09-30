@@ -1,5 +1,4 @@
 """KPIs do painel executivo, rankings e alertas automáticos."""
-import calendar
 from datetime import date, timedelta
 
 from flask import current_app
@@ -14,6 +13,30 @@ from services.tempo import hoje as data_de_hoje
 GRUPOS = ["Motor", "Suspensão", "Freios", "Elétrica", "Hidráulica", "Pneus",
           "Transmissão", "Arrefecimento", "Outros"]
 MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+
+DIA_INICIO_CICLO = 20
+
+
+def _somar_meses(data_ref, meses):
+    """Soma meses preservando o dia quando possível (usado nos ciclos 20→20)."""
+    total = data_ref.year * 12 + (data_ref.month - 1) + meses
+    ano, mes0 = divmod(total, 12)
+    return date(ano, mes0 + 1, data_ref.day)
+
+
+def ciclo_operacional(data_ref=None):
+    """Retorna os limites do ciclo operacional 20→20.
+
+    O limite final é exclusivo: um lançamento em 20/09 pertence ao ciclo
+    20/09→20/10, nunca ao ciclo anterior. Isso impede contagem duplicada.
+    """
+    ref = data_ref or data_de_hoje()
+    if ref.day >= DIA_INICIO_CICLO:
+        inicio = ref.replace(day=DIA_INICIO_CICLO)
+    else:
+        inicio = _somar_meses(ref.replace(day=DIA_INICIO_CICLO), -1)
+    return inicio, _somar_meses(inicio, 1)
 
 
 def periodo_padrao(inicio=None, fim=None):
@@ -147,8 +170,12 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     mttr = round(sum(o.dias_parado for o in finalizadas) / len(finalizadas), 1) if finalizadas else 0
     mtbf = round((total_veic * dias_periodo) / len(corretivas), 1) if corretivas else 0
 
+    # Nos ciclos operacionais 20→20, a meta pertence ao mês em que o ciclo
+    # começa (ex.: 20/09→20/10 usa a meta de setembro). Em consultas antigas
+    # que não começam no dia 20, preservamos a referência pelo mês final.
+    ref_orcamento = inicio if inicio.day == DIA_INICIO_CICLO else fim
     orcado = db.session.query(func.sum(Orcamento.meta_valor)).filter(
-        Orcamento.ano == fim.year, Orcamento.mes == fim.month,
+        Orcamento.ano == ref_orcamento.year, Orcamento.mes == ref_orcamento.month,
         Orcamento.grupo_consumo_id.is_(None),
         ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True))).scalar() or 0
 
@@ -255,15 +282,17 @@ def series_graficos(inicio=None, fim=None):
     inicio, fim = periodo_padrao(inicio, fim)
     hoje = data_de_hoje()
 
-    # 12 meses móveis de gasto
+    # 12 ciclos operacionais móveis, sempre do dia 20 ao dia 20 seguinte.
+    # O fim é exclusivo para que o dia 20 pertença somente ao novo ciclo.
     meses, comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], []
+    ciclo_atual_ini, _ = ciclo_operacional(hoje)
     for i in range(11, -1, -1):
-        ref = (hoje.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
-        ini = ref
-        f = ref.replace(day=calendar.monthrange(ref.year, ref.month)[1])
-        meses.append(f"{MESES[ref.month - 1]}/{str(ref.year)[2:]}")
+        ini = _somar_meses(ciclo_atual_ini, -i)
+        limite = _somar_meses(ini, 1)
+        f = limite - timedelta(days=1)
+        meses.append(f"20/{MESES[ini.month - 1]} → 20/{MESES[limite.month - 1]}")
         comb_mes.append(round(db.session.query(func.sum(Abastecimento.valor_total))
-                              .filter(Abastecimento.data.between(ini, f)).scalar() or 0, 2))
+                              .filter(Abastecimento.data >= ini, Abastecimento.data < limite).scalar() or 0, 2))
         ordens = _custo_os(ini, f)
         terceiros = _servicos_terceiros(ini, f)
         manut_mes.append(round(sum(o.custo_total for o in ordens)
@@ -271,8 +300,9 @@ def series_graficos(inicio=None, fim=None):
         lavagem_mes.append(round(sum(l.valor or 0 for l in _lavagens(ini, f)), 2))
         compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
         uniformes_mes.append(round(sum(n.valor_total for n in _notas_uniformes_finalizadas(ini, f)), 2))
+        # A meta do ciclo é associada ao mês em que o ciclo se inicia.
         meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
-                              .filter(Orcamento.ano == ref.year, Orcamento.mes == ref.month,
+                              .filter(Orcamento.ano == ini.year, Orcamento.mes == ini.month,
                                       Orcamento.grupo_consumo_id.is_(None),
                                       ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True)))
                               .scalar() or 0, 2))
@@ -586,9 +616,9 @@ def alertas():
             elif (venc - hoje).days <= 7:
                 add("atencao", "Preventiva", f"{v.prefixo} · preventiva a vencer",
                     f"Programada para {venc.strftime('%d/%m/%Y')}.", v.placa, veiculo=v)
-        # orçamento do mês
+        # orçamento do ciclo operacional atual (dia 20 → dia 20 seguinte)
         if v.orcamento_mensal:
-            ini = hoje.replace(day=1)
+            ini, _ = ciclo_operacional(hoje)
             ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
                                                OrdemServico.data_abertura.between(ini, hoje)).all()
             comb = db.session.query(func.sum(Abastecimento.valor_total)).filter(

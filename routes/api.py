@@ -1,5 +1,5 @@
 """API REST dos módulos: frota, manutenção, combustível, pneus, estoque e orçamento."""
-from datetime import date
+from datetime import date, timedelta
 
 from openpyxl import load_workbook
 
@@ -1110,34 +1110,51 @@ def listar_mecanicos_os():
 
 
 # ------------------------------------------- Módulos 6, 9 e 10: painéis
+def _periodo_dashboard():
+    """Lê o período do Dashboard.
+
+    Quando ``ciclo=1``, o campo ``fim`` representa a virada do ciclo e é
+    exclusivo. Assim 20/08→20/09 considera 20/08..19/09, e 20/09 já entra
+    no ciclo seguinte.
+    """
+    inicio = request.args.get("inicio")
+    fim = request.args.get("fim")
+    if request.args.get("ciclo") == "1" and fim:
+        try:
+            fim = (date.fromisoformat(fim) - timedelta(days=1)).isoformat()
+        except ValueError:
+            pass
+    return inicio, fim
+
+
 @bp_api.get("/painel/resumo")
 @visualizar_tela("dashboard")
 def painel_resumo():
-    return jsonify(indicadores.resumo(request.args.get("inicio"), request.args.get("fim"),
-                                      request.args.get("veiculo_id", type=int)))
+    inicio, fim = _periodo_dashboard()
+    return jsonify(indicadores.resumo(inicio, fim, request.args.get("veiculo_id", type=int)))
 
 
 @bp_api.get("/painel/graficos")
 @visualizar_tela("dashboard")
 def painel_graficos():
-    return jsonify(indicadores.series_graficos(request.args.get("inicio"),
-                                               request.args.get("fim")))
+    inicio, fim = _periodo_dashboard()
+    return jsonify(indicadores.series_graficos(inicio, fim))
 
 
 @bp_api.get("/painel/combustivel-diario")
 @visualizar_tela("dashboard")
 def painel_combustivel_diario():
-    """Litros e km/L por dia no período (gráfico 'Litros abastecidos por dia')."""
-    return jsonify(indicadores.combustivel_por_dia(request.args.get("inicio"),
-                                                   request.args.get("fim")))
+    """Litros e km/L por dia no ciclo selecionado do Dashboard."""
+    inicio, fim = _periodo_dashboard()
+    return jsonify(indicadores.combustivel_por_dia(inicio, fim))
 
 
 @bp_api.get("/painel/consumo-frotas")
 @visualizar_tela("dashboard")
 def painel_consumo_frotas():
-    """Km/L de todas as frotas no período e no anterior (impressão do painel)."""
-    return jsonify(indicadores.consumo_frotas(request.args.get("inicio"),
-                                              request.args.get("fim")))
+    """Km/L de todas as frotas no ciclo e no ciclo anterior."""
+    inicio, fim = _periodo_dashboard()
+    return jsonify(indicadores.consumo_frotas(inicio, fim))
 
 
 @bp_api.get("/consumo-diario/historico")
@@ -1163,8 +1180,8 @@ def consumo_diario_historico():
 @bp_api.get("/painel/horas-mecanicos")
 @visualizar_tela("dashboard")
 def painel_horas_mecanicos():
-    return jsonify(indicadores.horas_por_mecanico(request.args.get("inicio"),
-                                                   request.args.get("fim")))
+    inicio, fim = _periodo_dashboard()
+    return jsonify(indicadores.horas_por_mecanico(inicio, fim))
 
 
 @bp_api.get("/painel/rankings")
