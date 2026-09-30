@@ -353,7 +353,7 @@
                </div>
                <div class="detalhe">${SGMF.esc(a.detalhe)}</div></div></div>`).join('')
       : `<div class="vazio"><i class="fa-solid fa-circle-check" style="color:var(--ok)"></i>
-          <strong>Nenhum alerta ativo</strong>Preventivas, pneus e orçamento estão dentro do previsto.</div>`;
+          <strong>Nenhum alerta ativo</strong>Preventivas, estoque e orçamento estão dentro do previsto.</div>`;
   }
 
   async function carregarConectados() {

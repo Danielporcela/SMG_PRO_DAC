@@ -49,7 +49,6 @@ def listar_alertas_ativos():
     aviso_oleo = float(_cfg("KM_AVISO_TROCA_OLEO", 500))
     aviso_preventiva = int(_cfg("ALERTA_PREVENTIVA_DIAS", 30))
     aviso_cnh = int(_cfg("ALERTA_CNH_DIAS", 30))
-    sulco_minimo = float(_cfg("SULCO_MINIMO_MM", 4.0))
     desvio_consumo = float(_cfg("DESVIO_CONSUMO_ALERTA", 0.15))
 
     for v in Veiculo.query.filter(Veiculo.ativo.is_(True),
@@ -116,13 +115,6 @@ def listar_alertas_ativos():
             "Estoque mínimo atingido",
             f"{p.codigo} · {p.descricao}: saldo {p.quantidade or 0:g}, mínimo {p.estoque_minimo or 0:g}.",
             "peca", p.id, "/estoque"))
-
-    for p in Pneu.query.filter(Pneu.status == "Em uso", Pneu.sulco_mm < sulco_minimo).all():
-        veiculo = p.veiculo.prefixo if p.veiculo else "veículo não informado"
-        alertas.append(_alerta(
-            f"pneu:{p.id}", "pneu", "critico", "Pneu abaixo do sulco mínimo",
-            f"Pneu {p.numero_fogo} de {veiculo} está com {p.sulco_mm or 0:g} mm de sulco.",
-            "pneu", p.id, "/pneus"))
 
     for os_obj in (OrdemServico.query
             .join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)

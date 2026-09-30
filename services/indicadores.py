@@ -647,16 +647,7 @@ def alertas():
                     f"Média recente {media_recente:.2f} km/L contra {media_hist:.2f} km/L histórica.",
                     v.placa, veiculo=v)
 
-    # pneus no limite
-    for p in Pneu.query.filter(Pneu.status == "Em uso").all():
-        if (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"]:
-            add("critico", "Pneus", f"Pneu {p.numero_fogo} abaixo do sulco mínimo",
-                f"{p.sulco_mm:.1f} mm em {p.posicao or 'posição não informada'} "
-                f"({p.veiculo.prefixo if p.veiculo else 'sem veículo'}). Limite: "
-                f"{cfg['SULCO_MINIMO_MM']:.0f} mm.", p.numero_fogo, veiculo=p.veiculo)
-        elif (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"] + 1:
-            add("atencao", "Pneus", f"Pneu {p.numero_fogo} próximo do limite",
-                f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo, veiculo=p.veiculo)
+    # Alertas de pneus desativados por regra de negócio.
 
     pendencias_estoque_os = contar_os_pendentes()
     if pendencias_estoque_os:
