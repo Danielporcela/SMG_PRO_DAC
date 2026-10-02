@@ -42,10 +42,13 @@ def _eventos(combustivel):
     if not cfg:
         return None, []
 
-    entradas = (NotaFiscalCombustivel.query
-                .filter(NotaFiscalCombustivel.combustivel == combustivel,
-                        NotaFiscalCombustivel.data >= cfg.data_inicio)
-                .all())
+    # A data fiscal e a data física de entrada podem ser diferentes. O kardex
+    # usa SEMPRE a data física; para registros antigos, cai para a data da NF.
+    todas_entradas = (NotaFiscalCombustivel.query
+                      .filter(NotaFiscalCombustivel.combustivel == combustivel)
+                      .all())
+    entradas = [n for n in todas_entradas
+                if (n.data_entrada or n.data) and (n.data_entrada or n.data) >= cfg.data_inicio]
     saidas = (Abastecimento.query
               .filter(Abastecimento.combustivel == combustivel,
                       Abastecimento.data >= cfg.data_inicio)
@@ -53,7 +56,7 @@ def _eventos(combustivel):
 
     eventos = []
     for n in entradas:
-        eventos.append((n.data, 0, n.id or 0, "entrada", n))
+        eventos.append(((n.data_entrada or n.data), 0, n.id or 0, "entrada", n))
     for a in saidas:
         eventos.append((a.data, 1, a.id or 0, "saida", a))
     eventos.sort(key=lambda x: (x[0] or date.min, x[1], x[2]))

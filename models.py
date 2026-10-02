@@ -1034,6 +1034,9 @@ class NotaFiscalCombustivel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     numero_nf = db.Column(db.String(40), nullable=False, index=True)
     data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
+    # Data física em que o combustível entrou no tanque/estoque. Pode ser
+    # diferente da data fiscal da NF (emissão posterior ao recebimento).
+    data_entrada = db.Column(db.Date, index=True)
     fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
     combustivel = db.Column(db.String(30), default="Diesel S10", nullable=False, index=True)
     litros = db.Column(db.Float, default=0, nullable=False)
@@ -1050,6 +1053,7 @@ class NotaFiscalCombustivel(db.Model):
             "id": self.id,
             "numero_nf": self.numero_nf,
             "data": self.data.isoformat() if self.data else None,
+            "data_entrada": (self.data_entrada or self.data).isoformat() if (self.data_entrada or self.data) else None,
             "fornecedor_id": self.fornecedor_id,
             "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
             "combustivel": self.combustivel,

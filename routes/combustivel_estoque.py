@@ -37,6 +37,7 @@ def _aplicar(nota, dados):
     if not nota.numero_nf:
         raise ErroNegocio("Informe o número da nota fiscal.")
     nota.data = _data(dados.get("data"), "data da NF", True)
+    nota.data_entrada = _data(dados.get("data_entrada"), "data de entrada no estoque") or nota.data
     nota.fornecedor_id = int(dados["fornecedor_id"]) if dados.get("fornecedor_id") else None
     nota.combustivel = (dados.get("combustivel") or "Diesel S10").strip()
     nota.litros = _float(dados.get("litros"), "Litros")
@@ -80,7 +81,7 @@ def criar_nota():
         _aplicar(nota, dados)
         db.session.add(nota)
         db.session.flush()
-        ativar_controle(nota.combustivel, nota.data)
+        ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
         recalcular_estoque_combustivel(nota.combustivel)
         registrar_log("criar", "notas_combustivel", nota.id, f"NF {nota.numero_nf}")
         db.session.commit()
@@ -101,7 +102,7 @@ def editar_nota(nota_id):
     try:
         _aplicar(nota, request.get_json(silent=True) or {})
         db.session.flush()
-        ativar_controle(nota.combustivel, nota.data)
+        ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
         recalcular_estoque_combustivel(nota.combustivel)
         if antigo != nota.combustivel:
             recalcular_estoque_combustivel(antigo)
@@ -136,6 +137,24 @@ def excluir_nota(nota_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"erro": f"Não foi possível excluir a NF ({e.__class__.__name__})."}), 400
+
+
+@bp_combustivel_estoque.post("/combustivel/reconciliar-estoque")
+@editar_tela("combustivel")
+def reconciliar_estoque():
+    """Reprocessa NFs e abastecimentos já existentes sem apagar histórico."""
+    try:
+        resultados = recalcular_todos_combustiveis()
+        registrar_log("reconciliar", "estoque_combustivel", None,
+                      f"{len(resultados)} combustível(is) recalculado(s)")
+        db.session.commit()
+        return jsonify({"ok": True, "itens": resultados, "resumo": resumo_geral()})
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível reconciliar o estoque ({e.__class__.__name__})."}), 400
 
 
 @bp_combustivel_estoque.get("/combustivel/estoque-resumo")

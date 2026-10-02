@@ -21,6 +21,14 @@ def garantir_estoque_combustivel():
         ControleEstoqueCombustivel.__table__.create(engine, checkfirst=True)
     if "notas_fiscais_combustivel" not in tabelas:
         NotaFiscalCombustivel.__table__.create(engine, checkfirst=True)
+    else:
+        # Versões anteriores tinham apenas a data fiscal. A data_entrada
+        # permite reconciliar recebimentos físicos ocorridos antes da emissão.
+        existentes = {c["name"] for c in inspect(engine).get_columns("notas_fiscais_combustivel")}
+        if "data_entrada" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "notas_fiscais_combustivel" ADD COLUMN "data_entrada" DATE'))
+                conn.execute(text('UPDATE "notas_fiscais_combustivel" SET "data_entrada" = "data" WHERE "data_entrada" IS NULL'))
 
 
 

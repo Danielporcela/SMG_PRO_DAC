@@ -36,13 +36,10 @@
       medidor('Consumo médio', `${SGMF.numero(d.consumo_medio, 2)} <small>km/L</small>`, {
         icone: 'fa-gas-pump',
         nota: `${SGMF.numero(d.litros, 1)} litros · média da média: ${SGMF.numero(d.consumo_medio_media_da_media, 2)} km/L` }),
-      medidor('Custo operacional/km', SGMF.moeda(d.custo_por_km), {
-        icone: 'fa-coins', estilo: 'font-size:21px', nota: 'inclui combustível para análise operacional' }),
-      medidor('Combustível consumido', SGMF.moeda(d.gasto_combustivel), {
-        icone: 'fa-fill-drip', estilo: 'font-size:19px', nota: `${d.abastecimentos} abastecimentos · controle separado` }),
-      medidor('NF de combustível', SGMF.moeda(d.gasto_nfs_combustivel), {
-        icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
-        nota: `${d.notas_combustivel_qtd} NF(s) · ${SGMF.numero(d.litros_nfs_combustivel, 1)} L · fora das despesas gerais` }),
+      medidor('Custo por km', SGMF.moeda(d.custo_por_km), {
+        icone: 'fa-coins', estilo: 'font-size:21px' }),
+      medidor('Combustível', SGMF.moeda(d.gasto_combustivel), {
+        icone: 'fa-fill-drip', estilo: 'font-size:19px', nota: `${d.abastecimentos} abastecimentos` }),
       medidor('Manutenção', SGMF.moeda(d.gasto_manutencao), {
         icone: 'fa-wrench', estilo: 'font-size:19px',
         nota: `${d.os_preventivas} preventivas · ${d.os_corretivas} corretivas · inclui terceiros` }),
@@ -61,21 +58,7 @@
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
-      medidor('Gasto total geral', SGMF.moeda(d.gasto_total_geral), {
-        icone: 'fa-coins', estilo: 'font-size:19px',
-        nota: 'manutenção + lavagem + peças + uniformes · combustível separado' }),
-      medidor(d.economia_periodo === null || d.economia_periodo >= 0
-          ? 'Economia no período'
-          : 'Despesa excedente no período',
-        d.economia_periodo === null ? '—' : SGMF.moeda(d.economia_periodo), {
-        classe: d.economia_periodo === null ? '' : (d.economia_periodo >= 0 ? 'ok' : 'critico'),
-        icone: d.economia_periodo >= 0 ? 'fa-arrow-trend-down' : 'fa-arrow-trend-up',
-        estilo: 'font-size:19px',
-        nota: d.economia_periodo === null
-          ? 'Sem histórico suficiente ainda'
-          : `${d.economia_periodo >= 0 ? 'Economia' : 'Gasto a mais'} de ` +
-            `${SGMF.numero(Math.abs(d.variacao_custo_km), 1)}% no custo por km ` +
-            `(histórico ${SGMF.moeda(d.custo_km_historico)})` }),
+    
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
         nota: d.os_estoque_pendentes ? 'regularização de estoque necessária' : 'todas regularizadas' }),
@@ -93,18 +76,16 @@
       data: {
         labels: g.meses,
         datasets: [
-          { type: 'bar', label: 'Combustível consumido', data: g.combustivel_mes,
-            backgroundColor: '#0F3D56', stack: 'combustivel', borderRadius: 2 },
-          { type: 'bar', label: 'NF combustível', data: g.nfs_combustivel_mes || [],
-            backgroundColor: '#567C8D', stack: 'combustivel', borderRadius: 2 },
+          { type: 'bar', label: 'Combustível', data: g.combustivel_mes,
+            backgroundColor: '#0F3D56', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Manutenção (incl. terceiros)', data: g.manutencao_mes,
-            backgroundColor: '#7FA9C2', stack: 'despesas', borderRadius: 2 },
+            backgroundColor: '#7FA9C2', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Lavagem', data: g.lavagem_mes,
-            backgroundColor: '#4FB0C6', stack: 'despesas', borderRadius: 2 },
+            backgroundColor: '#4FB0C6', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Compras (NF)', data: g.compras_mes,
-            backgroundColor: '#16795D', stack: 'despesas', borderRadius: 2 },
+            backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Uniformes (NF)', data: g.uniformes_mes,
-            backgroundColor: '#8B6F47', stack: 'despesas', borderRadius: 2 },
+            backgroundColor: '#8B6F47', stack: 'gasto', borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
             borderWidth: 2, borderDash: [5, 4], pointRadius: 2, tension: .25, fill: false }
         ]
@@ -464,7 +445,7 @@
   function imprimirGraficoMeses() {
     const g = precisaGraficos(); if (!g) return;
     const linhas = g.meses.map((mes, i) => ({
-      mes, combustivel: g.combustivel_mes[i], nfCombustivel: (g.nfs_combustivel_mes || [])[i] || 0, manutencao: g.manutencao_mes[i],
+      mes, combustivel: g.combustivel_mes[i], manutencao: g.manutencao_mes[i],
       compras: g.compras_mes[i], uniformes: g.uniformes_mes[i],
       meta: g.meta_mes[i], realizado: g.realizado_mes[i],
       realizadoGeral: g.realizado_geral_mes[i]
@@ -473,8 +454,7 @@
       titulo: 'Gasto por ciclo e meta (últimos 12 ciclos)', canvasId: 'graficoMeses', semPeriodo: true,
       colunas: [
         { rotulo: 'Ciclo', campo: 'mes' },
-        { rotulo: 'Combustível consumido', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
-        { rotulo: 'NF combustível', classe: 'text-end num', render: l => SGMF.moeda(l.nfCombustivel) },
+        { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
         { rotulo: 'Compras (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.compras) },
         { rotulo: 'Uniformes (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.uniformes) },
@@ -692,26 +672,37 @@
     try {
       const d = await SGMF.get('/api/combustivel/estoque-resumo');
       if (!d.itens || !d.itens.length) {
-        area.innerHTML = `<div class="cartao-corpo text-muted" style="font-size:13px">
-          Estoque de combustível ainda não ativado. Lance a primeira NF na aba Combustível.</div>`;
+        area.innerHTML = `<div class="text-muted" style="font-size:12.5px">
+          Estoque de combustível ainda não ativado. Lance uma NF/entrada na aba Combustível.</div>`;
         return;
       }
       area.innerHTML = [
-        medidor('Estoque combustível', `${SGMF.numero(d.litros_estoque, 1)} <small>L</small>`, { icone: 'fa-oil-well', nota: 'saldo físico atual' }),
-        medidor('Valor do estoque', SGMF.moeda(d.valor_estoque), { icone: 'fa-coins', estilo: 'font-size:19px', nota: 'não compõe despesa geral' }),
-        medidor('Comprado por NF', SGMF.moeda(d.valor_comprado), { icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px', nota: `${SGMF.numero(d.litros_comprados, 1)} L desde a ativação` }),
-        medidor('Consumido da reserva', SGMF.moeda(d.valor_consumido), { icone: 'fa-gas-pump', estilo: 'font-size:19px', nota: `${SGMF.numero(d.litros_consumidos, 1)} L baixados` })
+        medidor('Saldo combustível', `${SGMF.numero(d.litros_estoque, 1)} <small>L</small>`, {
+          icone: 'fa-oil-well', nota: 'saldo físico atual' }),
+        medidor('Valor do estoque', SGMF.moeda(d.valor_estoque), {
+          icone: 'fa-coins', estilo: 'font-size:19px', nota: 'controle separado das despesas gerais' }),
+        medidor('Entradas por NF', SGMF.moeda(d.valor_comprado), {
+          icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
+          nota: `${SGMF.numero(d.litros_comprados, 1)} L registrados` }),
+        medidor('Consumido da reserva', SGMF.moeda(d.valor_consumido), {
+          icone: 'fa-gas-pump', estilo: 'font-size:19px',
+          nota: `${SGMF.numero(d.litros_consumidos, 1)} L baixados` })
       ].join('');
     } catch (e) {
-      area.innerHTML = `<div class="text-danger p-2">${SGMF.esc(e.message)}</div>`;
+      // A falha do módulo novo nunca bloqueia o Dashboard antigo.
+      area.innerHTML = `<div class="text-muted" style="font-size:12.5px">
+        Controle de combustível indisponível no momento. Os demais dados do painel continuam ativos.</div>`;
     }
   }
 
   async function atualizar() {
+    // Mantém o carregamento ORIGINAL do Dashboard.
     try {
-      await Promise.all([carregarIndicadores(), carregarEstoqueCombustivelDashboard(), carregarGraficos(), carregarConsumoDiario(), carregarCombustivelDiario(), carregarConsumoFrotas(),
+      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(), carregarCombustivelDiario(), carregarConsumoFrotas(),
                          carregarHorasMecanicos(), carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
+    // O estoque é propositalmente isolado: nunca impede os cards/gráficos antigos.
+    carregarEstoqueCombustivelDashboard().catch(() => {});
   }
 
   function definirCicloOperacionalInicial() {

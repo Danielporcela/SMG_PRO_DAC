@@ -16,19 +16,21 @@
 {% block conteudo %}
 <div class="instrumentos mb-3" id="instrumentos"></div>
 
-<div class="cartao mb-3">
+<div class="cartao mb-3" id="blocoEstoqueCombustivel">
   <div class="cartao-topo">
-    <h3><i class="fa-solid fa-gas-pump me-2" style="color:var(--petroleo)"></i>Combustível — controle separado das despesas gerais</h3>
+    <h3><i class="fa-solid fa-gas-pump me-2" style="color:var(--petroleo)"></i>Estoque de combustível <span class="text-muted" style="font-size:11px;font-weight:400">(controle separado)</span></h3>
     <a href="/combustivel" class="btn btn-contorno btn-sm ms-auto">Abrir combustível</a>
   </div>
-  <div class="instrumentos p-3" id="estoqueCombustivelDashboard"></div>
+  <div class="instrumentos p-3" id="estoqueCombustivelDashboard">
+    <div class="text-muted" style="font-size:12.5px">Carregando estoque de combustível…</div>
+  </div>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-8">
     <div class="cartao h-100">
       <div class="cartao-topo">
-        <h3><i class="fa-solid fa-chart-column me-2" style="color:var(--petroleo)"></i>Despesas por ciclo + combustível separado</h3>
+        <h3><i class="fa-solid fa-chart-column me-2" style="color:var(--petroleo)"></i>Gasto por ciclo e meta</h3>
         <span class="ms-auto me-2" style="font-size:11.5px;color:var(--texto-suave)">Últimos 12 ciclos · dia 20 → dia 20</span>
         <button type="button" class="btn btn-contorno btn-sm" title="Imprimir" onclick="imprimirGraficoMeses()">
           <i class="fa-solid fa-print"></i>
