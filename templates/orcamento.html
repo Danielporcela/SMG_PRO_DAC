@@ -1,7 +1,7 @@
 {% extends "lista.html" %}
 {% block titulo %}Meta x realizado{% endblock %}
 {% block cabecalho %}Meta × realizado{% endblock %}
-{% block descricao %}Módulo 8 — defina metas mensais para a frota e para os grupos de consumo.{% endblock %}
+{% block descricao %}Módulo 8 — metas de despesas gerais. Combustível é acompanhado separadamente no módulo Combustível.{% endblock %}
 {% block rotulo_novo %}Nova meta{% endblock %}
 
 {% block antes_tabela %}
@@ -50,7 +50,7 @@ SGMF.tela({
       data: {
         labels: g.meses,
         datasets: [
-          { type: 'bar', label: 'Realizado', data: g.realizado_mes,
+          { type: 'bar', label: 'Realizado (sem combustível)', data: g.realizado_mes,
             backgroundColor: g.realizado_mes.map((v, i) =>
               g.meta_mes[i] && v > g.meta_mes[i] ? '#C4451D' : '#0F3D56'), borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',

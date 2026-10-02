@@ -495,7 +495,7 @@ class Peca(db.Model):
                 "cst_icms": self.cst_icms, "cst_pis": self.cst_pis,
                 "cst_cofins": self.cst_cofins, "cst_ibs_cbs": self.cst_ibs_cbs,
                 "classificacao_tributaria": self.classificacao_tributaria,
-                "abaixo_minimo": (self.estoque_minimo or 0) > 0 and (self.quantidade or 0) <= (self.estoque_minimo or 0),
+                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
                 "identificacao": f"{self.codigo} · {self.descricao}"}
 
 
@@ -1012,6 +1012,56 @@ class Lavagem(db.Model):
         }
 
 
+class ControleEstoqueCombustivel(db.Model):
+    """Marca a data a partir da qual cada combustível passa a ter estoque controlado."""
+    __tablename__ = "controle_estoque_combustivel"
+    id = db.Column(db.Integer, primary_key=True)
+    combustivel = db.Column(db.String(30), nullable=False, unique=True, index=True)
+    data_inicio = db.Column(db.Date, nullable=False, index=True)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "combustivel": self.combustivel,
+            "data_inicio": self.data_inicio.isoformat() if self.data_inicio else None,
+        }
+
+
+class NotaFiscalCombustivel(db.Model):
+    """Entrada física de combustível no estoque a partir de uma nota fiscal."""
+    __tablename__ = "notas_fiscais_combustivel"
+    id = db.Column(db.Integer, primary_key=True)
+    numero_nf = db.Column(db.String(40), nullable=False, index=True)
+    data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
+    combustivel = db.Column(db.String(30), default="Diesel S10", nullable=False, index=True)
+    litros = db.Column(db.Float, default=0, nullable=False)
+    valor_litro = db.Column(db.Float, default=0, nullable=False)
+    valor_total = db.Column(db.Float, default=0, nullable=False)
+    vencimento = db.Column(db.Date)
+    observacao = db.Column(db.Text)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    fornecedor = db.relationship("Fornecedor")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "numero_nf": self.numero_nf,
+            "data": self.data.isoformat() if self.data else None,
+            "fornecedor_id": self.fornecedor_id,
+            "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
+            "combustivel": self.combustivel,
+            "litros": round(self.litros or 0, 3),
+            "valor_litro": round(self.valor_litro or 0, 4),
+            "valor_total": round(self.valor_total or 0, 2),
+            "vencimento": self.vencimento.isoformat() if self.vencimento else None,
+            "observacao": self.observacao,
+            "identificacao": f"NF {self.numero_nf} · {self.combustivel}",
+        }
+
+
 class Abastecimento(db.Model):
     """Módulo 5 — combustível."""
     __tablename__ = "abastecimentos"
@@ -1447,7 +1497,7 @@ class SaldoUniforme(db.Model):
                 "quantidade": self.quantidade or 0,
                 "estoque_minimo": self.estoque_minimo or 0,
                 "falta_comprar": self.falta_comprar,
-                "abaixo_minimo": (self.estoque_minimo or 0) > 0
+                "abaixo_minimo": bool(self.estoque_minimo)
                                  and (self.quantidade or 0) <= (self.estoque_minimo or 0)}
 
 

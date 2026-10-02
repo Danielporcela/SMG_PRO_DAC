@@ -36,10 +36,13 @@
       medidor('Consumo médio', `${SGMF.numero(d.consumo_medio, 2)} <small>km/L</small>`, {
         icone: 'fa-gas-pump',
         nota: `${SGMF.numero(d.litros, 1)} litros · média da média: ${SGMF.numero(d.consumo_medio_media_da_media, 2)} km/L` }),
-      medidor('Custo por km', SGMF.moeda(d.custo_por_km), {
-        icone: 'fa-coins', estilo: 'font-size:21px' }),
-      medidor('Combustível', SGMF.moeda(d.gasto_combustivel), {
-        icone: 'fa-fill-drip', estilo: 'font-size:19px', nota: `${d.abastecimentos} abastecimentos` }),
+      medidor('Custo operacional/km', SGMF.moeda(d.custo_por_km), {
+        icone: 'fa-coins', estilo: 'font-size:21px', nota: 'inclui combustível para análise operacional' }),
+      medidor('Combustível consumido', SGMF.moeda(d.gasto_combustivel), {
+        icone: 'fa-fill-drip', estilo: 'font-size:19px', nota: `${d.abastecimentos} abastecimentos · controle separado` }),
+      medidor('NF de combustível', SGMF.moeda(d.gasto_nfs_combustivel), {
+        icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
+        nota: `${d.notas_combustivel_qtd} NF(s) · ${SGMF.numero(d.litros_nfs_combustivel, 1)} L · fora das despesas gerais` }),
       medidor('Manutenção', SGMF.moeda(d.gasto_manutencao), {
         icone: 'fa-wrench', estilo: 'font-size:19px',
         nota: `${d.os_preventivas} preventivas · ${d.os_corretivas} corretivas · inclui terceiros` }),
@@ -60,7 +63,7 @@
         icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
       medidor('Gasto total geral', SGMF.moeda(d.gasto_total_geral), {
         icone: 'fa-coins', estilo: 'font-size:19px',
-        nota: 'frota + compras de peças + uniformes (NF)' }),
+        nota: 'manutenção + lavagem + peças + uniformes · combustível separado' }),
       medidor(d.economia_periodo === null || d.economia_periodo >= 0
           ? 'Economia no período'
           : 'Despesa excedente no período',
@@ -90,16 +93,18 @@
       data: {
         labels: g.meses,
         datasets: [
-          { type: 'bar', label: 'Combustível', data: g.combustivel_mes,
-            backgroundColor: '#0F3D56', stack: 'gasto', borderRadius: 2 },
+          { type: 'bar', label: 'Combustível consumido', data: g.combustivel_mes,
+            backgroundColor: '#0F3D56', stack: 'combustivel', borderRadius: 2 },
+          { type: 'bar', label: 'NF combustível', data: g.nfs_combustivel_mes || [],
+            backgroundColor: '#567C8D', stack: 'combustivel', borderRadius: 2 },
           { type: 'bar', label: 'Manutenção (incl. terceiros)', data: g.manutencao_mes,
-            backgroundColor: '#7FA9C2', stack: 'gasto', borderRadius: 2 },
+            backgroundColor: '#7FA9C2', stack: 'despesas', borderRadius: 2 },
           { type: 'bar', label: 'Lavagem', data: g.lavagem_mes,
-            backgroundColor: '#4FB0C6', stack: 'gasto', borderRadius: 2 },
+            backgroundColor: '#4FB0C6', stack: 'despesas', borderRadius: 2 },
           { type: 'bar', label: 'Compras (NF)', data: g.compras_mes,
-            backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },
+            backgroundColor: '#16795D', stack: 'despesas', borderRadius: 2 },
           { type: 'bar', label: 'Uniformes (NF)', data: g.uniformes_mes,
-            backgroundColor: '#8B6F47', stack: 'gasto', borderRadius: 2 },
+            backgroundColor: '#8B6F47', stack: 'despesas', borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
             borderWidth: 2, borderDash: [5, 4], pointRadius: 2, tension: .25, fill: false }
         ]
@@ -340,110 +345,20 @@
         </tr>`).join('')}</tbody></table>`;
   }
 
-  let ultimosAlertas = [];
-
   async function carregarAlertas() {
     const lista = await SGMF.carregarContadorAlertas();
-    ultimosAlertas = lista || [];
     const icones = { critico: 'fa-circle-exclamation', atencao: 'fa-triangle-exclamation', info: 'fa-circle-info' };
     const area = document.getElementById('painelAlertas');
     area.innerHTML = lista.length
-      ? lista.slice(0, 12).map((a, indice) => `<div class="alerta-item ${a.nivel}">
+      ? lista.slice(0, 12).map(a => `<div class="alerta-item ${a.nivel}">
           <div class="icone"><i class="fa-solid ${icones[a.nivel]}"></i></div>
-          <div style="flex:1;min-width:0">
-            <div class="titulo">
-              ${a.frota ? `<span class="etiqueta ambar me-2">${SGMF.esc(a.frota)}${a.placa ? ' · ' + SGMF.esc(a.placa) : ''}</span>` : ''}
-              ${SGMF.esc(a.titulo)}
-            </div>
-            <div class="detalhe">${SGMF.esc(a.detalhe)}</div>
-            ${a.ordens_servico?.length ? `<div class="detalhe mt-1"><strong>OS relacionadas:</strong> ${a.ordens_servico.map(o => SGMF.esc(o.numero)).join(', ')}</div>` : ''}
-            <div class="mt-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="imprimirAlerta(${indice})">
-                <i class="fa-solid fa-print me-1"></i>Imprimir
-              </button>
-            </div>
-          </div>
-        </div>`).join('')
+          <div><div class="titulo">
+                 ${a.frota ? `<span class="etiqueta ambar me-2">${SGMF.esc(a.frota)}${a.placa ? ' · ' + SGMF.esc(a.placa) : ''}</span>` : ''}
+                 ${SGMF.esc(a.titulo)}
+               </div>
+               <div class="detalhe">${SGMF.esc(a.detalhe)}</div></div></div>`).join('')
       : `<div class="vazio"><i class="fa-solid fa-circle-check" style="color:var(--ok)"></i>
-          <strong>Nenhum alerta ativo</strong>Preventivas e orçamento estão dentro do previsto.</div>`;
-  }
-
-  function imprimirAlerta(indice) {
-    const a = ultimosAlertas[indice];
-    if (!a) return SGMF.aviso('Alerta não encontrado. Atualize o painel e tente novamente.');
-
-    const ordens = Array.isArray(a.ordens_servico) ? a.ordens_servico : [];
-    const janela = window.open('', '_blank', 'width=980,height=760');
-    if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
-
-    const doc = janela.document;
-    doc.title = `${a.categoria || 'Alerta'} · ${a.frota || ''} · SGMF Pro`;
-
-    const estilo = doc.createElement('style');
-    estilo.textContent = `
-      * { box-sizing: border-box; }
-      body { font-family: Arial, Helvetica, sans-serif; color:#182530; margin:0; padding:26px 30px; }
-      h1 { margin:0; color:#0F3D56; font-size:20px; }
-      .sub { color:#66737d; font-size:12px; margin:4px 0 18px; }
-      .alerta { border:1px solid #D7DEE4; border-left:5px solid #C23B3B; border-radius:7px; padding:13px 15px; margin-bottom:18px; }
-      .alerta h2 { font-size:15px; margin:0 0 6px; }
-      .alerta p { margin:0; font-size:12.5px; line-height:1.45; }
-      table { width:100%; border-collapse:collapse; font-size:11.5px; }
-      th, td { border:1px solid #D3DBE2; padding:6px 7px; vertical-align:top; }
-      th { background:#0F3D56; color:white; text-transform:uppercase; font-size:10px; }
-      tr:nth-child(even) td { background:#F5F7F9; }
-      .num { text-align:right; white-space:nowrap; }
-      .rodape { margin-top:16px; color:#888; font-size:10.5px; }
-      @media print { @page { size:A4 landscape; margin:10mm; } body { padding:0; } }
-    `;
-    doc.head.appendChild(estilo);
-
-    const formatarData = valor => {
-      if (!valor) return '—';
-      const p = String(valor).slice(0, 10).split('-');
-      return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : valor;
-    };
-
-    const tabelaOS = ordens.length ? `
-      <h2 style="font-size:15px;color:#0F3D56;margin:18px 0 8px">Ordens de serviço que originaram a recorrência</h2>
-      <table>
-        <thead><tr>
-          <th>OS</th><th>Abertura</th><th>Fechamento</th><th>Tipo</th><th>Grupo</th>
-          <th>Status</th><th>Prioridade</th><th>Descrição / ocorrência</th><th>Mecânico</th>
-          <th class="num">KM</th><th class="num">Custo</th>
-        </tr></thead>
-        <tbody>${ordens.map(o => `<tr>
-          <td><strong>${SGMF.esc(o.numero || ('#' + o.id))}</strong></td>
-          <td>${formatarData(o.data_abertura)}</td>
-          <td>${formatarData(o.data_fechamento)}</td>
-          <td>${SGMF.esc(o.tipo || '—')}</td>
-          <td>${SGMF.esc(o.grupo || '—')}</td>
-          <td>${SGMF.esc(o.status || '—')}</td>
-          <td>${SGMF.esc(o.prioridade || '—')}</td>
-          <td>${SGMF.esc(o.descricao || '—')}</td>
-          <td>${SGMF.esc(o.mecanico || '—')}</td>
-          <td class="num">${SGMF.numero(o.km_veiculo || 0)}</td>
-          <td class="num">${SGMF.moeda(o.custo_total || 0)}</td>
-        </tr>`).join('')}</tbody>
-      </table>` : `
-      <p style="font-size:12px;color:#666">Este alerta não possui uma relação de ordens de serviço associadas.</p>`;
-
-    const conteudo = doc.createElement('div');
-    conteudo.innerHTML = `
-      <h1>Relatório de alerta · ${SGMF.esc(a.categoria || 'Alerta')}</h1>
-      <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} · Sistema de Gestão de Manutenção de Frotas</div>
-      <div class="alerta">
-        <h2>${SGMF.esc(a.titulo)}</h2>
-        <p><strong>Frota:</strong> ${SGMF.esc(a.frota || '—')} &nbsp; <strong>Placa:</strong> ${SGMF.esc(a.placa || '—')}</p>
-        <p><strong>Detalhe:</strong> ${SGMF.esc(a.detalhe || '—')}</p>
-        ${a.grupo_recorrencia ? `<p><strong>Grupo:</strong> ${SGMF.esc(a.grupo_recorrencia)} &nbsp; <strong>Janela analisada:</strong> ${SGMF.esc(a.periodo_dias || 90)} dias</p>` : ''}
-      </div>
-      ${tabelaOS}
-      <div class="rodape">As OS listadas usam exatamente os mesmos critérios que dispararam o alerta de recorrência.</div>`;
-    doc.body.appendChild(conteudo);
-
-    janela.onload = () => { janela.focus(); janela.print(); };
-    if (doc.readyState === 'complete') { janela.focus(); janela.print(); }
+          <strong>Nenhum alerta ativo</strong>Preventivas, pneus e orçamento estão dentro do previsto.</div>`;
   }
 
   async function carregarConectados() {
@@ -549,7 +464,7 @@
   function imprimirGraficoMeses() {
     const g = precisaGraficos(); if (!g) return;
     const linhas = g.meses.map((mes, i) => ({
-      mes, combustivel: g.combustivel_mes[i], manutencao: g.manutencao_mes[i],
+      mes, combustivel: g.combustivel_mes[i], nfCombustivel: (g.nfs_combustivel_mes || [])[i] || 0, manutencao: g.manutencao_mes[i],
       compras: g.compras_mes[i], uniformes: g.uniformes_mes[i],
       meta: g.meta_mes[i], realizado: g.realizado_mes[i],
       realizadoGeral: g.realizado_geral_mes[i]
@@ -558,7 +473,8 @@
       titulo: 'Gasto por ciclo e meta (últimos 12 ciclos)', canvasId: 'graficoMeses', semPeriodo: true,
       colunas: [
         { rotulo: 'Ciclo', campo: 'mes' },
-        { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
+        { rotulo: 'Combustível consumido', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
+        { rotulo: 'NF combustível', classe: 'text-end num', render: l => SGMF.moeda(l.nfCombustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
         { rotulo: 'Compras (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.compras) },
         { rotulo: 'Uniformes (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.uniformes) },
@@ -767,12 +683,33 @@
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
     imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas,
-    imprimirGraficoConsumoDiario, imprimirHorasMecanicos, imprimirAlerta
+    imprimirGraficoConsumoDiario, imprimirHorasMecanicos
   });
+
+  async function carregarEstoqueCombustivelDashboard() {
+    const area = document.getElementById('estoqueCombustivelDashboard');
+    if (!area) return;
+    try {
+      const d = await SGMF.get('/api/combustivel/estoque-resumo');
+      if (!d.itens || !d.itens.length) {
+        area.innerHTML = `<div class="cartao-corpo text-muted" style="font-size:13px">
+          Estoque de combustível ainda não ativado. Lance a primeira NF na aba Combustível.</div>`;
+        return;
+      }
+      area.innerHTML = [
+        medidor('Estoque combustível', `${SGMF.numero(d.litros_estoque, 1)} <small>L</small>`, { icone: 'fa-oil-well', nota: 'saldo físico atual' }),
+        medidor('Valor do estoque', SGMF.moeda(d.valor_estoque), { icone: 'fa-coins', estilo: 'font-size:19px', nota: 'não compõe despesa geral' }),
+        medidor('Comprado por NF', SGMF.moeda(d.valor_comprado), { icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px', nota: `${SGMF.numero(d.litros_comprados, 1)} L desde a ativação` }),
+        medidor('Consumido da reserva', SGMF.moeda(d.valor_consumido), { icone: 'fa-gas-pump', estilo: 'font-size:19px', nota: `${SGMF.numero(d.litros_consumidos, 1)} L baixados` })
+      ].join('');
+    } catch (e) {
+      area.innerHTML = `<div class="text-danger p-2">${SGMF.esc(e.message)}</div>`;
+    }
+  }
 
   async function atualizar() {
     try {
-      await Promise.all([carregarIndicadores(), carregarGraficos(), carregarConsumoDiario(), carregarCombustivelDiario(), carregarConsumoFrotas(),
+      await Promise.all([carregarIndicadores(), carregarEstoqueCombustivelDashboard(), carregarGraficos(), carregarConsumoDiario(), carregarCombustivelDiario(), carregarConsumoFrotas(),
                          carregarHorasMecanicos(), carregarAlertas(), carregarConectados()]);
     } catch (e) { SGMF.falha(e.message); }
   }

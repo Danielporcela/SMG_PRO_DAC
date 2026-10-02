@@ -179,7 +179,7 @@ class ErroNegocio(Exception):
 
 # -------------------------------------------------------------- fábrica
 def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
-                   antes_salvar=None, depois_salvar=None, antes_excluir=None,
+                   antes_salvar=None, depois_salvar=None, antes_excluir=None, depois_excluir=None,
                    serializar=None, filtrar=None, tela=None,
                    campos_liberados_para_restrito=None,
                    campos_bloqueados_para_cargos=None):
@@ -304,12 +304,15 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
 
     @bp.delete(f"/{nome}/<int:registro_id>", endpoint=f"{nome}_excluir")
     @protetor_escrita
-    def _excluir(registro_id, Model=Model, antes_excluir=antes_excluir, nome=nome):
+    def _excluir(registro_id, Model=Model, antes_excluir=antes_excluir, depois_excluir=depois_excluir, nome=nome):
         obj = db.get_or_404(Model, registro_id)
         try:
             if antes_excluir:
                 antes_excluir(obj)
             db.session.delete(obj)
+            db.session.flush()
+            if depois_excluir:
+                depois_excluir(obj)
             registrar_log("excluir", nome, registro_id)
             db.session.commit()
         except ErroNegocio as e:

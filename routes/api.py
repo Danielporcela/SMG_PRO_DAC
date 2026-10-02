@@ -12,6 +12,7 @@ from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, Item
                     Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoTerceiro, Usuario,
                     Veiculo, proximo_codigo_peca)
 from services import indicadores
+from services.estoque_combustivel import recalcular_estoque_combustivel
 from services.importacao import importar_abastecimentos_workbook
 from services.calculos import (atualizar_consumo_diario_frota, baixar_item_os,
                                dar_entrada_serial, desvincular_movimentos,
@@ -626,6 +627,16 @@ def _antes_abastecimento(obj, dados, anterior):
 
 def _depois_abastecimento(obj, dados, anterior):
     recalcular_abastecimento(obj)
+    # Se já existe NF para este combustível, o valor do abastecimento deixa de
+    # ser digitado manualmente e passa a usar o custo médio ponderado do estoque.
+    recalcular_estoque_combustivel(obj.combustivel)
+    if anterior and anterior.get("combustivel") and anterior.get("combustivel") != obj.combustivel:
+        recalcular_estoque_combustivel(anterior["combustivel"])
+    atualizar_consumo_diario_frota()
+
+
+def _depois_excluir_abastecimento(obj):
+    recalcular_estoque_combustivel(obj.combustivel)
     atualizar_consumo_diario_frota()
 
 
@@ -638,6 +649,7 @@ registrar_crud(
     ordem=Abastecimento.data.desc(), obrigatorios=("veiculo_id", "km_atual", "litros"),
     tela="combustivel",
     antes_salvar=_antes_abastecimento, depois_salvar=_depois_abastecimento,
+    depois_excluir=_depois_excluir_abastecimento,
     filtrar=_filtro_periodo(Abastecimento.data))
 
 

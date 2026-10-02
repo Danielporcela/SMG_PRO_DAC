@@ -5,6 +5,25 @@ from extensions import db
 
 
 
+def garantir_estoque_combustivel():
+    """Cria as tabelas do estoque de combustível sem depender de migration pendente."""
+    from models import ControleEstoqueCombustivel, NotaFiscalCombustivel
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+    # Banco totalmente novo ainda não possui as tabelas-base; `preparar_banco()`
+    # executará db.create_all() depois.
+    if "fornecedores" not in tabelas or "abastecimentos" not in tabelas:
+        return
+    # Em banco existente, cria somente o módulo novo sem tocar nas tabelas antigas.
+    if "controle_estoque_combustivel" not in tabelas:
+        ControleEstoqueCombustivel.__table__.create(engine, checkfirst=True)
+    if "notas_fiscais_combustivel" not in tabelas:
+        NotaFiscalCombustivel.__table__.create(engine, checkfirst=True)
+
+
+
 def garantir_consumo_diario():
     """Garante a tabela do histórico diário de consumo.
 

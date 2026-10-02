@@ -6,7 +6,7 @@ from sqlalchemy import case, func
 
 from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme)
+                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme, NotaFiscalCombustivel)
 from services.auditoria_estoque import contar_os_pendentes
 from services.tempo import hoje as data_de_hoje
 
@@ -90,6 +90,12 @@ def _notas_uniformes_finalizadas(inicio, fim):
         NotaFiscalUniforme.status == "Finalizada",
         NotaFiscalUniforme.data_entrada.between(inicio, fim)).all()
 
+def _notas_combustivel(inicio, fim):
+    """Compras de combustível por NF, mantidas fora das despesas gerais."""
+    return NotaFiscalCombustivel.query.filter(
+        NotaFiscalCombustivel.data.between(inicio, fim)).all()
+
+
 def _custo_km_historico(ate, veiculo_id=None):
     """Custo por km da frota antes do período — a régua da comparação."""
     q_ab = Abastecimento.query.filter(Abastecimento.data < ate)
@@ -145,6 +151,9 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     gasto_manut = round(gasto_manut_os + gasto_terceiros, 2)
     gasto_lavagem = round(sum(l.valor or 0 for l in lavagens), 2)
     gasto_comb = round(sum(a.valor_total or 0 for a in abastecimentos), 2)
+    notas_combustivel = _notas_combustivel(inicio, fim)
+    gasto_nfs_combustivel = round(sum(n.valor_total or 0 for n in notas_combustivel), 2)
+    litros_nfs_combustivel = round(sum(n.litros or 0 for n in notas_combustivel), 1)
     notas_compra = _notas_finalizadas(inicio, fim)
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
     notas_uniformes = _notas_uniformes_finalizadas(inicio, fim)
@@ -199,13 +208,17 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "abastecimentos": len(abastecimentos),
         "litros": round(litros, 1),
         "gasto_combustivel": gasto_comb,
+        "gasto_nfs_combustivel": gasto_nfs_combustivel,
+        "litros_nfs_combustivel": litros_nfs_combustivel,
+        "notas_combustivel_qtd": len(notas_combustivel),
         "gasto_manutencao_os": gasto_manut_os,
         "gasto_servicos_terceiros": gasto_terceiros,
         "servicos_terceiros_qtd": len(servicos_terceiros),
         "gasto_manutencao": gasto_manut,
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
-        "gasto_total": round(gasto_comb + gasto_manut + gasto_lavagem, 2),
+        # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
+        "gasto_total": round(gasto_manut + gasto_lavagem, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
         "gasto_uniformes": gasto_uniformes,
@@ -213,7 +226,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
         # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
         # aderência ao orçamento por veículo sempre significaram no painel.
-        "gasto_total_geral": round(gasto_comb + gasto_manut + gasto_lavagem + gasto_compras + gasto_uniformes, 2),
+        "gasto_total_geral": round(gasto_manut + gasto_lavagem + gasto_compras + gasto_uniformes, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "consumo_medio_media_da_media": consumo_medio_media_da_media,
@@ -231,7 +244,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
-        "aderencia_orcamento": round((gasto_comb + gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
+        "aderencia_orcamento": round((gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(sum((p.quantidade or 0) * (p.custo_unitario or 0)
                                    for p in Peca.query.all()), 2),
         "estoque_critico": Peca.query.filter(Peca.estoque_minimo > 0,
@@ -284,7 +297,7 @@ def series_graficos(inicio=None, fim=None):
 
     # 12 ciclos operacionais móveis, sempre do dia 20 ao dia 20 seguinte.
     # O fim é exclusivo para que o dia 20 pertença somente ao novo ciclo.
-    meses, comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], []
+    meses, comb_mes, nfs_comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], [], []
     ciclo_atual_ini, _ = ciclo_operacional(hoje)
     for i in range(11, -1, -1):
         ini = _somar_meses(ciclo_atual_ini, -i)
@@ -293,6 +306,9 @@ def series_graficos(inicio=None, fim=None):
         meses.append(f"20/{MESES[ini.month - 1]} → 20/{MESES[limite.month - 1]}")
         comb_mes.append(round(db.session.query(func.sum(Abastecimento.valor_total))
                               .filter(Abastecimento.data >= ini, Abastecimento.data < limite).scalar() or 0, 2))
+        nfs_comb_mes.append(round(db.session.query(func.sum(NotaFiscalCombustivel.valor_total))
+                                  .filter(NotaFiscalCombustivel.data >= ini,
+                                          NotaFiscalCombustivel.data < limite).scalar() or 0, 2))
         ordens = _custo_os(ini, f)
         terceiros = _servicos_terceiros(ini, f)
         manut_mes.append(round(sum(o.custo_total for o in ordens)
@@ -402,12 +418,12 @@ def series_graficos(inicio=None, fim=None):
         tipos[o.tipo] = tipos.get(o.tipo, 0) + 1
 
     return {
-        "meses": meses, "combustivel_mes": comb_mes, "manutencao_mes": manut_mes,
+        "meses": meses, "combustivel_mes": comb_mes, "nfs_combustivel_mes": nfs_comb_mes, "manutencao_mes": manut_mes,
         "compras_mes": compras_mes, "uniformes_mes": uniformes_mes, "lavagem_mes": lavagem_mes,
         "meta_mes": meta_mes,
-        "realizado_mes": [round(c + m + l, 2) for c, m, l in zip(comb_mes, manut_mes, lavagem_mes)],
-        "realizado_geral_mes": [round(c + m + l + p + u, 2)
-                                for c, m, l, p, u in zip(comb_mes, manut_mes, lavagem_mes, compras_mes, uniformes_mes)],
+        "realizado_mes": [round(m + l, 2) for m, l in zip(manut_mes, lavagem_mes)],
+        "realizado_geral_mes": [round(m + l + p + u, 2)
+                                for m, l, p, u in zip(manut_mes, lavagem_mes, compras_mes, uniformes_mes)],
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
@@ -647,7 +663,16 @@ def alertas():
                     f"Média recente {media_recente:.2f} km/L contra {media_hist:.2f} km/L histórica.",
                     v.placa, veiculo=v)
 
-    # Alertas de pneus desativados por regra de negócio.
+    # pneus no limite
+    for p in Pneu.query.filter(Pneu.status == "Em uso").all():
+        if (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"]:
+            add("critico", "Pneus", f"Pneu {p.numero_fogo} abaixo do sulco mínimo",
+                f"{p.sulco_mm:.1f} mm em {p.posicao or 'posição não informada'} "
+                f"({p.veiculo.prefixo if p.veiculo else 'sem veículo'}). Limite: "
+                f"{cfg['SULCO_MINIMO_MM']:.0f} mm.", p.numero_fogo, veiculo=p.veiculo)
+        elif (p.sulco_mm or 0) < cfg["SULCO_MINIMO_MM"] + 1:
+            add("atencao", "Pneus", f"Pneu {p.numero_fogo} próximo do limite",
+                f"{p.sulco_mm:.1f} mm — programe a troca.", p.numero_fogo, veiculo=p.veiculo)
 
     pendencias_estoque_os = contar_os_pendentes()
     if pendencias_estoque_os:

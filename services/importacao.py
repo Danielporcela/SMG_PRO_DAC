@@ -668,12 +668,13 @@ def gravar_abastecimentos(linhas):
         for item in linhas:
             d = dict(item.get("dados") or item)
             veiculo_id = int(d["veiculo_id"])
+            veiculo = db.session.get(Veiculo, veiculo_id)
             obj = Abastecimento(
                 veiculo_id=veiculo_id,
                 data=ler_data(d.get("data"), "DATA"),
                 litros=float(d.get("litros") or 0),
                 km_atual=float(d.get("km_atual") or 0),
-                combustivel="Diesel S10",
+                combustivel=(veiculo.combustivel if veiculo and veiculo.combustivel else "Diesel S10"),
                 valor_litro=0,
                 valor_total=0,
                 tanque_cheio=True,
@@ -692,6 +693,13 @@ def gravar_abastecimentos(linhas):
                          .all())
             for obj in historico:
                 recalcular_abastecimento(obj)
+
+        # Baixa automática do estoque. Se o controle já estiver ativo por NF,
+        # a importação inteira é atômica: saldo insuficiente cancela tudo.
+        from services.estoque_combustivel import recalcular_estoque_combustivel
+        combustiveis_afetados = {obj.combustivel for obj in criados}
+        for combustivel in combustiveis_afetados:
+            recalcular_estoque_combustivel(combustivel)
 
         atualizar_consumo_diario_frota()
         db.session.flush()
@@ -769,6 +777,7 @@ def importar_abastecimentos_workbook(workbook):
         por_prefixo = _mapa_veiculos_por_prefixo()
         importados = duplicados = ignorados = 0
         erros = []
+        combustiveis_afetados = set()
 
         for numero, row in enumerate(linhas[1:], start=2):
             valores = list(row)
@@ -814,6 +823,7 @@ def importar_abastecimentos_workbook(workbook):
             )
             db.session.add(obj)
             db.session.flush()
+            combustiveis_afetados.add(obj.combustivel)
             importados += 1
 
         if erros:
@@ -829,6 +839,9 @@ def importar_abastecimentos_workbook(workbook):
                              .order_by(Abastecimento.data.asc(), Abastecimento.id.asc()).all())
                 for obj in historico:
                     recalcular_abastecimento(obj)
+            from services.estoque_combustivel import recalcular_estoque_combustivel
+            for combustivel in combustiveis_afetados:
+                recalcular_estoque_combustivel(combustivel)
             db.session.flush()
 
         resumo = {"importados": importados, "duplicados": duplicados, "ignorados": ignorados, "erros": erros}

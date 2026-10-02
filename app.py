@@ -61,6 +61,7 @@ def criar_app(config=Config):
     from routes.auth import bp_auth, bp_usuarios
     from routes.busca_pecas import bp_busca_pecas
     from routes.compras import bp_compras
+    from routes.combustivel_estoque import bp_combustivel_estoque
     from routes.auth_senha import bp_auth_senha
     from routes.extras import bp_extras
     from routes.grupos import bp_grupos
@@ -86,6 +87,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_uniformes)
     app.register_blueprint(bp_busca_pecas)
     app.register_blueprint(bp_compras)
+    app.register_blueprint(bp_combustivel_estoque)
     app.register_blueprint(bp_relatorios_compras)
     app.register_blueprint(bp_rastreio_pecas)
 
@@ -95,6 +97,7 @@ def criar_app(config=Config):
     with app.app_context():
         from services.compatibilidade_banco import (garantir_campos_execucao_os,
                                                      garantir_consumo_diario,
+                                                     garantir_estoque_combustivel,
                                                      garantir_itens_os_servicos_terceiros,
                                                      garantir_lavagens_financeiro,
                                                      garantir_notas_fiscais_uniforme,
@@ -106,6 +109,7 @@ def criar_app(config=Config):
                                                      garantir_grupos_consumo,
                                                      garantir_campos_ordens_servico)
         garantir_consumo_diario()
+        garantir_estoque_combustivel()
         garantir_ordens_compra()
         garantir_pecas_serial()
         garantir_itens_os_servicos_terceiros()
