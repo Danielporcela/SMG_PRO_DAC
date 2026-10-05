@@ -495,7 +495,7 @@ class Peca(db.Model):
                 "cst_icms": self.cst_icms, "cst_pis": self.cst_pis,
                 "cst_cofins": self.cst_cofins, "cst_ibs_cbs": self.cst_ibs_cbs,
                 "classificacao_tributaria": self.classificacao_tributaria,
-                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) <= (self.estoque_minimo or 0),
+                "abaixo_minimo": bool(self.estoque_minimo) and (self.quantidade or 0) > 0 and (self.quantidade or 0) <= (self.estoque_minimo or 0),
                 "identificacao": f"{self.codigo} · {self.descricao}"}
 
 
@@ -765,15 +765,15 @@ class OrdemServico(db.Model):
     __tablename__ = "ordens_servico"
     id = db.Column(db.Integer, primary_key=True)
     numero = db.Column(db.String(20), unique=True, index=True)
-    data_abertura = db.Column(db.Date, default=_hoje)
+    data_abertura = db.Column(db.Date, default=_hoje, index=True)
     data_fechamento = db.Column(db.Date)
-    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False)
+    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False, index=True)
     motorista_id = db.Column(db.Integer, db.ForeignKey("motoristas.id"))
     fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
     mecanico = db.Column(db.String(80))
     tipo = db.Column(db.String(20), default="Preventiva")   # Preventiva | Corretiva | Emergencial
     prioridade = db.Column(db.String(20), default="Média")  # Baixa | Média | Alta | Crítica
-    status = db.Column(db.String(30), default="Aberta")     # Aberta | Em execução | Aguardando peça | Finalizada
+    status = db.Column(db.String(30), default="Aberta", index=True)  # Aberta | Em execução | Aguardando peça | Finalizada
     grupo = db.Column(db.String(40))                        # Motor, Freios, Pneus, ...
     hora_inicio = db.Column(db.Time)
     hora_inicio_servico = db.Column(db.Time)                # início da execução (mecânico), separado da abertura
@@ -789,6 +789,8 @@ class OrdemServico(db.Model):
     custo_mao_obra = db.Column(db.Float, default=0)
     custo_servicos = db.Column(db.Float, default=0)
     avaliacao = db.Column(db.Integer)  # 1 a 5
+    # Índice composto usado pelo painel: OS de um veículo dentro de um período.
+    __table_args__ = (db.Index("ix_ordens_servico_veiculo_data", "veiculo_id", "data_abertura"),)
     veiculo = db.relationship("Veiculo")
     motorista = db.relationship("Motorista")
     fornecedor = db.relationship("Fornecedor")
@@ -810,11 +812,11 @@ class OrdemServico(db.Model):
         """
         itens = round(sum((i.quantidade or 0) * (i.valor_unitario or 0)
                           for i in self.itens if not i.eh_peca), 2)
-        posto_molas = round(sum((s.valor or 0) for s in
-                                ServicoTerceiro.query.filter_by(
-                                    ordem_servico_id=self.id,
-                                    categoria="Posto de Molas"
-                                ).all()), 2)
+        # `posto_molas_valor` é uma coluna calculada (subconsulta) definida
+        # logo abaixo da classe ServicoTerceiro: vem junto no mesmo SELECT que
+        # carrega a OS, então ler custo_total não dispara mais uma consulta
+        # ao banco por ordem de serviço.
+        posto_molas = round(getattr(self, "posto_molas_valor", None) or 0, 2)
         return round(itens + posto_molas, 2)
 
     @property
@@ -884,7 +886,7 @@ class OrdemServico(db.Model):
 class ItemOS(db.Model):
     __tablename__ = "itens_os"
     id = db.Column(db.Integer, primary_key=True)
-    ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"), nullable=False)
+    ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"), nullable=False, index=True)
     peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"))
     descricao = db.Column(db.String(160))
     grupo = db.Column(db.String(40))
@@ -980,6 +982,17 @@ class ServicoTerceiro(db.Model):
             "status_financeiro": self.status_financeiro or "Pendente",
             "identificacao": f"{self.descricao} · {self.prestador}",
         }
+
+
+# Soma dos serviços de "Posto de Molas" lançados para cada OS, calculada pelo
+# próprio banco junto com a consulta da OS (evita 1 consulta por OS ao ler
+# OrdemServico.custo_total). Definida aqui porque depende de ServicoTerceiro.
+OrdemServico.posto_molas_valor = db.column_property(
+    db.select(db.func.coalesce(db.func.sum(ServicoTerceiro.valor), 0.0))
+    .where(ServicoTerceiro.ordem_servico_id == OrdemServico.id,
+           ServicoTerceiro.categoria == "Posto de Molas")
+    .correlate_except(ServicoTerceiro)
+    .scalar_subquery())
 
 
 class Lavagem(db.Model):
@@ -1084,6 +1097,8 @@ class Abastecimento(db.Model):
     km_percorridos = db.Column(db.Float, default=0)
     km_por_litro = db.Column(db.Float, default=0)
     custo_por_km = db.Column(db.Float, default=0)
+    # Painel: abastecimentos de um veículo dentro de um período.
+    __table_args__ = (db.Index("ix_abastecimentos_veiculo_data", "veiculo_id", "data"),)
     veiculo = db.relationship("Veiculo")
     motorista = db.relationship("Motorista")
     fornecedor = db.relationship("Fornecedor")
@@ -1210,7 +1225,10 @@ class Anexo(db.Model):
     nome = db.Column(db.String(200), nullable=False)
     tipo_mime = db.Column(db.String(80))
     tamanho = db.Column(db.Integer, default=0)
-    conteudo = db.Column(db.LargeBinary, nullable=False)
+    # deferred: o arquivo só é lido do banco quando alguém acessa `.conteudo`
+    # (download/visualização). Sem isso, toda consulta de OS ou abastecimento
+    # trazia junto os arquivos binários de todos os anexos (lazy="selectin").
+    conteudo = db.deferred(db.Column(db.LargeBinary, nullable=False))
     descricao = db.Column(db.String(200))
     enviado_por = db.Column(db.String(120))
     criado_em = db.Column(db.DateTime, default=_agora)

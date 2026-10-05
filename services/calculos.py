@@ -105,14 +105,16 @@ def atualizar_consumo_diario_frota():
         registro = ConsumoDiario(data_consumo=hoje_data)
         db.session.add(registro)
 
-    registro.km_por_litro = km_por_litro
-    registro.litros_por_dia = litros_por_dia
-    registro.total_km = total_km
-    registro.total_litros = total_litros
-    registro.dias_monitorados = dias
-    registro.total_abastecimentos = total_abast
-    registro.eficiencia = eficiencia
-    db.session.commit()
+    novos = {"km_por_litro": km_por_litro, "litros_por_dia": litros_por_dia,
+             "total_km": total_km, "total_litros": total_litros,
+             "dias_monitorados": dias, "total_abastecimentos": total_abast,
+             "eficiencia": eficiencia}
+    # Só grava (e faz COMMIT) quando algo mudou: esta função roda toda vez que
+    # o painel é aberto, e na maioria das vezes os números são os mesmos.
+    if registro.id is None or any(getattr(registro, k) != v for k, v in novos.items()):
+        for k, v in novos.items():
+            setattr(registro, k, v)
+        db.session.commit()
     return registro
 
 

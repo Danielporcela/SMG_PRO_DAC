@@ -173,9 +173,9 @@ def montar_dados(relatorio):
         minimo = db.func.coalesce(Peca.estoque_minimo, 0)
 
         if status_peca == "repor":
-            q = q.filter(saldo <= minimo)
+            q = q.filter(minimo > 0, saldo > 0, saldo <= minimo)
         elif status_peca == "ok":
-            q = q.filter(saldo > minimo)
+            q = q.filter((saldo == 0) | (minimo <= 0) | (saldo > minimo))
 
         cab = ["Código", "Descrição", "Grupo", "Un.", "Saldo", "Mínimo",
                "Custo unit. R$", "Valor total R$", "Situação"]
@@ -183,7 +183,8 @@ def montar_dados(relatorio):
                    round(p.quantidade or 0, 2), round(p.estoque_minimo or 0, 2),
                    round(p.custo_unitario or 0, 2),
                    round((p.quantidade or 0) * (p.custo_unitario or 0), 2),
-                   "REPOR" if (p.quantidade or 0) <= (p.estoque_minimo or 0) else "OK"]
+                   "REPOR" if ((p.estoque_minimo or 0) > 0 and (p.quantidade or 0) > 0
+                               and (p.quantidade or 0) <= (p.estoque_minimo or 0)) else "OK"]
                   for p in q.order_by(Peca.grupo, Peca.descricao).all()]
 
     elif relatorio == "movimentos":

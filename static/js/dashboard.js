@@ -23,12 +23,18 @@
       ? `${SGMF.numero(d.aderencia_orcamento, 1)}% do orçamento`
       : 'Sem meta cadastrada';
 
+    // situação atual das OS não finalizadas (não depende do filtro de período)
+    const emManutencao = d.veiculos_parados_manutencao + d.veiculos_aguardando_peca;
+
     document.getElementById('instrumentos').innerHTML = [
       medidor('Frota ativa', d.veiculos_total, {
-        icone: 'fa-truck-front', nota: `${d.veiculos_disponiveis} disponíveis` }),
-      medidor('Em manutenção', d.veiculos_manutencao, {
-        classe: d.veiculos_manutencao ? 'atencao' : 'ok', icone: 'fa-screwdriver-wrench',
-        nota: `${d.os_abertas} OS em aberto` }),
+        icone: 'fa-truck-front',
+        nota: `${d.veiculos_disponiveis} disponíveis<br>` +
+              `${d.veiculos_oficina} da oficina · ${d.veiculos_fiscalizacao} da fiscalização` }),
+      medidor('Em manutenção', emManutencao, {
+        classe: emManutencao ? 'atencao' : 'ok', icone: 'fa-screwdriver-wrench',
+        nota: `${d.veiculos_parados_manutencao} parados por manutenção<br>` +
+              `${d.veiculos_aguardando_peca} aguardando peças` }),
       medidor('Disponibilidade', `${SGMF.numero(d.disponibilidade, 1)}<small>%</small>`, {
         classe: d.disponibilidade >= 90 ? 'ok' : 'atencao', icone: 'fa-circle-check',
         nota: `${d.veiculos_disponiveis} de ${d.veiculos_total} veículos ativos disponíveis` }),
@@ -660,10 +666,45 @@
     ultimoConsumoFrotas = await SGMF.get(`/api/painel/consumo-frotas?${qsPeriodo()}`);
   }
 
+  /* Imprime o painel inteiro: indicadores + todos os cards (gráficos como
+     imagem, tabelas e textos) numa única janela de impressão. */
+  function imprimirPainelCompleto() {
+    if (!ultimosGraficos) return SGMF.aviso('Aguarde o painel terminar de carregar e tente novamente.');
+    const janela = window.open('', '_blank', 'width=1200,height=850');
+    if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
+
+    const blocos = [];
+    const instrumentos = document.getElementById('instrumentos');
+    if (instrumentos && instrumentos.innerText.trim()) {
+      blocos.push(`<section><h2>Indicadores do período</h2>${instrumentos.outerHTML}</section>`);
+    }
+    const cards = [...document.querySelectorAll('.row > [class*="col-"] .cartao')];
+    cards.forEach(card => {
+      const titulo = card.querySelector('.cartao-topo h3')?.innerText?.trim();
+      if (!titulo) return;
+      const canvas = card.querySelector('canvas');
+      const tabela = card.querySelector('table');
+      const texto = card.querySelector('.vazio')?.innerText?.trim();
+      let html = `<section><h2>${SGMF.esc(titulo)}</h2>`;
+      if (canvas) html += `<img src="${canvas.toDataURL('image/png', 1.0)}">`;
+      if (tabela) html += tabela.outerHTML;
+      else if (texto) html += `<p>${SGMF.esc(texto)}</p>`;
+      else if (!canvas) html += `<div style="white-space:pre-line">${SGMF.esc(card.querySelector('.cartao-corpo')?.innerText || '')}</div>`;
+      html += '</section>';
+      blocos.push(html);
+    });
+
+    janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>SGMF Pro · Painel completo</title><style>
+      *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#182530;padding:24px;margin:0}h1{color:#0F3D56;font-size:22px;margin:0 0 4px}.sub{font-size:12px;color:#666;margin-bottom:20px}section{break-inside:avoid;border:1px solid #D3DBE2;border-radius:6px;padding:14px;margin:0 0 16px}h2{font-size:15px;color:#0F3D56;margin:0 0 10px}img{width:100%;max-height:300px;object-fit:contain;margin-bottom:10px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #D3DBE2;padding:5px 7px}th{background:#0F3D56;color:#fff;text-align:left}tr:nth-child(even) td{background:#F5F7F9}.rodape{margin-top:18px;font-size:10px;color:#888}@media print{@page{size:A4 landscape;margin:10mm}}
+    </style></head><body><h1>SGMF Pro · Painel da frota</h1><div class="sub">Período de ${SGMF.data(inicio())} a ${SGMF.data(fim())} · Gerado em ${new Date().toLocaleString('pt-BR')}</div>${blocos.join('')}<div class="rodape">Sistema de Gestão de Manutenção de Frotas</div></body></html>`);
+    janela.document.close();
+    janela.onload = () => { janela.focus(); janela.print(); };
+  }
+
   Object.assign(window, {
     imprimirGraficoMeses, imprimirGraficoVeiculos, imprimirGraficoTipos,
     imprimirGraficoGrupos, imprimirGraficoConsumo, imprimirGraficoLavagem, imprimirTopPecas,
-    imprimirGraficoConsumoDiario, imprimirHorasMecanicos
+    imprimirGraficoConsumoDiario, imprimirHorasMecanicos, imprimirPainelCompleto
   });
 
   async function carregarEstoqueCombustivelDashboard() {

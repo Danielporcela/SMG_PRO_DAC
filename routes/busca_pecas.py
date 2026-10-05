@@ -75,8 +75,12 @@ def combina(peca, termos, modo):
 
 
 def precisa_repor(peca):
-    """Só considera 'repor' quando existe um mínimo maior que zero."""
-    return bool(peca.estoque_minimo) and (peca.quantidade or 0) <= (peca.estoque_minimo or 0)
+    """Considera 'repor' somente saldo positivo abaixo/igual ao mínimo.
+
+    Saldo zero fica fora desse alerta por regra operacional do SGMF.
+    """
+    quantidade = peca.quantidade or 0
+    return bool(peca.estoque_minimo) and quantidade > 0 and quantidade <= (peca.estoque_minimo or 0)
 
 
 @bp_busca_pecas.get("/pesquisa-pecas")

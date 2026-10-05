@@ -170,15 +170,23 @@ def criar_app(config=Config):
         """Atualiza a marca de "última atividade" de quem está logado.
 
         Não existe tabela de sessões: "conectado agora" (card do Painel) é
-        só uma janela de atividade recente nesta coluna. Para não gravar no
-        banco em toda requisição, só atualiza quando a marca anterior tem
-        mais de 60s (ou nunca foi gravada) — uma única query UPDATE, sem
-        SELECT antes.
+        só uma janela de atividade recente nesta coluna.
+
+        O intervalo de 60s é controlado na própria sessão (cookie): enquanto
+        não passar o intervalo, NENHUM SQL é executado — antes cada requisição
+        gerava um UPDATE + COMMIT mesmo sem nada para gravar, e uma tela que
+        dispara 8 APIs fazia 8 idas extras ao PostgreSQL.
         """
-        if request.path.startswith("/static/"):
+        if request.path.startswith("/static/") or request.path == "/saude":
             return None
         usuario_id = session.get("usuario_id")
         if not usuario_id:
+            return None
+
+        import time
+        agora_ts = time.time()
+        ultimo_ts = session.get("_presenca_ts") or 0
+        if 0 <= agora_ts - ultimo_ts < 60:
             return None
 
         from sqlalchemy import or_
@@ -191,10 +199,18 @@ def criar_app(config=Config):
         # aware/naive, que causa TypeError no PostgreSQL ao consultar o painel.
         agora_marca = _agora_marca().replace(tzinfo=None)
         limite = agora_marca - timedelta(seconds=60)
-        (Usuario.query.filter(Usuario.id == usuario_id)
-         .filter(or_(Usuario.ultimo_acesso.is_(None), Usuario.ultimo_acesso < limite))
-         .update({"ultimo_acesso": agora_marca}, synchronize_session=False))
-        db.session.commit()
+        try:
+            atualizadas = (Usuario.query.filter(Usuario.id == usuario_id)
+                           .filter(or_(Usuario.ultimo_acesso.is_(None),
+                                       Usuario.ultimo_acesso < limite))
+                           .update({"ultimo_acesso": agora_marca},
+                                   synchronize_session=False))
+            if atualizadas:
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return None
+        session["_presenca_ts"] = agora_ts
         return None
 
     @app.context_processor

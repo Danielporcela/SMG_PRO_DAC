@@ -1,0 +1,11 @@
+Copie estes arquivos para a pasta do projeto, mantendo as pastas (substituindo os existentes):
+
+  app.py
+  models.py
+  services/indicadores.py
+  services/notificacoes.py
+  services/calculos.py
+  migrations/versions/e7a3c9d1b405_indices_de_desempenho.py   (NOVO)
+
+Depois, no deploy do Render o "flask db upgrade" cria os indices sozinho.
+Local: flask db upgrade

@@ -109,6 +109,7 @@ def listar_alertas_ativos():
                 "motorista", m.id, "/motoristas"))
 
     for p in Peca.query.filter(Peca.estoque_minimo > 0,
+                               Peca.quantidade > 0,
                                Peca.quantidade <= Peca.estoque_minimo).all():
         alertas.append(_alerta(
             f"estoque:peca:{p.id}", "estoque", "atencao",

@@ -188,3 +188,31 @@ def test_backup_traz_todas_as_tabelas(logado, movimentado):
 
 def test_relatorio_exige_sessao(cliente):
     assert cliente.get("/relatorios/veiculos.pdf").status_code == 401
+
+
+def test_frota_por_setor_e_manutencao_por_status_da_os(logado, base):
+    """Frota ativa mostra oficina/fiscalização; manutenção separa parados e aguardando peça."""
+    vid = base["veiculo"]["id"]
+    logado.put(f"/api/veiculos/{vid}", json={"setor": "Oficina"})
+    v2 = logado.post("/api/veiculos", json={"prefixo": "FR-002", "placa": "DEF2E34",
+                                            "centro_custo": "Fiscalização"}).get_json()
+    v3 = logado.post("/api/veiculos", json={"prefixo": "FR-003", "placa": "GHI3F45"}).get_json()
+
+    d = logado.get("/api/painel/resumo").get_json()
+    assert d["veiculos_total"] == 3
+    assert d["veiculos_oficina"] == 1
+    assert d["veiculos_fiscalizacao"] == 1
+    assert d["veiculos_parados_manutencao"] == 0 and d["veiculos_aguardando_peca"] == 0
+
+    os_exec = logado.post("/api/ordens", json={"veiculo_id": v2["id"]}).get_json()
+    logado.put(f"/api/ordens/{os_exec['id']}", json={"status": "Em execução"})
+    os_peca = logado.post("/api/ordens", json={"veiculo_id": v3["id"]}).get_json()
+    logado.put(f"/api/ordens/{os_peca['id']}", json={"status": "Aguardando peça"})
+
+    d = logado.get("/api/painel/resumo").get_json()
+    assert d["veiculos_parados_manutencao"] == 1
+    assert d["veiculos_aguardando_peca"] == 1
+
+    logado.put(f"/api/ordens/{os_peca['id']}", json={"status": "Finalizada"})
+    d = logado.get("/api/painel/resumo").get_json()
+    assert d["veiculos_aguardando_peca"] == 0

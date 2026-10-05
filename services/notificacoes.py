@@ -172,20 +172,80 @@ def processar_alertas(forcar_resumo=False):
     return {"mudancas": mudancas, "resumo": resumo}
 
 
+# Chave do "advisory lock" do PostgreSQL que identifica o agendador de alertas.
+_CHAVE_LOCK_AGENDADOR = 727_443_001
+
+
+class _TravaAgendador:
+    """Garante que só UM processo do Gunicorn execute o ciclo de alertas.
+
+    No PostgreSQL usa um advisory lock de sessão, mantido numa conexão
+    dedicada: se o processo morrer, a conexão cai e outro worker assume no
+    próximo ciclo. Em bancos sem esse recurso (SQLite local) não há trava —
+    o desenvolvimento roda com um processo só.
+    """
+
+    def __init__(self, app):
+        self.app = app
+        self.conexao = None
+
+    def _postgres(self):
+        with self.app.app_context():
+            return db.engine.dialect.name == "postgresql"
+
+    def obtida(self):
+        if not self._postgres():
+            return True
+        from sqlalchemy import text
+        try:
+            if self.conexao is not None:
+                self.conexao.execute(text("SELECT 1"))     # conexão ainda viva?
+                return True
+        except Exception:
+            self.liberar()
+        try:
+            with self.app.app_context():
+                conexao = db.engine.connect()
+            ganhou = conexao.execute(
+                text("SELECT pg_try_advisory_lock(:k)"), {"k": _CHAVE_LOCK_AGENDADOR}).scalar()
+            conexao.commit()
+            if ganhou:
+                self.conexao = conexao
+                return True
+            conexao.close()
+        except Exception:
+            self.app.logger.exception("Falha ao obter a trava do agendador de alertas")
+        return False
+
+    def liberar(self):
+        if self.conexao is not None:
+            try:
+                self.conexao.close()
+            except Exception:
+                pass
+            self.conexao = None
+
+
 def iniciar_agendador(app):
-    """Inicia um ciclo leve que reconcilia alertas e envia notificações."""
+    """Inicia um ciclo leve que reconcilia alertas e envia notificações.
+
+    Com vários workers do Gunicorn, cada processo cria sua própria thread,
+    mas só o que detém a trava (_TravaAgendador) executa o ciclo.
+    """
     if getattr(app, "_sgmf_agendador_alertas", False):
         return
     app._sgmf_agendador_alertas = True
 
     intervalo = max(int(app.config.get("INTERVALO_AGENDADOR", 600)), 60)
+    trava = _TravaAgendador(app)
 
     def ciclo():
         while True:
             try:
-                with app.app_context():
-                    resultado = processar_alertas()
-                    app.logger.info("Ciclo de alertas: %s", resultado)
+                if trava.obtida():
+                    with app.app_context():
+                        resultado = processar_alertas()
+                        app.logger.info("Ciclo de alertas: %s", resultado)
             except Exception:
                 app.logger.exception("Falha no ciclo de alertas")
                 try:

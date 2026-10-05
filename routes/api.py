@@ -204,24 +204,24 @@ def _verificar_os_duplicada(obj, anterior=None):
         )
 
 def _verificar_valor_os(obj):
-    """Bloqueia a finalização quando a OS não tem nenhum valor lançado —
-    custo de mão de obra, serviços e peças zerados costuma ser esquecimento
-    de preenchimento, não um serviço legítimo de custo zero.
+    """Valida custo zero apenas quando existe peça de estoque na OS.
 
-    Exceção: login com cargo Almoxarifado pode finalizar uma OS que não
-    teve nenhuma peça/serviço lançado na aba "Peças e serviços" — nesse
-    caso não é esquecimento, é uma OS que realmente não precisou de peça
-    (ex.: mecânico resolveu só com mão de obra já contabilizada em outro
-    lugar, ou serviço que não gerou custo)."""
+    Uma OS sem peças (ou apenas com serviço avulso/terceiro de valor zero)
+    pode ser finalizada normalmente. O bloqueio existe somente para evitar
+    dar baixa em peça de estoque com valor total zerado por esquecimento de
+    cadastro/valor.
+    """
     if obj.status != "Finalizada" or obj.custo_total > 0:
         return
-    cargo_atual = (session.get("cargo") or "").strip().upper()
-    if cargo_atual == "ALMOXARIFADO" and not obj.itens:
+
+    itens = list(obj.itens or [])
+    tem_peca_estoque = any(getattr(item, "eh_peca", False) for item in itens)
+    if not tem_peca_estoque:
         return
+
     raise ErroNegocio(
-        "Não é possível finalizar a OS com o custo total zerado. "
-        "Informe o valor da mão de obra, dos serviços e/ou das peças "
-        "aplicadas antes de finalizar.")
+        "Não é possível finalizar a OS com peça de estoque e custo total zerado. "
+        "Informe o valor da peça, da mão de obra e/ou dos serviços antes de finalizar.")
 
 
 def _antes_os(obj, dados, anterior):

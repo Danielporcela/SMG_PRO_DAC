@@ -17,6 +17,19 @@ document.addEventListener('focusin', (evento) => {
   }
 });
 
+/* Antes de qualquer modal Bootstrap ser ocultado, tira o foco de elementos
+   que ainda estejam dentro dele. Isso evita o aviso do navegador
+   "Blocked aria-hidden ... descendant retained focus" e mantém a árvore de
+   acessibilidade coerente. Vale também para modais específicos da tela de
+   manutenção, como modalPecas, que não passam pelo motor CRUD. */
+document.addEventListener('hide.bs.modal', (evento) => {
+  const modal = evento.target;
+  const ativo = document.activeElement;
+  if (modal && ativo && modal.contains(ativo) && typeof ativo.blur === 'function') {
+    ativo.blur();
+  }
+}, true);
+
 const SGMF = (() => {
 
   /* ------------------------------------------------------------ requisições */
