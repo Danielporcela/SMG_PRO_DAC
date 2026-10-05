@@ -1,4 +1,5 @@
 """KPIs do painel executivo, rankings e alertas automáticos."""
+import calendar
 from datetime import date, timedelta
 
 from flask import current_app
@@ -104,21 +105,12 @@ def _notas_uniformes_finalizadas(inicio, fim):
             .filter(NotaFiscalUniforme.status == "Finalizada",
                     NotaFiscalUniforme.data_entrada.between(inicio, fim)).all())
 
-<<<<<<< HEAD
 def _notas_combustivel(inicio, fim):
     """Compras de combustível por NF, mantidas fora das despesas gerais."""
     return NotaFiscalCombustivel.query.filter(
         NotaFiscalCombustivel.data.between(inicio, fim)).all()
 
 
-def _custo_km_historico(ate, veiculo_id=None):
-    """Custo por km da frota antes do período — a régua da comparação."""
-    q_ab = Abastecimento.query.filter(Abastecimento.data < ate)
-    q_os = (OrdemServico.query.join(Veiculo, OrdemServico.veiculo_id == Veiculo.id)
-            .filter(OrdemServico.data_abertura < ate,
-                    Veiculo.grupo_consumo_legado.isnot(True)))
-    q_terc = ServicoTerceiro.query.filter(ServicoTerceiro.data < ate)
-=======
 def _periodo_anterior(inicio, fim):
     """Período imediatamente anterior, com o mesmo número de dias."""
     dias = max((fim - inicio).days + 1, 1)
@@ -129,8 +121,8 @@ def _periodo_anterior(inicio, fim):
 def _custo_km_historico(inicio, fim, veiculo_id=None):
     """Custo por km do período anterior — a régua da comparação.
 
-    Só consulta as datas do período anterior (mesma duração do filtro), em
-    vez de varrer todo o histórico do banco a cada abertura do painel.
+    Limita as consultas ao período anterior de mesma duração, evitando
+    percorrer todo o histórico do banco a cada abertura do painel.
     """
     ini_ant, fim_ant = _periodo_anterior(inicio, fim)
     q_ab = db.session.query(func.sum(Abastecimento.km_percorridos),
@@ -138,7 +130,6 @@ def _custo_km_historico(inicio, fim, veiculo_id=None):
                             ).filter(Abastecimento.data.between(ini_ant, fim_ant))
     q_terc = db.session.query(func.sum(ServicoTerceiro.valor)).filter(
         ServicoTerceiro.data.between(ini_ant, fim_ant))
->>>>>>> e9d4562 (Atualizção Sistema)
     if veiculo_id:
         q_ab = q_ab.filter(Abastecimento.veiculo_id == veiculo_id)
         q_terc = q_terc.filter(ServicoTerceiro.veiculo_id == veiculo_id)
@@ -317,16 +308,10 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
-<<<<<<< HEAD
         "aderencia_orcamento": round((gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
-        "estoque_valor": round(sum((p.quantidade or 0) * (p.custo_unitario or 0)
-                                   for p in Peca.query.all()), 2),
-=======
-        "aderencia_orcamento": round((gasto_comb + gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(db.session.query(
             func.coalesce(func.sum(func.coalesce(Peca.quantidade, 0)
                                    * func.coalesce(Peca.custo_unitario, 0)), 0)).scalar() or 0, 2),
->>>>>>> e9d4562 (Atualizção Sistema)
         "estoque_critico": Peca.query.filter(Peca.estoque_minimo > 0,
                                              Peca.quantidade > 0,
                                              Peca.quantidade <= Peca.estoque_minimo).count(),
@@ -386,36 +371,7 @@ def _somar_por_mes_orcamento(meses_ref):
               .group_by(Orcamento.ano, Orcamento.mes).all())
     return {(a, m): float(v or 0) for a, m, v in linhas}
 
-<<<<<<< HEAD
-    # 12 ciclos operacionais móveis, sempre do dia 20 ao dia 20 seguinte.
-    # O fim é exclusivo para que o dia 20 pertença somente ao novo ciclo.
-    meses, comb_mes, nfs_comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], [], []
-    ciclo_atual_ini, _ = ciclo_operacional(hoje)
-    for i in range(11, -1, -1):
-        ini = _somar_meses(ciclo_atual_ini, -i)
-        limite = _somar_meses(ini, 1)
-        f = limite - timedelta(days=1)
-        meses.append(f"20/{MESES[ini.month - 1]} → 20/{MESES[limite.month - 1]}")
-        comb_mes.append(round(db.session.query(func.sum(Abastecimento.valor_total))
-                              .filter(Abastecimento.data >= ini, Abastecimento.data < limite).scalar() or 0, 2))
-        nfs_comb_mes.append(round(db.session.query(func.sum(NotaFiscalCombustivel.valor_total))
-                                  .filter(NotaFiscalCombustivel.data >= ini,
-                                          NotaFiscalCombustivel.data < limite).scalar() or 0, 2))
-        ordens = _custo_os(ini, f)
-        terceiros = _servicos_terceiros(ini, f)
-        manut_mes.append(round(sum(o.custo_total for o in ordens)
-                               + sum(s.valor or 0 for s in terceiros), 2))
-        lavagem_mes.append(round(sum(l.valor or 0 for l in _lavagens(ini, f)), 2))
-        compras_mes.append(round(sum(n.valor_total for n in _notas_finalizadas(ini, f)), 2))
-        uniformes_mes.append(round(sum(n.valor_total for n in _notas_uniformes_finalizadas(ini, f)), 2))
-        # A meta do ciclo é associada ao mês em que o ciclo se inicia.
-        meta_mes.append(round(db.session.query(func.sum(Orcamento.meta_valor))
-                              .filter(Orcamento.ano == ini.year, Orcamento.mes == ini.month,
-                                      Orcamento.grupo_consumo_id.is_(None),
-                                      ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True)))
-                              .scalar() or 0, 2))
-=======
->>>>>>> e9d4562 (Atualizção Sistema)
+
 
 def _veiculos_da_frota():
     """Veículos ativos, sem os setores antigos que eram veículos artificiais."""
@@ -518,36 +474,80 @@ def series_graficos(inicio=None, fim=None):
     """
     inicio, fim = periodo_padrao(inicio, fim)
 
-    # gasto por mês
-    meses_ref, jan_ini, jan_fim = _meses_do_grafico(inicio, fim)
-    comb = _somar_por_mes(Abastecimento.valor_total, Abastecimento.data, jan_ini, jan_fim)
-    terc = _somar_por_mes(ServicoTerceiro.valor, ServicoTerceiro.data, jan_ini, jan_fim)
-    lav = _somar_por_mes(Lavagem.valor, Lavagem.data, jan_ini, jan_fim)
-    ordens_janela = _custo_os(jan_ini, jan_fim)
-    manut_os = {}
-    for o in ordens_janela:
-        if o.data_abertura:
-            chave = (o.data_abertura.year, o.data_abertura.month)
-            manut_os[chave] = manut_os.get(chave, 0) + o.custo_total
-    compras, uniformes = {}, {}
-    for n in _notas_finalizadas(jan_ini, jan_fim):
-        chave = (n.data_entrada.year, n.data_entrada.month)
-        compras[chave] = compras.get(chave, 0) + n.valor_total
-    for n in _notas_uniformes_finalizadas(jan_ini, jan_fim):
-        chave = (n.data_entrada.year, n.data_entrada.month)
-        uniformes[chave] = uniformes.get(chave, 0) + n.valor_total
-    metas = _somar_por_mes_orcamento(meses_ref)
+    # Gráfico de 12 ciclos operacionais móveis (20 → 20). As consultas ficam
+    # limitadas à janela total dos 12 ciclos e os dados são distribuídos em
+    # memória, evitando consultas dentro do loop de cada ciclo.
+    ciclo_atual_ini, _ = ciclo_operacional(fim)
+    ciclos = []
+    for i in range(11, -1, -1):
+        ini_c = _somar_meses(ciclo_atual_ini, -i)
+        limite_c = _somar_meses(ini_c, 1)
+        ciclos.append((ini_c, limite_c))
+    jan_ini = ciclos[0][0]
+    jan_fim = ciclos[-1][1] - timedelta(days=1)
 
-    meses, comb_mes, manut_mes, compras_mes, uniformes_mes, meta_mes, lavagem_mes = [], [], [], [], [], [], []
-    for ano, mes in meses_ref:
-        chave = (ano, mes)
-        meses.append(f"{MESES[mes - 1]}/{str(ano)[2:]}")
-        comb_mes.append(round(comb.get(chave, 0), 2))
-        manut_mes.append(round(manut_os.get(chave, 0) + terc.get(chave, 0), 2))
-        lavagem_mes.append(round(lav.get(chave, 0), 2))
-        compras_mes.append(round(compras.get(chave, 0), 2))
-        uniformes_mes.append(round(uniformes.get(chave, 0), 2))
-        meta_mes.append(round(metas.get(chave, 0), 2))
+    def indice_ciclo(data_lanc):
+        if not data_lanc or data_lanc < jan_ini or data_lanc > jan_fim:
+            return None
+        meses_delta = (data_lanc.year - jan_ini.year) * 12 + data_lanc.month - jan_ini.month
+        idx = meses_delta if data_lanc.day >= DIA_INICIO_CICLO else meses_delta - 1
+        return idx if 0 <= idx < len(ciclos) else None
+
+    meses = [f"20/{MESES[a.month - 1]} → 20/{MESES[b.month - 1]}" for a, b in ciclos]
+    comb_mes = [0.0] * len(ciclos)
+    nfs_comb_mes = [0.0] * len(ciclos)
+    manut_mes = [0.0] * len(ciclos)
+    compras_mes = [0.0] * len(ciclos)
+    uniformes_mes = [0.0] * len(ciclos)
+    lavagem_mes = [0.0] * len(ciclos)
+    meta_mes = [0.0] * len(ciclos)
+
+    for data_lanc, valor in (db.session.query(Abastecimento.data, Abastecimento.valor_total)
+                             .filter(Abastecimento.data.between(jan_ini, jan_fim)).all()):
+        idx = indice_ciclo(data_lanc)
+        if idx is not None:
+            comb_mes[idx] += valor or 0
+    for data_lanc, valor in (db.session.query(NotaFiscalCombustivel.data, NotaFiscalCombustivel.valor_total)
+                             .filter(NotaFiscalCombustivel.data.between(jan_ini, jan_fim)).all()):
+        idx = indice_ciclo(data_lanc)
+        if idx is not None:
+            nfs_comb_mes[idx] += valor or 0
+
+    ordens_janela = _custo_os(jan_ini, jan_fim)
+    for o in ordens_janela:
+        idx = indice_ciclo(o.data_abertura)
+        if idx is not None:
+            manut_mes[idx] += o.custo_total or 0
+    for data_lanc, valor in (db.session.query(ServicoTerceiro.data, ServicoTerceiro.valor)
+                             .filter(ServicoTerceiro.data.between(jan_ini, jan_fim)).all()):
+        idx = indice_ciclo(data_lanc)
+        if idx is not None:
+            manut_mes[idx] += valor or 0
+    for data_lanc, valor in (db.session.query(Lavagem.data, Lavagem.valor)
+                             .filter(Lavagem.data.between(jan_ini, jan_fim)).all()):
+        idx = indice_ciclo(data_lanc)
+        if idx is not None:
+            lavagem_mes[idx] += valor or 0
+    for n in _notas_finalizadas(jan_ini, jan_fim):
+        idx = indice_ciclo(n.data_entrada)
+        if idx is not None:
+            compras_mes[idx] += n.valor_total or 0
+    for n in _notas_uniformes_finalizadas(jan_ini, jan_fim):
+        idx = indice_ciclo(n.data_entrada)
+        if idx is not None:
+            uniformes_mes[idx] += n.valor_total or 0
+
+    metas = _somar_por_mes_orcamento([(a.year, a.month) for a, _ in ciclos])
+    for idx, (ini_c, _) in enumerate(ciclos):
+        meta_mes[idx] = metas.get((ini_c.year, ini_c.month), 0)
+
+    comb_mes = [round(v, 2) for v in comb_mes]
+    nfs_comb_mes = [round(v, 2) for v in nfs_comb_mes]
+    manut_mes = [round(v, 2) for v in manut_mes]
+    lavagem_mes = [round(v, 2) for v in lavagem_mes]
+    compras_mes = [round(v, 2) for v in compras_mes]
+    uniformes_mes = [round(v, 2) for v in uniformes_mes]
+    meta_mes = [round(v, 2) for v in meta_mes]
 
     # custo por veículo no período (reaproveita as OS já carregadas)
     ordens_periodo = [o for o in ordens_janela
@@ -809,9 +809,9 @@ def alertas():
     veiculos = _veiculos_da_frota()
     por_id = {v.id: v for v in veiculos}
 
-    # Orçamento do mês: gasto de todos os veículos em consultas agrupadas
-    # (uma por tabela), em vez de 4 consultas para cada veículo.
-    ini_mes = hoje.replace(day=1)
+    # Orçamento do ciclo operacional atual (20 → 20): gasto de todos os
+    # veículos em consultas agrupadas, em vez de 4 consultas por veículo.
+    ini_mes, _ = ciclo_operacional(hoje)
     gasto_mes = {}
     if any(v.orcamento_mensal for v in veiculos):
         for o in _custo_os(ini_mes, hoje):
@@ -870,21 +870,7 @@ def alertas():
                     f"Programada para {venc.strftime('%d/%m/%Y')}.", v.placa, veiculo=v)
         # orçamento do ciclo operacional atual (dia 20 → dia 20 seguinte)
         if v.orcamento_mensal:
-<<<<<<< HEAD
-            ini, _ = ciclo_operacional(hoje)
-            ordens = OrdemServico.query.filter(OrdemServico.veiculo_id == v.id,
-                                               OrdemServico.data_abertura.between(ini, hoje)).all()
-            comb = db.session.query(func.sum(Abastecimento.valor_total)).filter(
-                Abastecimento.veiculo_id == v.id,
-                Abastecimento.data.between(ini, hoje)).scalar() or 0
-            terceiros = _servicos_terceiros(ini, hoje, v.id)
-            lavagens_v = _lavagens(ini, hoje, v.id)
-            gasto = (sum(o.custo_total for o in ordens) + comb
-                     + sum(s.valor or 0 for s in terceiros)
-                     + sum(l.valor or 0 for l in lavagens_v))
-=======
             gasto = gasto_mes.get(v.id, 0)
->>>>>>> e9d4562 (Atualizção Sistema)
             if gasto > v.orcamento_mensal:
                 add("critico", "Orçamento", f"{v.prefixo} · acima do orçamento",
                     f"R$ {gasto:,.2f} gastos contra R$ {v.orcamento_mensal:,.2f} previstos."
