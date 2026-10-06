@@ -161,7 +161,8 @@ def reconciliar_estoque():
 @visualizar_tela("combustivel")
 def estoque_resumo():
     try:
-        dados = resumo_geral()
+        # Consulta: não trava a tela por inconsistência antiga; devolve "alertas".
+        dados = resumo_geral(estrito=False)
         db.session.rollback()  # GET não persiste eventual recálculo de custo.
         return jsonify(dados)
     except ErroNegocio as e:
@@ -175,7 +176,7 @@ def listar_movimentacoes():
     try:
         inicio = _data(request.args.get("inicio"), "data inicial") if request.args.get("inicio") else None
         fim = _data(request.args.get("fim"), "data final") if request.args.get("fim") else None
-        linhas = movimentacoes(inicio, fim)
+        linhas = movimentacoes(inicio, fim, estrito=False)
         db.session.rollback()
         return jsonify(linhas)
     except ErroNegocio as e:

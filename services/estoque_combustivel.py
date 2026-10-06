@@ -63,8 +63,15 @@ def _eventos(combustivel):
     return cfg, eventos
 
 
-def recalcular_estoque_combustivel(combustivel, validar=True):
-    """Reprocessa o kardex cronologicamente e atualiza o custo médio das saídas."""
+def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
+    """Reprocessa o kardex cronologicamente e atualiza o custo médio das saídas.
+
+    estrito=True  (padrão): saldo insuficiente levanta ErroNegocio. É o que
+                  protege gravações (NF, abastecimento, importação).
+    estrito=False: usado nas CONSULTAS (tela/botão "Atualizar estoque"). Não
+                  levanta erro; registra o problema em "alertas" e segue, para
+                  uma inconsistência antiga não travar a tela inteira.
+    """
     combustivel = _normalizar_combustivel(combustivel)
     cfg, eventos = _eventos(combustivel)
     if not cfg:
@@ -72,7 +79,8 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
             "combustivel": combustivel, "ativo": False, "data_inicio": None,
             "litros_estoque": 0, "valor_estoque": 0, "custo_medio": 0,
             "litros_comprados": 0, "valor_comprado": 0,
-            "litros_consumidos": 0, "valor_consumido": 0, "movimentacoes": []
+            "litros_consumidos": 0, "valor_consumido": 0, "movimentacoes": [],
+            "alertas": []
         }
 
     saldo_litros = 0.0
@@ -80,6 +88,8 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
     litros_comprados = valor_comprado = 0.0
     litros_consumidos = valor_consumido = 0.0
     movimentos = []
+    alertas = []
+    ultimo_custo = 0.0
 
     from services.calculos import recalcular_abastecimento
 
@@ -107,6 +117,7 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
             litros_comprados += litros
             valor_comprado += total
             custo_medio = saldo_valor / saldo_litros if saldo_litros else 0
+            ultimo_custo = custo_medio
             movimentos.append({
                 "data": data_mov.isoformat(), "tipo": "Entrada NF",
                 "documento": f"NF {obj.numero_nf}", "referencia_id": obj.id,
@@ -115,25 +126,37 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
                 "valor_unitario": round(total / litros, 4),
                 "valor": round(total, 2), "saldo_litros": round(saldo_litros, 3),
                 "saldo_valor": round(saldo_valor, 2), "custo_medio": round(custo_medio, 4),
+                "alerta": None,
             })
         else:
             litros = float(obj.litros or 0)
             if litros <= 0:
                 continue
-            if saldo_litros + EPS < litros:
+            sem_saldo = saldo_litros + EPS < litros
+            aviso = None
+            if sem_saldo:
                 frota = obj.veiculo.prefixo if obj.veiculo else str(obj.veiculo_id or "—")
                 faltam = litros - saldo_litros
-                raise ErroNegocio(
+                aviso = (
                     f"Estoque insuficiente de {combustivel} em {data_mov.strftime('%d/%m/%Y')}. "
                     f"Frota {frota}: solicitado {litros:.2f} L, disponível {max(saldo_litros, 0):.2f} L "
                     f"(faltam {faltam:.2f} L). Lance uma NF de entrada antes do abastecimento.")
-            custo_medio = saldo_valor / saldo_litros if saldo_litros else 0
+                if estrito:
+                    raise ErroNegocio(aviso)
+                alertas.append(aviso)
+            # Sem saldo (só no modo não estrito): valoriza pelo último custo médio conhecido.
+            custo_medio = saldo_valor / saldo_litros if saldo_litros > EPS else ultimo_custo
             custo_saida = litros * custo_medio
             obj.valor_litro = round(custo_medio, 4)
             obj.valor_total = round(custo_saida, 2)
             recalcular_abastecimento(obj)
-            saldo_litros -= litros
-            saldo_valor -= custo_saida
+            if sem_saldo:
+                # Não deixa o saldo ficar negativo: o que faltou fica sinalizado no alerta.
+                saldo_litros = 0.0
+                saldo_valor = 0.0
+            else:
+                saldo_litros -= litros
+                saldo_valor -= custo_saida
             if abs(saldo_litros) < EPS:
                 saldo_litros = 0.0
                 saldo_valor = 0.0
@@ -147,6 +170,7 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
                 "valor_unitario": round(custo_medio, 4), "valor": round(custo_saida, 2),
                 "saldo_litros": round(saldo_litros, 3), "saldo_valor": round(saldo_valor, 2),
                 "custo_medio": round((saldo_valor / saldo_litros) if saldo_litros else 0, 4),
+                "alerta": aviso,
             })
 
     custo_medio = saldo_valor / saldo_litros if saldo_litros else 0
@@ -161,21 +185,23 @@ def recalcular_estoque_combustivel(combustivel, validar=True):
         "litros_consumidos": round(litros_consumidos, 3),
         "valor_consumido": round(valor_consumido, 2),
         "movimentacoes": movimentos,
+        "alertas": alertas,
     }
 
 
-def recalcular_todos_combustiveis():
+def recalcular_todos_combustiveis(estrito=True):
     resultados = []
     for cfg in ControleEstoqueCombustivel.query.order_by(ControleEstoqueCombustivel.combustivel).all():
-        resultados.append(recalcular_estoque_combustivel(cfg.combustivel))
+        resultados.append(recalcular_estoque_combustivel(cfg.combustivel, estrito=estrito))
     db.session.flush()
     return resultados
 
 
-def resumo_geral():
-    itens = recalcular_todos_combustiveis()
+def resumo_geral(estrito=True):
+    itens = recalcular_todos_combustiveis(estrito)
     return {
         "itens": itens,
+        "alertas": [a for x in itens for a in x.get("alertas", [])],
         "litros_estoque": round(sum(x["litros_estoque"] for x in itens), 3),
         "valor_estoque": round(sum(x["valor_estoque"] for x in itens), 2),
         "litros_comprados": round(sum(x["litros_comprados"] for x in itens), 3),
@@ -185,9 +211,9 @@ def resumo_geral():
     }
 
 
-def movimentacoes(inicio=None, fim=None):
+def movimentacoes(inicio=None, fim=None, estrito=True):
     linhas = []
-    for item in recalcular_todos_combustiveis():
+    for item in recalcular_todos_combustiveis(estrito):
         for mov in item["movimentacoes"]:
             d = date.fromisoformat(mov["data"])
             if inicio and d < inicio:

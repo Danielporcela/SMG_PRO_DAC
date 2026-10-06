@@ -15,7 +15,7 @@
       <button class="btn btn-contorno" type="button" id="botaoNovaNFCombustivel">
         <i class="fa-solid fa-file-invoice-dollar me-1"></i> Lançar Nota Fiscal
       </button>
-      <button class="btn btn-contorno" type="button" onclick="carregarControleCombustivel()">
+      <button class="btn btn-contorno" type="button" id="botaoAtualizarEstoque" onclick="carregarControleCombustivel(true)">
         <i class="fa-solid fa-rotate me-1"></i> Atualizar estoque
       </button>
       <a class="btn btn-contorno" href="/abastecimentos/modelo.xlsx">
@@ -36,6 +36,7 @@
     </button>
   </div>
   <div class="cartao-corpo" id="areaControleCombustivel">
+    <div id="alertasEstoqueCombustivel"></div>
     <div class="instrumentos mb-3" id="resumoEstoqueCombustivel"></div>
     <div id="estoquePorCombustivel"></div>
   </div>
@@ -191,46 +192,89 @@ async function excluirNFCombustivel(id) {
   } catch (e) { if (!e.cancelado) SGMF.falha(e.message); }
 }
 
-async function carregarControleCombustivel() {
+async function carregarControleCombustivel(manual = false) {
+  const botao = document.getElementById('botaoAtualizarEstoque');
+  const htmlBotao = botao ? botao.innerHTML : '';
+  if (botao) {
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Atualizando…';
+  }
+  const erroHtml = (e) => `<div class="p-3 text-danger">${SGMF.esc((e && e.message) || 'Não foi possível carregar.')}</div>`;
   try {
-    const [resumo, notas, movs] = await Promise.all([
+    // Cada bloco é independente: se um falhar, os outros continuam aparecendo.
+    const [rResumo, rNotas, rMovs] = await Promise.allSettled([
       SGMF.get('/api/combustivel/estoque-resumo'),
       SGMF.get('/api/notas-combustivel'),
       SGMF.get('/api/combustivel/movimentacoes')
     ]);
-    notasCombustivelCache = notas || [];
-    document.getElementById('resumoEstoqueCombustivel').innerHTML = [
-      `<div class="medidor"><div class="rotulo">Saldo físico</div><div class="valor num">${SGMF.numero(resumo.litros_estoque, 1)} <small>L</small></div></div>`,
-      `<div class="medidor"><div class="rotulo">Valor do estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(resumo.valor_estoque)}</div><div class="nota">controle separado</div></div>`,
-      `<div class="medidor ok"><div class="rotulo">Entradas por NF</div><div class="valor num">${SGMF.numero(resumo.litros_comprados, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_comprado)}</div></div>`,
-      `<div class="medidor atencao"><div class="rotulo">Baixas por abastecimento</div><div class="valor num">${SGMF.numero(resumo.litros_consumidos, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_consumido)}</div></div>`
-    ].join('');
 
-    document.getElementById('estoquePorCombustivel').innerHTML = resumo.itens && resumo.itens.length ? `
-      <div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:12.5px"><thead><tr>
-      <th>Combustível</th><th>Controle desde</th><th class="text-end">Saldo L</th><th class="text-end">Custo médio</th><th class="text-end">Valor estoque</th>
-      </tr></thead><tbody>${resumo.itens.map(x => `<tr><td><strong>${SGMF.esc(x.combustivel)}</strong></td><td>${SGMF.data(x.data_inicio)}</td>
-      <td class="text-end num">${SGMF.numero(x.litros_estoque, 2)}</td><td class="text-end num">${SGMF.moeda(x.custo_medio)}</td><td class="text-end num">${SGMF.moeda(x.valor_estoque)}</td></tr>`).join('')}</tbody></table></div>`
-      : '<div class="text-muted">Controle ainda não ativado. Lance a primeira nota fiscal de combustível.</div>';
+    // ---- resumo + saldo por combustível + avisos de inconsistência
+    if (rResumo.status === 'fulfilled') {
+      const resumo = rResumo.value;
+      const alertas = resumo.alertas || [];
+      document.getElementById('alertasEstoqueCombustivel').innerHTML = alertas.length ? `
+        <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:12.5px">
+          <strong><i class="fa-solid fa-triangle-exclamation me-1"></i>O estoque tem ${alertas.length} inconsistência(s) no histórico.</strong>
+          <ul class="mb-1 mt-1 ps-3">${alertas.slice(0, 10).map(a => `<li>${SGMF.esc(a)}</li>`).join('')}</ul>
+          ${alertas.length > 10 ? `<div>… e mais ${alertas.length - 10}.</div>` : ''}
+          <div>Confira a <strong>data de entrada</strong> das NFs e as datas/litros dos abastecimentos citados.</div>
+        </div>` : '';
+      document.getElementById('resumoEstoqueCombustivel').innerHTML = [
+        `<div class="medidor"><div class="rotulo">Saldo físico</div><div class="valor num">${SGMF.numero(resumo.litros_estoque, 1)} <small>L</small></div></div>`,
+        `<div class="medidor"><div class="rotulo">Valor do estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(resumo.valor_estoque)}</div><div class="nota">controle separado</div></div>`,
+        `<div class="medidor ok"><div class="rotulo">Entradas por NF</div><div class="valor num">${SGMF.numero(resumo.litros_comprados, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_comprado)}</div></div>`,
+        `<div class="medidor atencao"><div class="rotulo">Baixas por abastecimento</div><div class="valor num">${SGMF.numero(resumo.litros_consumidos, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_consumido)}</div></div>`
+      ].join('');
 
-    document.getElementById('tabelaNotasCombustivel').innerHTML = notas.length ? `
-      <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
-      <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th></th>
-      </tr></thead><tbody>${notas.map(n => `<tr><td class="ps-3">${SGMF.data(n.data)}</td><td>${SGMF.esc(n.numero_nf)}</td><td>${SGMF.esc(n.combustivel)}</td>
-      <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
-      <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
-      <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`
-      : '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
+      document.getElementById('estoquePorCombustivel').innerHTML = resumo.itens && resumo.itens.length ? `
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:12.5px"><thead><tr>
+        <th>Combustível</th><th>Controle desde</th><th class="text-end">Saldo L</th><th class="text-end">Custo médio</th><th class="text-end">Valor estoque</th>
+        </tr></thead><tbody>${resumo.itens.map(x => `<tr><td><strong>${SGMF.esc(x.combustivel)}</strong></td><td>${SGMF.data(x.data_inicio)}</td>
+        <td class="text-end num">${SGMF.numero(x.litros_estoque, 2)}</td><td class="text-end num">${SGMF.moeda(x.custo_medio)}</td><td class="text-end num">${SGMF.moeda(x.valor_estoque)}</td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="text-muted">Controle ainda não ativado. Lance a primeira nota fiscal de combustível.</div>';
+    } else {
+      document.getElementById('alertasEstoqueCombustivel').innerHTML = '';
+      document.getElementById('resumoEstoqueCombustivel').innerHTML = erroHtml(rResumo.reason);
+      document.getElementById('estoquePorCombustivel').innerHTML = '';
+    }
 
-    const ultimos = (movs || []).slice(-100).reverse();
-    document.getElementById('tabelaMovComb').innerHTML = ultimos.length ? `
-      <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:11.5px"><thead><tr>
-      <th class="ps-3">Data</th><th>Movimento</th><th>Documento</th><th class="text-end">Entrada</th><th class="text-end">Saída</th><th class="text-end">Saldo</th>
-      </tr></thead><tbody>${ultimos.map(m => `<tr><td class="ps-3">${SGMF.data(m.data)}</td><td>${SGMF.esc(m.tipo)}</td><td>${SGMF.esc(m.documento)}<br><small>${SGMF.esc(m.combustivel)}</small></td>
-      <td class="text-end num">${m.entrada ? SGMF.numero(m.entrada, 2) : '—'}</td><td class="text-end num">${m.saida ? SGMF.numero(m.saida, 2) : '—'}</td><td class="text-end num"><strong>${SGMF.numero(m.saldo_litros, 2)}</strong></td></tr>`).join('')}</tbody></table></div>`
-      : '<div class="p-3 text-muted">Nenhuma movimentação de estoque.</div>';
-  } catch (e) {
-    document.getElementById('resumoEstoqueCombustivel').innerHTML = `<div class="text-danger">${SGMF.esc(e.message)}</div>`;
+    // ---- notas fiscais
+    if (rNotas.status === 'fulfilled') {
+      const notas = rNotas.value || [];
+      notasCombustivelCache = notas;
+      document.getElementById('tabelaNotasCombustivel').innerHTML = notas.length ? `
+        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
+        <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th></th>
+        </tr></thead><tbody>${notas.map(n => `<tr><td class="ps-3">${SGMF.data(n.data)}</td><td>${SGMF.esc(n.numero_nf)}</td><td>${SGMF.esc(n.combustivel)}</td>
+        <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
+        <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
+    } else {
+      document.getElementById('tabelaNotasCombustivel').innerHTML = erroHtml(rNotas.reason);
+    }
+
+    // ---- movimentações (kardex)
+    if (rMovs.status === 'fulfilled') {
+      const ultimos = (rMovs.value || []).slice(-100).reverse();
+      document.getElementById('tabelaMovComb').innerHTML = ultimos.length ? `
+        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:11.5px"><thead><tr>
+        <th class="ps-3">Data</th><th>Movimento</th><th>Documento</th><th class="text-end">Entrada</th><th class="text-end">Saída</th><th class="text-end">Saldo</th>
+        </tr></thead><tbody>${ultimos.map(m => `<tr${m.alerta ? ' class="table-warning" title="' + SGMF.esc(m.alerta) + '"' : ''}><td class="ps-3">${SGMF.data(m.data)}</td><td>${SGMF.esc(m.tipo)}${m.alerta ? ' <i class="fa-solid fa-triangle-exclamation text-warning"></i>' : ''}</td><td>${SGMF.esc(m.documento)}<br><small>${SGMF.esc(m.combustivel)}</small></td>
+        <td class="text-end num">${m.entrada ? SGMF.numero(m.entrada, 2) : '—'}</td><td class="text-end num">${m.saida ? SGMF.numero(m.saida, 2) : '—'}</td><td class="text-end num"><strong>${SGMF.numero(m.saldo_litros, 2)}</strong></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="p-3 text-muted">Nenhuma movimentação de estoque.</div>';
+    } else {
+      document.getElementById('tabelaMovComb').innerHTML = erroHtml(rMovs.reason);
+    }
+
+    // ---- retorno visual do clique (antes o botão não mostrava nada se os dados fossem iguais)
+    if (manual) {
+      const falhou = [rResumo, rNotas, rMovs].find(r => r.status === 'rejected');
+      if (falhou) SGMF.falha((falhou.reason && falhou.reason.message) || 'Não foi possível atualizar o estoque.');
+      else SGMF.sucesso('Estoque atualizado.');
+    }
+  } finally {
+    if (botao) { botao.disabled = false; botao.innerHTML = htmlBotao; }
   }
 }
 
