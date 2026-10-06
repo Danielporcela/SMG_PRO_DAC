@@ -157,26 +157,35 @@ def ajustar_estoque():
         atual = recalcular_estoque_combustivel(combustivel, estrito=True)
         if not atual.get("ativo"):
             raise ErroNegocio("O controle deste combustível ainda não foi ativado. Lance uma NF primeiro.")
-        saldo_atual = float(atual.get("litros_estoque") or 0)
-        delta = round(saldo_fisico - saldo_atual, 3)
-        if abs(delta) < 0.001:
-            raise ErroNegocio("O saldo físico informado já é igual ao saldo do sistema.")
 
+        # Não calculamos mais o delta contra o saldo FINAL do kardex. O ajuste
+        # grava o saldo físico conferido na data escolhida. Durante o recálculo,
+        # o serviço calcula a diferença correta exatamente naquele ponto do
+        # histórico (depois das NFs e abastecimentos do mesmo dia).
+        saldo_final_antes = float(atual.get("litros_estoque") or 0)
         ajuste = AjusteEstoqueCombustivel(
-            data=data_ajuste, combustivel=combustivel, litros=delta,
-            valor_unitario=float(atual.get("custo_medio") or 0),
+            data=data_ajuste, combustivel=combustivel, saldo_fisico=saldo_fisico,
+            litros=0, valor_unitario=float(atual.get("custo_medio") or 0),
             motivo=motivo, usuario=session.get("usuario_nome", "sistema"))
         db.session.add(ajuste)
         db.session.flush()
         novo = recalcular_estoque_combustivel(combustivel, estrito=True)
+        delta = round(float(ajuste.litros or 0), 3)
+        if abs(delta) < 0.001:
+            db.session.rollback()
+            raise ErroNegocio("O saldo físico informado já é igual ao saldo do sistema nessa data.")
+
         registrar_log("ajustar", "estoque_combustivel", ajuste.id,
-                      f"{combustivel}: {saldo_atual:.3f} L -> {saldo_fisico:.3f} L; motivo: {motivo}")
+                      f"{combustivel}: conferência física de {saldo_fisico:.3f} L "
+                      f"em {data_ajuste.strftime('%d/%m/%Y')}; diferença {delta:+.3f} L; motivo: {motivo}")
         db.session.commit()
         return jsonify({
             "ok": True, "ajuste": ajuste.to_dict(),
-            "saldo_anterior": round(saldo_atual, 3),
+            "saldo_anterior": round(saldo_fisico - delta, 3),
             "saldo_novo": round(float(novo.get("litros_estoque") or 0), 3),
+            "saldo_fisico": round(saldo_fisico, 3),
             "diferenca": delta,
+            "saldo_final_antes_do_ajuste": round(saldo_final_antes, 3),
         }), 201
     except (ErroNegocio, ValueError) as e:
         db.session.rollback()

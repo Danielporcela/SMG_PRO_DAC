@@ -31,6 +31,16 @@ def garantir_estoque_combustivel():
                 conn.execute(text('UPDATE "notas_fiscais_combustivel" SET "data_entrada" = "data" WHERE "data_entrada" IS NULL'))
     if "ajustes_estoque_combustivel" not in tabelas:
         AjusteEstoqueCombustivel.__table__.create(engine, checkfirst=True)
+    else:
+        # O ajuste moderno guarda o SALDO FÍSICO conferido. Versões anteriores
+        # gravavam somente um delta fixo em litros, o que quebrava o kardex
+        # quando uma NF retroativa era lançada.
+        existentes = {c["name"] for c in inspect(engine).get_columns("ajustes_estoque_combustivel")}
+        if "saldo_fisico" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE "ajustes_estoque_combustivel" '
+                    'ADD COLUMN "saldo_fisico" FLOAT'))
 
 
 

@@ -141,12 +141,54 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
                 "alerta": None,
             })
         elif tipo == "ajuste":
-            delta = float(obj.litros or 0)
-            if abs(delta) < EPS:
-                continue
+            # Ajustes novos representam uma CONFERÊNCIA FÍSICA do tanque ao
+            # final da data. A fonte da verdade é ``saldo_fisico``; o delta
+            # é recalculado toda vez que o kardex é reprocessado. Isso permite
+            # lançar/editar NFs retroativas sem tornar o ajuste inválido.
+            alvo = getattr(obj, "saldo_fisico", None)
             custo_ref = float(obj.valor_unitario or 0)
             if custo_ref <= 0:
                 custo_ref = (saldo_valor / saldo_litros) if saldo_litros > EPS else ultimo_custo
+
+            if alvo is not None:
+                alvo = max(float(alvo), 0.0)
+                delta = alvo - saldo_litros
+                # Mantém o campo legado sincronizado apenas para exibição e
+                # auditoria; ele não dirige mais o saldo do estoque.
+                obj.litros = round(delta, 3)
+                if abs(delta) < EPS:
+                    continue
+            else:
+                # Compatibilidade com ajustes antigos que ainda só têm delta.
+                delta = float(obj.litros or 0)
+                if abs(delta) < EPS:
+                    continue
+                # Se um ajuste legado tenta retirar mais do que havia naquele
+                # ponto do histórico, ele é inconsistente. Não deve impedir
+                # novas NFs ou abastecimentos de serem gravados. Ignoramos o
+                # lançamento legado e sinalizamos para que o operador faça uma
+                # nova conferência física pelo botão Ajustar estoque.
+                if delta < 0 and saldo_litros + EPS < abs(delta):
+                    aviso = (
+                        f"Ajuste legado inconsistente de {combustivel} em "
+                        f"{data_mov.strftime('%d/%m/%Y')}: retirada gravada de "
+                        f"{abs(delta):.2f} L para saldo disponível de "
+                        f"{max(saldo_litros, 0):.2f} L. O ajuste foi ignorado; "
+                        f"faça uma nova conferência física do estoque.")
+                    alertas.append(aviso)
+                    movimentos.append({
+                        "data": data_mov.isoformat(), "tipo": "Ajuste legado ignorado",
+                        "documento": f"Ajuste #{obj.id} · {obj.motivo}",
+                        "referencia_id": obj.id, "combustivel": combustivel,
+                        "litros": round(abs(delta), 3), "entrada": 0, "saida": 0,
+                        "valor_unitario": round(custo_ref, 4), "valor": 0,
+                        "saldo_litros": round(saldo_litros, 3),
+                        "saldo_valor": round(saldo_valor, 2),
+                        "custo_medio": round((saldo_valor / saldo_litros) if saldo_litros else 0, 4),
+                        "alerta": aviso, "usuario": obj.usuario,
+                    })
+                    continue
+
             valor_delta = abs(delta) * custo_ref
             if delta > 0:
                 saldo_litros += delta
@@ -155,12 +197,13 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
                 tipo_mov = "Ajuste positivo"
             else:
                 retirar = abs(delta)
+                # Para ajuste por saldo físico, retirar nunca será maior que o
+                # saldo naquele ponto, pois delta = alvo - saldo_atual e alvo >= 0.
+                # Esta checagem fica como proteção adicional para dados legados.
                 if saldo_litros + EPS < retirar:
                     aviso = (f"Ajuste de estoque insuficiente de {combustivel} em "
                              f"{data_mov.strftime('%d/%m/%Y')}: tentativa de retirar "
                              f"{retirar:.2f} L com saldo de {max(saldo_litros, 0):.2f} L.")
-                    if estrito:
-                        raise ErroNegocio(aviso)
                     alertas.append(aviso)
                     retirar = max(saldo_litros, 0)
                     valor_delta = retirar * custo_ref

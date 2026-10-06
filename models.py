@@ -1051,7 +1051,11 @@ class AjusteEstoqueCombustivel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
     combustivel = db.Column(db.String(30), default="Diesel S10", nullable=False, index=True)
-    litros = db.Column(db.Float, default=0, nullable=False)  # positivo=entrada; negativo=saída
+    # ``saldo_fisico`` é o valor efetivamente conferido no tanque ao final
+    # da data do ajuste. ``litros`` permanece como a diferença calculada pelo
+    # kardex para compatibilidade/auditoria, mas não é mais a fonte da verdade.
+    saldo_fisico = db.Column(db.Float, nullable=True)
+    litros = db.Column(db.Float, default=0, nullable=False)  # diferença calculada: +entrada / -saída
     valor_unitario = db.Column(db.Float, default=0, nullable=False)
     motivo = db.Column(db.String(200), nullable=False)
     usuario = db.Column(db.String(120))
@@ -1062,6 +1066,7 @@ class AjusteEstoqueCombustivel(db.Model):
             "id": self.id,
             "data": self.data.isoformat() if self.data else None,
             "combustivel": self.combustivel,
+            "saldo_fisico": round(self.saldo_fisico, 3) if self.saldo_fisico is not None else None,
             "litros": round(self.litros or 0, 3),
             "valor_unitario": round(self.valor_unitario or 0, 4),
             "valor": round(abs(self.litros or 0) * (self.valor_unitario or 0), 2),
