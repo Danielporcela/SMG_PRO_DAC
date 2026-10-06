@@ -62,10 +62,15 @@ def _eventos(combustivel):
     eventos = []
     for n in entradas:
         eventos.append(((n.data_entrada or n.data), 0, n.id or 0, "entrada", n))
-    for aj in ajustes:
-        eventos.append((aj.data, 1, aj.id or 0, "ajuste", aj))
+    # O ajuste físico representa o saldo conferido ao FINAL do dia.
+    # Portanto, no mesmo dia ele deve ser processado depois das NFs e
+    # dos abastecimentos; caso contrário, a diferença calculada sobre o
+    # saldo final seria aplicada antes das saídas e poderia gerar
+    # artificialmente "estoque insuficiente".
     for a in saidas:
-        eventos.append((a.data, 2, a.id or 0, "saida", a))
+        eventos.append((a.data, 1, a.id or 0, "saida", a))
+    for aj in ajustes:
+        eventos.append((aj.data, 2, aj.id or 0, "ajuste", aj))
     eventos.sort(key=lambda x: (x[0] or date.min, x[1], x[2]))
     return cfg, eventos
 
