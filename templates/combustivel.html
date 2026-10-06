@@ -15,6 +15,9 @@
       <button class="btn btn-contorno" type="button" id="botaoNovaNFCombustivel">
         <i class="fa-solid fa-file-invoice-dollar me-1"></i> Lançar Nota Fiscal
       </button>
+      <button class="btn btn-contorno" type="button" id="botaoAjustarEstoque">
+        <i class="fa-solid fa-sliders me-1"></i> Ajustar estoque
+      </button>
       <button class="btn btn-contorno" type="button" id="botaoAtualizarEstoque" onclick="carregarControleCombustivel(true)">
         <i class="fa-solid fa-rotate me-1"></i> Atualizar estoque
       </button>
@@ -101,6 +104,34 @@
   </div>
 </div>
 
+<div class="modal fade" id="modalAjusteCombustivel" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-sliders me-2"></i>Ajuste de estoque de combustível</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-7"><label class="form-label">Combustível *</label><select class="form-select" id="ajusteCombTipo"></select></div>
+          <div class="col-md-5"><label class="form-label">Data do ajuste *</label><input class="form-control" id="ajusteCombData" type="date"></div>
+          <div class="col-md-6"><label class="form-label">Saldo atual do sistema</label><input class="form-control" id="ajusteCombSaldoAtual" readonly></div>
+          <div class="col-md-6"><label class="form-label">Saldo físico apurado (L) *</label><input class="form-control" id="ajusteCombSaldoFisico" inputmode="decimal" placeholder="Ex.: 12500,00"></div>
+          <div class="col-12"><div class="alert alert-secondary py-2 mb-0" id="ajusteCombDiferenca" style="font-size:12.5px">Informe o saldo físico para calcular a diferença.</div></div>
+          <div class="col-12"><label class="form-label">Motivo do ajuste *</label><textarea class="form-control" id="ajusteCombMotivo" rows="3" maxlength="200" placeholder="Ex.: aferição física do tanque, correção de medição ou perda identificada"></textarea></div>
+        </div>
+        <div class="alert alert-warning mt-3 mb-0" style="font-size:12.5px">
+          O ajuste não apaga NFs nem abastecimentos. Ele cria uma movimentação auditável no kardex, identificando data, diferença, motivo e usuário.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="salvarAjusteCombustivel"><i class="fa-solid fa-floppy-disk me-1"></i>Registrar ajuste</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="previaImportacaoAbastecimentos"></div>
 <div class="instrumentos mb-3" id="resumoCombustivel"></div>
 {% endblock %}
@@ -110,12 +141,68 @@
 let previaAbastecimentos = null;
 let notasCombustivelCache = [];
 let modalNFCombustivel = null;
+let modalAjusteCombustivel = null;
+let estoqueCombustivelCache = null;
 
 function numeroBRComb(valor) {
   if (valor === null || valor === undefined || valor === '') return 0;
   const txt = String(valor).trim();
   if (txt.includes(',')) return Number(txt.replace(/\./g, '').replace(',', '.')) || 0;
   return Number(txt) || 0;
+}
+
+
+function itemEstoqueCombustivelSelecionado() {
+  const tipo = document.getElementById('ajusteCombTipo').value;
+  return ((estoqueCombustivelCache && estoqueCombustivelCache.itens) || []).find(x => x.combustivel === tipo) || null;
+}
+
+function atualizarPreviaAjusteCombustivel() {
+  const item = itemEstoqueCombustivelSelecionado();
+  const atual = item ? Number(item.litros_estoque || 0) : 0;
+  const fisico = numeroBRComb(document.getElementById('ajusteCombSaldoFisico').value);
+  document.getElementById('ajusteCombSaldoAtual').value = item ? `${SGMF.numero(atual, 2)} L` : '—';
+  const box = document.getElementById('ajusteCombDiferenca');
+  if (!document.getElementById('ajusteCombSaldoFisico').value.trim()) {
+    box.className = 'alert alert-secondary py-2 mb-0';
+    box.textContent = 'Informe o saldo físico para calcular a diferença.';
+    return;
+  }
+  const diferenca = fisico - atual;
+  const sinal = diferenca > 0 ? 'entrada de ajuste' : diferenca < 0 ? 'saída de ajuste' : 'sem ajuste';
+  box.className = `alert ${diferenca === 0 ? 'alert-success' : 'alert-info'} py-2 mb-0`;
+  box.innerHTML = `<strong>Diferença:</strong> ${SGMF.numero(Math.abs(diferenca), 2)} L · ${sinal}`;
+}
+
+function abrirAjusteCombustivel() {
+  const itens = ((estoqueCombustivelCache && estoqueCombustivelCache.itens) || []).filter(x => x.ativo);
+  if (!itens.length) {
+    SGMF.aviso('Lance uma nota fiscal para ativar o controle de estoque antes de fazer ajustes.');
+    return;
+  }
+  if (!modalAjusteCombustivel) modalAjusteCombustivel = new bootstrap.Modal(document.getElementById('modalAjusteCombustivel'));
+  const sel = document.getElementById('ajusteCombTipo');
+  sel.innerHTML = itens.map(x => `<option value="${SGMF.esc(x.combustivel)}">${SGMF.esc(x.combustivel)}</option>`).join('');
+  document.getElementById('ajusteCombData').value = SGMF.hoje();
+  document.getElementById('ajusteCombSaldoFisico').value = '';
+  document.getElementById('ajusteCombMotivo').value = '';
+  atualizarPreviaAjusteCombustivel();
+  modalAjusteCombustivel.show();
+}
+
+async function salvarAjusteCombustivel() {
+  const dados = {
+    combustivel: document.getElementById('ajusteCombTipo').value,
+    data: document.getElementById('ajusteCombData').value,
+    saldo_fisico: numeroBRComb(document.getElementById('ajusteCombSaldoFisico').value),
+    motivo: document.getElementById('ajusteCombMotivo').value.trim()
+  };
+  try {
+    const r = await SGMF.post('/api/combustivel/ajustar-estoque', dados);
+    modalAjusteCombustivel.hide();
+    SGMF.sucesso(`Estoque ajustado: ${SGMF.numero(r.saldo_anterior, 2)} L → ${SGMF.numero(r.saldo_novo, 2)} L.`);
+    await carregarControleCombustivel();
+  } catch (e) { SGMF.falha(e.message); }
 }
 
 async function carregarFornecedoresNFCombustivel() {
@@ -211,6 +298,7 @@ async function carregarControleCombustivel(manual = false) {
     // ---- resumo + saldo por combustível + avisos de inconsistência
     if (rResumo.status === 'fulfilled') {
       const resumo = rResumo.value;
+      estoqueCombustivelCache = resumo;
       const alertas = resumo.alertas || [];
       document.getElementById('alertasEstoqueCombustivel').innerHTML = alertas.length ? `
         <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:12.5px">
@@ -281,6 +369,10 @@ async function carregarControleCombustivel(manual = false) {
 
 document.getElementById('botaoNovaNFCombustivel').onclick = () => abrirNFCombustivel();
 document.getElementById('salvarNFCombustivel').onclick = salvarNFCombustivel;
+document.getElementById('botaoAjustarEstoque').onclick = abrirAjusteCombustivel;
+document.getElementById('salvarAjusteCombustivel').onclick = salvarAjusteCombustivel;
+document.getElementById('ajusteCombTipo').onchange = atualizarPreviaAjusteCombustivel;
+document.getElementById('ajusteCombSaldoFisico').oninput = atualizarPreviaAjusteCombustivel;
 
 document.getElementById('botaoImportarExcel').onclick = () => {
   document.getElementById('arquivoAbastecimentos').click();

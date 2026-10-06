@@ -7,7 +7,7 @@ from extensions import db
 
 def garantir_estoque_combustivel():
     """Cria as tabelas do estoque de combustível sem depender de migration pendente."""
-    from models import ControleEstoqueCombustivel, NotaFiscalCombustivel
+    from models import AjusteEstoqueCombustivel, ControleEstoqueCombustivel, NotaFiscalCombustivel
 
     engine = db.engine
     insp = inspect(engine)
@@ -29,6 +29,8 @@ def garantir_estoque_combustivel():
             with engine.begin() as conn:
                 conn.execute(text('ALTER TABLE "notas_fiscais_combustivel" ADD COLUMN "data_entrada" DATE'))
                 conn.execute(text('UPDATE "notas_fiscais_combustivel" SET "data_entrada" = "data" WHERE "data_entrada" IS NULL'))
+    if "ajustes_estoque_combustivel" not in tabelas:
+        AjusteEstoqueCombustivel.__table__.create(engine, checkfirst=True)
 
 
 

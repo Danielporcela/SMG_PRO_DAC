@@ -1,10 +1,10 @@
 """NF de combustível, estoque físico e kardex do módulo Abastecimentos."""
 from datetime import date
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from extensions import db
-from models import NotaFiscalCombustivel
+from models import AjusteEstoqueCombustivel, NotaFiscalCombustivel
 from services.crud import ErroNegocio, editar_tela, registrar_log, visualizar_tela
 from services.estoque_combustivel import (ativar_controle, movimentacoes,
                                           recalcular_estoque_combustivel,
@@ -137,6 +137,53 @@ def excluir_nota(nota_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"erro": f"Não foi possível excluir a NF ({e.__class__.__name__})."}), 400
+
+
+@bp_combustivel_estoque.post("/combustivel/ajustar-estoque")
+@editar_tela("combustivel")
+def ajustar_estoque():
+    """Reconcilia o saldo do kardex com a contagem física informada."""
+    dados = request.get_json(silent=True) or {}
+    combustivel = (dados.get("combustivel") or "Diesel S10").strip() or "Diesel S10"
+    try:
+        data_ajuste = _data(dados.get("data"), "data do ajuste", True)
+        saldo_fisico = _float(dados.get("saldo_fisico"), "Saldo físico")
+        motivo = (dados.get("motivo") or "").strip()
+        if saldo_fisico < 0:
+            raise ErroNegocio("O saldo físico não pode ser negativo.")
+        if len(motivo) < 5:
+            raise ErroNegocio("Informe o motivo do ajuste (mínimo de 5 caracteres).")
+
+        atual = recalcular_estoque_combustivel(combustivel, estrito=True)
+        if not atual.get("ativo"):
+            raise ErroNegocio("O controle deste combustível ainda não foi ativado. Lance uma NF primeiro.")
+        saldo_atual = float(atual.get("litros_estoque") or 0)
+        delta = round(saldo_fisico - saldo_atual, 3)
+        if abs(delta) < 0.001:
+            raise ErroNegocio("O saldo físico informado já é igual ao saldo do sistema.")
+
+        ajuste = AjusteEstoqueCombustivel(
+            data=data_ajuste, combustivel=combustivel, litros=delta,
+            valor_unitario=float(atual.get("custo_medio") or 0),
+            motivo=motivo, usuario=session.get("usuario_nome", "sistema"))
+        db.session.add(ajuste)
+        db.session.flush()
+        novo = recalcular_estoque_combustivel(combustivel, estrito=True)
+        registrar_log("ajustar", "estoque_combustivel", ajuste.id,
+                      f"{combustivel}: {saldo_atual:.3f} L -> {saldo_fisico:.3f} L; motivo: {motivo}")
+        db.session.commit()
+        return jsonify({
+            "ok": True, "ajuste": ajuste.to_dict(),
+            "saldo_anterior": round(saldo_atual, 3),
+            "saldo_novo": round(float(novo.get("litros_estoque") or 0), 3),
+            "diferenca": delta,
+        }), 201
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível ajustar o estoque ({e.__class__.__name__})."}), 400
 
 
 @bp_combustivel_estoque.post("/combustivel/reconciliar-estoque")

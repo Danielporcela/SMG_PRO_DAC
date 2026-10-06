@@ -1041,6 +1041,37 @@ class ControleEstoqueCombustivel(db.Model):
         }
 
 
+class AjusteEstoqueCombustivel(db.Model):
+    """Ajuste físico auditável do estoque de combustível.
+
+    O operador informa o saldo físico apurado; a rota calcula a diferença e
+    grava apenas a movimentação necessária para reconciliar o kardex.
+    """
+    __tablename__ = "ajustes_estoque_combustivel"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje, nullable=False, index=True)
+    combustivel = db.Column(db.String(30), default="Diesel S10", nullable=False, index=True)
+    litros = db.Column(db.Float, default=0, nullable=False)  # positivo=entrada; negativo=saída
+    valor_unitario = db.Column(db.Float, default=0, nullable=False)
+    motivo = db.Column(db.String(200), nullable=False)
+    usuario = db.Column(db.String(120))
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "data": self.data.isoformat() if self.data else None,
+            "combustivel": self.combustivel,
+            "litros": round(self.litros or 0, 3),
+            "valor_unitario": round(self.valor_unitario or 0, 4),
+            "valor": round(abs(self.litros or 0) * (self.valor_unitario or 0), 2),
+            "motivo": self.motivo,
+            "usuario": self.usuario,
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+            "identificacao": f"Ajuste de estoque · {self.combustivel}",
+        }
+
+
 class NotaFiscalCombustivel(db.Model):
     """Entrada física de combustível no estoque a partir de uma nota fiscal."""
     __tablename__ = "notas_fiscais_combustivel"

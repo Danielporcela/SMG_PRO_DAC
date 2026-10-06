@@ -1,19 +1,17 @@
-CORRECOES SGMF - MANUTENCAO / ESTOQUE
+ALTERACOES
+1) Botao "Ajustar estoque" em Abastecimentos > Estoque de combustivel.
+2) Operador informa saldo fisico contado, data e motivo.
+3) Sistema calcula diferenca e cria ajuste positivo/negativo auditavel no kardex.
+4) Nova tabela ajustes_estoque_combustivel e criada automaticamente pela compatibilidade do banco.
+5) Combustivel foi removido do grafico "Gasto por ciclo e meta" e da impressao desse grafico.
 
-Substituir mantendo as mesmas pastas:
-- routes/api.py
-- static/js/core.js
+ARQUIVOS ALTERADOS
 - models.py
-- services/alertas.py
-- services/indicadores.py
-- routes/busca_pecas.py
-- routes/relatorios.py
+- services/compatibilidade_banco.py
+- services/estoque_combustivel.py
+- routes/combustivel_estoque.py
+- templates/combustivel.html
+- static/js/dashboard.js
 
-Correcoes:
-1. OS sem peca de estoque pode ser finalizada com custo zero; OS com peca de estoque e custo zero continua bloqueada.
-2. Limpeza global de foco antes de ocultar modais Bootstrap, reduzindo/eliminando o aviso aria-hidden.
-3. Itens com saldo 0 nao entram mais em "Repor" no modelo, dashboard, alertas, busca e relatorio de estoque.
-
-Validacao executada:
-- py_compile dos arquivos Python: OK
-- node --check de core.js e crud.js: OK
+IMPORTANTE
+Substitua todos os 6 arquivos mantendo as mesmas pastas. Ao reiniciar a aplicacao, a tabela de ajustes e criada automaticamente em banco existente.

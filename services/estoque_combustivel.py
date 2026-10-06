@@ -7,7 +7,8 @@ from collections import defaultdict
 from datetime import date
 
 from extensions import db
-from models import Abastecimento, ControleEstoqueCombustivel, NotaFiscalCombustivel
+from models import (Abastecimento, AjusteEstoqueCombustivel,
+                    ControleEstoqueCombustivel, NotaFiscalCombustivel)
 from services.crud import ErroNegocio
 
 EPS = 1e-6
@@ -49,6 +50,10 @@ def _eventos(combustivel):
                       .all())
     entradas = [n for n in todas_entradas
                 if (n.data_entrada or n.data) and (n.data_entrada or n.data) >= cfg.data_inicio]
+    ajustes = (AjusteEstoqueCombustivel.query
+               .filter(AjusteEstoqueCombustivel.combustivel == combustivel,
+                       AjusteEstoqueCombustivel.data >= cfg.data_inicio)
+               .all())
     saidas = (Abastecimento.query
               .filter(Abastecimento.combustivel == combustivel,
                       Abastecimento.data >= cfg.data_inicio)
@@ -57,8 +62,10 @@ def _eventos(combustivel):
     eventos = []
     for n in entradas:
         eventos.append(((n.data_entrada or n.data), 0, n.id or 0, "entrada", n))
+    for aj in ajustes:
+        eventos.append((aj.data, 1, aj.id or 0, "ajuste", aj))
     for a in saidas:
-        eventos.append((a.data, 1, a.id or 0, "saida", a))
+        eventos.append((a.data, 2, a.id or 0, "saida", a))
     eventos.sort(key=lambda x: (x[0] or date.min, x[1], x[2]))
     return cfg, eventos
 
@@ -127,6 +134,48 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
                 "valor": round(total, 2), "saldo_litros": round(saldo_litros, 3),
                 "saldo_valor": round(saldo_valor, 2), "custo_medio": round(custo_medio, 4),
                 "alerta": None,
+            })
+        elif tipo == "ajuste":
+            delta = float(obj.litros or 0)
+            if abs(delta) < EPS:
+                continue
+            custo_ref = float(obj.valor_unitario or 0)
+            if custo_ref <= 0:
+                custo_ref = (saldo_valor / saldo_litros) if saldo_litros > EPS else ultimo_custo
+            valor_delta = abs(delta) * custo_ref
+            if delta > 0:
+                saldo_litros += delta
+                saldo_valor += valor_delta
+                entrada, saida = delta, 0.0
+                tipo_mov = "Ajuste positivo"
+            else:
+                retirar = abs(delta)
+                if saldo_litros + EPS < retirar:
+                    aviso = (f"Ajuste de estoque insuficiente de {combustivel} em "
+                             f"{data_mov.strftime('%d/%m/%Y')}: tentativa de retirar "
+                             f"{retirar:.2f} L com saldo de {max(saldo_litros, 0):.2f} L.")
+                    if estrito:
+                        raise ErroNegocio(aviso)
+                    alertas.append(aviso)
+                    retirar = max(saldo_litros, 0)
+                    valor_delta = retirar * custo_ref
+                saldo_litros -= retirar
+                saldo_valor -= valor_delta
+                if saldo_litros < EPS:
+                    saldo_litros = 0.0
+                    saldo_valor = 0.0
+                entrada, saida = 0.0, retirar
+                tipo_mov = "Ajuste negativo"
+            ultimo_custo = (saldo_valor / saldo_litros) if saldo_litros > EPS else custo_ref
+            movimentos.append({
+                "data": data_mov.isoformat(), "tipo": tipo_mov,
+                "documento": f"Ajuste #{obj.id} · {obj.motivo}", "referencia_id": obj.id,
+                "combustivel": combustivel, "litros": round(abs(delta), 3),
+                "entrada": round(entrada, 3), "saida": round(saida, 3),
+                "valor_unitario": round(custo_ref, 4), "valor": round(valor_delta, 2),
+                "saldo_litros": round(saldo_litros, 3), "saldo_valor": round(saldo_valor, 2),
+                "custo_medio": round((saldo_valor / saldo_litros) if saldo_litros else 0, 4),
+                "alerta": None, "usuario": obj.usuario,
             })
         else:
             litros = float(obj.litros or 0)
@@ -221,5 +270,5 @@ def movimentacoes(inicio=None, fim=None, estrito=True):
             if fim and d > fim:
                 continue
             linhas.append(mov)
-    linhas.sort(key=lambda x: (x["data"], 0 if x["tipo"].startswith("Entrada") else 1, x["referencia_id"]))
+    linhas.sort(key=lambda x: (x["data"], 0 if x["tipo"].startswith("Entrada") else (1 if x["tipo"].startswith("Ajuste") else 2), x["referencia_id"]))
     return linhas

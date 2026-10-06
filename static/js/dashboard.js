@@ -82,8 +82,6 @@
       data: {
         labels: g.meses,
         datasets: [
-          { type: 'bar', label: 'Combustível', data: g.combustivel_mes,
-            backgroundColor: '#0F3D56', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Manutenção (incl. terceiros)', data: g.manutencao_mes,
             backgroundColor: '#7FA9C2', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Lavagem', data: g.lavagem_mes,
@@ -451,17 +449,18 @@
   function imprimirGraficoMeses() {
     const g = precisaGraficos(); if (!g) return;
     const linhas = g.meses.map((mes, i) => ({
-      mes, combustivel: g.combustivel_mes[i], manutencao: g.manutencao_mes[i],
+      mes, manutencao: g.manutencao_mes[i], lavagem: g.lavagem_mes[i],
       compras: g.compras_mes[i], uniformes: g.uniformes_mes[i],
-      meta: g.meta_mes[i], realizado: g.realizado_mes[i],
-      realizadoGeral: g.realizado_geral_mes[i]
+      meta: g.meta_mes[i],
+      realizado: (g.realizado_mes[i] || 0) - (g.combustivel_mes[i] || 0),
+      realizadoGeral: (g.realizado_geral_mes[i] || 0) - (g.combustivel_mes[i] || 0)
     }));
     abrirImpressaoRelatorio({
       titulo: 'Gasto por ciclo e meta (últimos 12 ciclos)', canvasId: 'graficoMeses', semPeriodo: true,
       colunas: [
         { rotulo: 'Ciclo', campo: 'mes' },
-        { rotulo: 'Combustível', classe: 'text-end num', render: l => SGMF.moeda(l.combustivel) },
         { rotulo: 'Manutenção', classe: 'text-end num', render: l => SGMF.moeda(l.manutencao) },
+        { rotulo: 'Lavagem', classe: 'text-end num', render: l => SGMF.moeda(l.lavagem) },
         { rotulo: 'Compras (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.compras) },
         { rotulo: 'Uniformes (NF)', classe: 'text-end num', render: l => SGMF.moeda(l.uniformes) },
         { rotulo: 'Meta', classe: 'text-end num', render: l => SGMF.moeda(l.meta) },
