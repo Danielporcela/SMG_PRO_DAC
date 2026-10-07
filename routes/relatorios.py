@@ -259,29 +259,51 @@ def montar_dados(relatorio):
                    d["meta"], d["saldo_meta"], d["situacao"]] for d in dados]
 
     elif relatorio == "posto_molas":
+        # Reúne TODOS os lançamentos de posto de molas: os feitos pela OS, os
+        # feitos em "Serviços de terceiros" e os antigos sem categoria definida.
+        marca = "%mola%"
         q = ServicoTerceiro.query.filter(
-            ServicoTerceiro.categoria == "Posto de Molas",
-            ServicoTerceiro.data.between(inicio, fim)
+            ServicoTerceiro.data.between(inicio, fim),
+            db.or_(
+                db.func.lower(db.func.coalesce(ServicoTerceiro.categoria, "")).like(marca),
+                db.func.lower(db.func.coalesce(ServicoTerceiro.tipo_servico, "")).like(marca),
+                db.func.lower(db.func.coalesce(ServicoTerceiro.prestador, "")).like(marca),
+                db.func.lower(db.func.coalesce(ServicoTerceiro.descricao, "")).like(marca),
+            ),
         )
         if veiculo_id:
             q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
         registros = q.order_by(ServicoTerceiro.data, ServicoTerceiro.id).all()
         cab = ["Data", "OS", "Veículo", "Posto de molas", "NF", "Descrição",
-               "Peças R$", "Mão de obra R$", "Total R$", "Vencimento"]
+               "Peças R$", "Mão de obra R$", "Total R$", "Vencimento", "Situação"]
         linhas = []
+        tot_pecas = tot_mao = tot_valor = 0.0
         for s in registros:
             os_numero = s.ordem.numero if s.ordem else "—"
             veiculo = (f"{s.veiculo.prefixo}/{s.veiculo.placa}"
                        if s.veiculo else "—")
+            pecas = round(s.valor_pecas or 0, 2)
+            mao = round(s.valor_mao_obra or 0, 2)
+            valor = round(s.valor or 0, 2)
+            # Lançamentos antigos só têm o total: considera tudo como peças.
+            if not pecas and not mao and valor:
+                pecas = valor
+            situacao = s.status_financeiro or "Pendente"
+            if situacao != "Cancelado":
+                tot_pecas += pecas
+                tot_mao += mao
+                tot_valor += valor
             linhas.append([
                 s.data.strftime("%d/%m/%Y") if s.data else "—",
                 os_numero, veiculo, s.prestador or "—",
                 s.nota_fiscal or s.documento or "—", s.descricao or "—",
-                round(s.valor_pecas or 0, 2), round(s.valor_mao_obra or 0, 2),
-                round(s.valor or 0, 2),
-                s.vencimento.strftime("%d/%m/%Y") if s.vencimento else "—"
+                pecas, mao, valor,
+                s.vencimento.strftime("%d/%m/%Y") if s.vencimento else "—",
+                situacao,
             ])
-
+        if linhas:
+            linhas.append(["TOTAL", "", "", "", "", f"{len(registros)} lançamento(s) (exceto cancelados)",
+                           round(tot_pecas, 2), round(tot_mao, 2), round(tot_valor, 2), "", ""])
 
     elif relatorio == "gastos_uniformes":
         q = NotaFiscalUniforme.query.filter(
