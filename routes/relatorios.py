@@ -271,11 +271,13 @@ def montar_dados(relatorio):
                 db.func.lower(db.func.coalesce(ServicoTerceiro.descricao, "")).like(marca),
             ),
         )
+        # Lançamentos cancelados não entram no controle.
+        q = q.filter(db.func.coalesce(ServicoTerceiro.status_financeiro, "") != "Cancelado")
         if veiculo_id:
             q = q.filter(ServicoTerceiro.veiculo_id == veiculo_id)
         registros = q.order_by(ServicoTerceiro.data, ServicoTerceiro.id).all()
         cab = ["Data", "OS", "Veículo", "Posto de molas", "NF", "Descrição",
-               "Peças R$", "Mão de obra R$", "Total R$", "Vencimento", "Situação"]
+               "Peças R$", "Mão de obra R$", "Total R$", "Vencimento"]
         linhas = []
         tot_pecas = tot_mao = tot_valor = 0.0
         for s in registros:
@@ -288,22 +290,19 @@ def montar_dados(relatorio):
             # Lançamentos antigos só têm o total: considera tudo como peças.
             if not pecas and not mao and valor:
                 pecas = valor
-            situacao = s.status_financeiro or "Pendente"
-            if situacao != "Cancelado":
-                tot_pecas += pecas
-                tot_mao += mao
-                tot_valor += valor
+            tot_pecas += pecas
+            tot_mao += mao
+            tot_valor += valor
             linhas.append([
                 s.data.strftime("%d/%m/%Y") if s.data else "—",
                 os_numero, veiculo, s.prestador or "—",
                 s.nota_fiscal or s.documento or "—", s.descricao or "—",
                 pecas, mao, valor,
                 s.vencimento.strftime("%d/%m/%Y") if s.vencimento else "—",
-                situacao,
             ])
         if linhas:
-            linhas.append(["TOTAL", "", "", "", "", f"{len(registros)} lançamento(s) (exceto cancelados)",
-                           round(tot_pecas, 2), round(tot_mao, 2), round(tot_valor, 2), "", ""])
+            linhas.append(["TOTAL", "", "", "", "", f"{len(registros)} lançamento(s)",
+                           round(tot_pecas, 2), round(tot_mao, 2), round(tot_valor, 2), ""])
 
     elif relatorio == "gastos_uniformes":
         q = NotaFiscalUniforme.query.filter(
