@@ -466,15 +466,39 @@ def exportar_pdf(relatorio):
 
     mensagem_vazia = ("Nenhuma peça encontrada para os filtros selecionados."
                      if relatorio == "estoque" else "Nenhum lançamento no período.")
-    dados = [cab] + [[str(c) for c in linha] for linha in linhas] if linhas else \
-            [cab, [mensagem_vazia] + [""] * (len(cab) - 1)]
-    tabela = Table(dados, repeatRows=1)
+    from reportlab.lib.styles import ParagraphStyle
+    from xml.sax.saxutils import escape as _esc
+
+    st_cel = ParagraphStyle("cel", parent=estilos["Normal"], fontName="Helvetica",
+                            fontSize=7, leading=8.5, alignment=1)
+    st_cab = ParagraphStyle("cab", parent=st_cel, fontName="Helvetica-Bold",
+                            textColor=colors.white)
+    st_tot = ParagraphStyle("tot", parent=st_cel, fontName="Helvetica-Bold")
+
+    def _celula(valor, estilo=st_cel):
+        return Paragraph(_esc(str(valor)), estilo)
+
+    corpo = linhas if linhas else [[mensagem_vazia] + [""] * (len(cab) - 1)]
+    dados = [[_celula(c, st_cab) for c in cab]]
+    for linha in corpo:
+        total = bool(linha) and str(linha[0]) == "TOTAL"
+        dados.append([_celula(c, st_tot if total else st_cel) for c in linha])
+
+    # Larguras proporcionais ao conteúdo, ajustadas à largura útil da página
+    # (as células quebram linha, então nada ultrapassa a folha).
+    largura_util = landscape(A4)[0] - 24 * mm
+    pesos = []
+    for i in range(len(cab)):
+        maior = max([len(str(cab[i]))] + [min(len(str(l[i])), 40) for l in corpo if i < len(l)])
+        pesos.append(max(maior, 6))
+    soma = float(sum(pesos))
+    larguras = [largura_util * p_ / soma for p_ in pesos]
+    tabela = Table(dados, colWidths=larguras, repeatRows=1)
     tabela.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F3D56")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#C9D2DA")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F5F7")]),
@@ -482,7 +506,7 @@ def exportar_pdf(relatorio):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     elementos += [tabela, Spacer(1, 10),
-                  Paragraph(f"{len(linhas)} registro(s) · Sistema de Gestão de Manutenção de Frotas",
+                  Paragraph(f"{len([l for l in linhas if not (l and str(l[0]) == 'TOTAL')])} registro(s) · Sistema de Gestão de Manutenção de Frotas",
                             estilos["Italic"])]
     doc.build(elementos)
     saida.seek(0)
