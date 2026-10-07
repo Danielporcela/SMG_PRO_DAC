@@ -476,7 +476,9 @@ def exportar_pdf(relatorio):
     st_tot = ParagraphStyle("tot", parent=st_cel, fontName="Helvetica-Bold")
 
     def _celula(valor, estilo=st_cel):
-        return Paragraph(_esc(str(valor)), estilo)
+        texto = _esc(str(valor).replace("\r", "").strip())
+        texto = "<br/>".join(l.strip() for l in texto.split("\n") if l.strip())
+        return Paragraph(texto, estilo)
 
     corpo = linhas if linhas else [[mensagem_vazia] + [""] * (len(cab) - 1)]
     dados = [[_celula(c, st_cab) for c in cab]]
@@ -489,8 +491,13 @@ def exportar_pdf(relatorio):
     largura_util = landscape(A4)[0] - 24 * mm
     pesos = []
     for i in range(len(cab)):
-        maior = max([len(str(cab[i]))] + [min(len(str(l[i])), 40) for l in corpo if i < len(l)])
-        pesos.append(max(maior, 6))
+        maior = max([len(str(cab[i]))] + [
+            min(max((len(x) for x in str(l[i]).split("\n")), default=0), 40)
+            for l in corpo if i < len(l)])
+        # Nenhuma coluna fica mais estreita que a sua maior palavra (evita "Pendent/e").
+        palavra = max([len(w) for t in [str(cab[i])] + [str(l[i]) for l in corpo if i < len(l)]
+                       for w in t.split()] or [0])
+        pesos.append(max(maior, palavra + 3, 6))
     soma = float(sum(pesos))
     larguras = [largura_util * p_ / soma for p_ in pesos]
     tabela = Table(dados, colWidths=larguras, repeatRows=1)
