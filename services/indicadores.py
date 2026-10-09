@@ -9,7 +9,7 @@ from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme, NotaFiscalCombustivel)
 from services.auditoria_estoque import contar_os_pendentes
-from services.grupos_consumo import _normalizar
+from services.grupos_consumo import _normalizar, custos_por_grupo
 from services.tempo import hoje as data_de_hoje
 
 GRUPOS = ["Motor", "Suspensão", "Freios", "Elétrica", "Hidráulica", "Pneus",
@@ -180,6 +180,20 @@ def _veiculos_por_status_os(ids_veiculos):
     return len(parados), len(aguardando), len(linhas)
 
 
+
+def _meta_grupos_consumo(ano, mes):
+    """Meta do mês para os grupos de consumo (metas novas por grupo + metas
+    antigas cadastradas em veículos-setor), igual à tela de Grupos."""
+    novas = db.session.query(func.sum(Orcamento.meta_valor)).filter(
+        Orcamento.ano == ano, Orcamento.mes == mes,
+        Orcamento.grupo_consumo_id.isnot(None)).scalar() or 0
+    antigas = db.session.query(func.sum(Orcamento.meta_valor)).filter(
+        Orcamento.ano == ano, Orcamento.mes == mes,
+        Orcamento.grupo_consumo_id.is_(None),
+        Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True))).scalar() or 0
+    return novas + antigas
+
+
 def resumo(inicio=None, fim=None, veiculo_id=None):
     inicio, fim = periodo_padrao(inicio, fim)
     ordens = _custo_os(inicio, fim, veiculo_id)
@@ -211,6 +225,15 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     gasto_compras = round(sum(n.valor_total for n in notas_compra), 2)
     notas_uniformes = _notas_uniformes_finalizadas(inicio, fim)
     gasto_uniformes = round(sum(n.valor_total for n in notas_uniformes), 2)
+    # Consumo interno dos grupos de consumo (Limpeza, CCO, Oficina etc.). Não
+    # pertence a um veículo, então só entra quando o painel não está filtrado
+    # por veículo.
+    gasto_grupos = (0 if veiculo_id else
+                    round(sum(g["realizado"] for g in custos_por_grupo(inicio, fim)), 2))
+    gasto_uniformes_total = 0 if veiculo_id else gasto_uniformes
+    # Gasto geral do painel: manutenção (OS + serviços de terceiros) + lavagem
+    # + uniformes + grupos de consumo. Combustível fica fora de propósito.
+    gasto_geral = round(gasto_manut + gasto_lavagem + gasto_uniformes_total + gasto_grupos, 2)
     litros = sum(a.litros or 0 for a in abastecimentos)
     km_rodados = sum(a.km_percorridos or 0 for a in abastecimentos)
     # "média da média" da frota: média simples do km/L de cada abastecimento
@@ -245,6 +268,10 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         Orcamento.ano == ref_orcamento.year, Orcamento.mes == ref_orcamento.month,
         Orcamento.grupo_consumo_id.is_(None),
         ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True))).scalar() or 0
+    # A base do orçamento acompanha o que o gasto total passou a somar: as metas
+    # dos grupos de consumo entram junto, senão o percentual ficaria inflado.
+    if not veiculo_id:
+        orcado += _meta_grupos_consumo(ref_orcamento.year, ref_orcamento.month)
 
     # Economia do período: quanto o custo por km atual está melhor (ou pior)
     # que a média histórica, aplicado aos km rodados agora.
@@ -281,7 +308,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
         # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
-        "gasto_total": round(gasto_manut + gasto_lavagem, 2),
+        "gasto_total": gasto_geral,
+        "gasto_grupos_consumo": gasto_grupos,
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
         "gasto_uniformes": gasto_uniformes,
@@ -289,7 +317,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
         # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
         # aderência ao orçamento por veículo sempre significaram no painel.
-        "gasto_total_geral": round(gasto_manut + gasto_lavagem + gasto_compras + gasto_uniformes, 2),
+        "gasto_total_geral": round(gasto_geral + gasto_compras, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "consumo_medio_media_da_media": consumo_medio_media_da_media,
@@ -307,7 +335,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
-        "aderencia_orcamento": round((gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
+        "aderencia_orcamento": round(gasto_geral / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(db.session.query(
             func.coalesce(func.sum(func.coalesce(Peca.quantidade, 0)
                                    * func.coalesce(Peca.custo_unitario, 0)), 0)).scalar() or 0, 2),

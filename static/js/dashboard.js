@@ -63,7 +63,10 @@
         nota: `${d.notas_uniformes_qtd} nota(s) finalizada(s)` }),
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
-        icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
+        icone: 'fa-sack-dollar', estilo: 'font-size:19px',
+        nota: `${aderencia}<br>manutenção + terceiros + lavagem + uniformes + grupos · sem combustível` }),
+      medidor('Grupos de consumo', SGMF.moeda(d.gasto_grupos_consumo), {
+        icone: 'fa-people-group', estilo: 'font-size:19px', nota: 'retiradas de estoque no período' }),
     
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
