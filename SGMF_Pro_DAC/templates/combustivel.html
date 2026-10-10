@@ -1,0 +1,559 @@
+{% extends "lista.html" %}
+{% block titulo %}Abastecimentos{% endblock %}
+{% block cabecalho %}Abastecimentos{% endblock %}
+{% block descricao %}Módulo 5 — ao salvar, o sistema calcula km percorridos, km/L e custo por km.{% endblock %}
+{% block rotulo_novo %}Novo abastecimento{% endblock %}
+{% block filtros %}{% include "_filtro_periodo.html" %}{% endblock %}
+
+{% block antes_tabela %}
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <button class="btn btn-primario" type="button" id="botaoImportarExcel">
+        <i class="fa-solid fa-file-excel me-1"></i> Importar Excel
+      </button>
+      <button class="btn btn-contorno" type="button" id="botaoNovaNFCombustivel">
+        <i class="fa-solid fa-file-invoice-dollar me-1"></i> Lançar Nota Fiscal
+      </button>
+      <button class="btn btn-contorno" type="button" id="botaoAjustarEstoque">
+        <i class="fa-solid fa-sliders me-1"></i> Ajustar estoque
+      </button>
+      <button class="btn btn-contorno" type="button" id="botaoAtualizarEstoque" onclick="carregarControleCombustivel(true)">
+        <i class="fa-solid fa-rotate me-1"></i> Atualizar estoque
+      </button>
+      <a class="btn btn-contorno" href="/abastecimentos/modelo.xlsx">
+        <i class="fa-solid fa-download me-1"></i> Baixar modelo
+      </a>
+      <input type="file" id="arquivoAbastecimentos" accept=".xlsx,.xlsm" hidden>
+      <span class="form-text ms-md-2">Envie a planilha do dia (aba LANÇAMENTO) com VEÍCULO, DATA, LITROS e KM. Veículos sem litros e sem KM são ignorados; KM PERC e KM/L são recalculados pelo sistema.</span>
+    </div>
+  </div>
+</div>
+
+<div class="cartao mb-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-oil-well me-2" style="color:var(--petroleo)"></i>Estoque de combustível</h3>
+    <span class="ms-auto me-2" style="font-size:11.5px;color:var(--texto-suave)">NF = entrada · abastecimento = baixa automática</span>
+    <button class="btn btn-contorno btn-sm" type="button" onclick="SGMF.imprimir('areaControleCombustivel', 'Estoque de combustível')">
+      <i class="fa-solid fa-print"></i>
+    </button>
+  </div>
+  <div class="cartao-corpo" id="areaControleCombustivel">
+    <div id="alertasEstoqueCombustivel"></div>
+    <div class="instrumentos mb-3" id="resumoEstoqueCombustivel"></div>
+    <div id="estoquePorCombustivel"></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="cartao h-100">
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-file-invoice-dollar me-2" style="color:var(--petroleo)"></i>Notas fiscais de combustível</h3>
+        <button class="btn btn-contorno btn-sm ms-auto" type="button" onclick="SGMF.imprimir('tabelaNotasCombustivel', 'Notas fiscais de combustível')">
+          <i class="fa-solid fa-print"></i>
+        </button>
+      </div>
+      <div class="cartao-corpo p-0" id="tabelaNotasCombustivel"></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="cartao h-100">
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Movimentações do estoque</h3>
+        <button class="btn btn-contorno btn-sm ms-auto" type="button" onclick="SGMF.imprimir('tabelaMovComb', 'Movimentações do estoque de combustível')">
+          <i class="fa-solid fa-print"></i>
+        </button>
+      </div>
+      <div class="cartao-corpo p-0" id="tabelaMovComb"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalNFCombustivel" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-file-invoice-dollar me-2"></i>Nota fiscal de combustível</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="nfCombId">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label">Número da NF *</label><input class="form-control" id="nfCombNumero" maxlength="40"></div>
+          <div class="col-md-4"><label class="form-label">Data da NF *</label><input class="form-control" id="nfCombData" type="date"></div>
+          <div class="col-md-4"><label class="form-label">Vencimento</label><input class="form-control" id="nfCombVencimento" type="date"></div>
+          <div class="col-md-7"><label class="form-label">Fornecedor</label><select class="form-select" id="nfCombFornecedor"><option value="">—</option></select></div>
+          <div class="col-md-5"><label class="form-label">Combustível *</label><select class="form-select" id="nfCombTipo">
+            <option>Diesel S10</option><option>Diesel S500</option><option>Gasolina</option><option>Etanol</option><option>GNV</option><option>ARLA 32</option>
+          </select></div>
+          <div class="col-md-4"><label class="form-label">Quantidade (litros) *</label><input class="form-control" id="nfCombLitros" inputmode="decimal" placeholder="10000,00"></div>
+          <div class="col-md-4"><label class="form-label">Valor por litro (R$)</label><input class="form-control" id="nfCombValorLitro" inputmode="decimal" placeholder="6,10"></div>
+          <div class="col-md-4"><label class="form-label">Valor total (R$) *</label><input class="form-control" id="nfCombValorTotal" inputmode="decimal" placeholder="61.000,00"></div>
+          <div class="col-12"><label class="form-label">Observação</label><textarea class="form-control" id="nfCombObs" rows="2"></textarea></div>
+        </div>
+        <div class="alert alert-info mt-3 mb-0" style="font-size:12.5px">
+          A primeira NF ativa o controle de estoque para esse combustível. Depois disso, cada abastecimento reduz o saldo automaticamente e usa o custo médio ponderado do estoque.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="salvarNFCombustivel"><i class="fa-solid fa-floppy-disk me-1"></i>Salvar NF</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalAjusteCombustivel" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-sliders me-2"></i>Ajuste de estoque de combustível</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-7"><label class="form-label">Combustível *</label><select class="form-select" id="ajusteCombTipo"></select></div>
+          <div class="col-md-5"><label class="form-label">Data do ajuste *</label><input class="form-control" id="ajusteCombData" type="date"></div>
+          <div class="col-md-6"><label class="form-label">Saldo atual do sistema</label><input class="form-control" id="ajusteCombSaldoAtual" readonly></div>
+          <div class="col-md-6"><label class="form-label">Saldo físico apurado (L) *</label><input class="form-control" id="ajusteCombSaldoFisico" inputmode="decimal" placeholder="Ex.: 12500,00"></div>
+          <div class="col-12"><div class="alert alert-secondary py-2 mb-0" id="ajusteCombDiferenca" style="font-size:12.5px">Informe o saldo físico para calcular a diferença.</div></div>
+          <div class="col-12"><label class="form-label">Motivo do ajuste *</label><textarea class="form-control" id="ajusteCombMotivo" rows="3" maxlength="200" placeholder="Ex.: aferição física do tanque, correção de medição ou perda identificada"></textarea></div>
+        </div>
+        <div class="alert alert-warning mt-3 mb-0" style="font-size:12.5px">
+          O ajuste não apaga NFs nem abastecimentos. Ele cria uma movimentação auditável no kardex, identificando data, diferença, motivo e usuário.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="salvarAjusteCombustivel"><i class="fa-solid fa-floppy-disk me-1"></i>Registrar ajuste</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="previaImportacaoAbastecimentos"></div>
+<div class="instrumentos mb-3" id="resumoCombustivel"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let previaAbastecimentos = null;
+let notasCombustivelCache = [];
+let modalNFCombustivel = null;
+let modalAjusteCombustivel = null;
+let estoqueCombustivelCache = null;
+
+function numeroBRComb(valor) {
+  if (valor === null || valor === undefined || valor === '') return 0;
+  const txt = String(valor).trim();
+  if (txt.includes(',')) return Number(txt.replace(/\./g, '').replace(',', '.')) || 0;
+  return Number(txt) || 0;
+}
+
+
+function itemEstoqueCombustivelSelecionado() {
+  const tipo = document.getElementById('ajusteCombTipo').value;
+  return ((estoqueCombustivelCache && estoqueCombustivelCache.itens) || []).find(x => x.combustivel === tipo) || null;
+}
+
+function atualizarPreviaAjusteCombustivel() {
+  const item = itemEstoqueCombustivelSelecionado();
+  const atual = item ? Number(item.litros_estoque || 0) : 0;
+  const fisico = numeroBRComb(document.getElementById('ajusteCombSaldoFisico').value);
+  document.getElementById('ajusteCombSaldoAtual').value = item ? `${SGMF.numero(atual, 2)} L` : '—';
+  const box = document.getElementById('ajusteCombDiferenca');
+  if (!document.getElementById('ajusteCombSaldoFisico').value.trim()) {
+    box.className = 'alert alert-secondary py-2 mb-0';
+    box.textContent = 'Informe o saldo físico para calcular a diferença.';
+    return;
+  }
+  const diferenca = fisico - atual;
+  const sinal = diferenca > 0 ? 'entrada de ajuste' : diferenca < 0 ? 'saída de ajuste' : 'sem ajuste';
+  box.className = `alert ${diferenca === 0 ? 'alert-success' : 'alert-info'} py-2 mb-0`;
+  box.innerHTML = `<strong>Diferença:</strong> ${SGMF.numero(Math.abs(diferenca), 2)} L · ${sinal}`;
+}
+
+function abrirAjusteCombustivel() {
+  const itens = ((estoqueCombustivelCache && estoqueCombustivelCache.itens) || []).filter(x => x.ativo);
+  if (!itens.length) {
+    SGMF.aviso('Lance uma nota fiscal para ativar o controle de estoque antes de fazer ajustes.');
+    return;
+  }
+  if (!modalAjusteCombustivel) modalAjusteCombustivel = new bootstrap.Modal(document.getElementById('modalAjusteCombustivel'));
+  const sel = document.getElementById('ajusteCombTipo');
+  sel.innerHTML = itens.map(x => `<option value="${SGMF.esc(x.combustivel)}">${SGMF.esc(x.combustivel)}</option>`).join('');
+  document.getElementById('ajusteCombData').value = SGMF.hoje();
+  document.getElementById('ajusteCombSaldoFisico').value = '';
+  document.getElementById('ajusteCombMotivo').value = '';
+  atualizarPreviaAjusteCombustivel();
+  modalAjusteCombustivel.show();
+}
+
+async function salvarAjusteCombustivel() {
+  const dados = {
+    combustivel: document.getElementById('ajusteCombTipo').value,
+    data: document.getElementById('ajusteCombData').value,
+    saldo_fisico: numeroBRComb(document.getElementById('ajusteCombSaldoFisico').value),
+    motivo: document.getElementById('ajusteCombMotivo').value.trim()
+  };
+  try {
+    const r = await SGMF.post('/api/combustivel/ajustar-estoque', dados);
+    modalAjusteCombustivel.hide();
+    SGMF.sucesso(`Estoque ajustado: ${SGMF.numero(r.saldo_anterior, 2)} L → ${SGMF.numero(r.saldo_novo, 2)} L.`);
+    await carregarControleCombustivel();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+async function carregarFornecedoresNFCombustivel() {
+  const lista = await SGMF.get('/api/fornecedores');
+  const sel = document.getElementById('nfCombFornecedor');
+  sel.innerHTML = '<option value="">—</option>' + lista
+    .filter(x => x.ativo !== false)
+    .map(x => `<option value="${x.id}">${SGMF.esc(x.nome)}</option>`).join('');
+}
+
+async function abrirNFCombustivel(id = null) {
+  if (!modalNFCombustivel) modalNFCombustivel = new bootstrap.Modal(document.getElementById('modalNFCombustivel'));
+  await carregarFornecedoresNFCombustivel();
+  document.getElementById('nfCombId').value = '';
+  document.getElementById('nfCombNumero').value = '';
+  document.getElementById('nfCombData').value = SGMF.hoje();
+  document.getElementById('nfCombVencimento').value = '';
+  document.getElementById('nfCombFornecedor').value = '';
+  document.getElementById('nfCombTipo').value = 'Diesel S10';
+  document.getElementById('nfCombLitros').value = '';
+  document.getElementById('nfCombValorLitro').value = '';
+  document.getElementById('nfCombValorTotal').value = '';
+  document.getElementById('nfCombObs').value = '';
+  if (id) {
+    const n = notasCombustivelCache.find(x => x.id === id);
+    if (n) {
+      document.getElementById('nfCombId').value = n.id;
+      document.getElementById('nfCombNumero').value = n.numero_nf || '';
+      document.getElementById('nfCombData').value = n.data || '';
+      document.getElementById('nfCombVencimento').value = n.vencimento || '';
+      document.getElementById('nfCombFornecedor').value = n.fornecedor_id || '';
+      document.getElementById('nfCombTipo').value = n.combustivel || 'Diesel S10';
+      document.getElementById('nfCombLitros').value = SGMF.numero(n.litros, 2);
+      document.getElementById('nfCombValorLitro').value = SGMF.numero(n.valor_litro, 4);
+      document.getElementById('nfCombValorTotal').value = SGMF.numero(n.valor_total, 2);
+      document.getElementById('nfCombObs').value = n.observacao || '';
+    }
+  }
+  modalNFCombustivel.show();
+}
+
+async function salvarNFCombustivel() {
+  const id = Number(document.getElementById('nfCombId').value) || null;
+  const dados = {
+    numero_nf: document.getElementById('nfCombNumero').value.trim(),
+    data: document.getElementById('nfCombData').value,
+    vencimento: document.getElementById('nfCombVencimento').value || null,
+    fornecedor_id: document.getElementById('nfCombFornecedor').value || null,
+    combustivel: document.getElementById('nfCombTipo').value,
+    litros: numeroBRComb(document.getElementById('nfCombLitros').value),
+    valor_litro: numeroBRComb(document.getElementById('nfCombValorLitro').value),
+    valor_total: numeroBRComb(document.getElementById('nfCombValorTotal').value),
+    observacao: document.getElementById('nfCombObs').value.trim()
+  };
+  try {
+    if (id) await SGMF.put(`/api/notas-combustivel/${id}`, dados);
+    else await SGMF.post('/api/notas-combustivel', dados);
+    modalNFCombustivel.hide();
+    SGMF.sucesso(id ? 'Nota fiscal atualizada.' : 'Nota fiscal lançada no estoque.');
+    await carregarControleCombustivel();
+    telaCombustivel.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+}
+
+async function excluirNFCombustivel(id) {
+  const n = notasCombustivelCache.find(x => x.id === id);
+  const ok = await SGMF.confirmar('Excluir nota fiscal?', `A NF ${n ? n.numero_nf : id} será retirada do estoque. A exclusão será bloqueada se deixar algum abastecimento sem saldo.`, 'Excluir');
+  if (!ok) return;
+  try {
+    await SGMF.del(`/api/notas-combustivel/${id}`);
+    SGMF.sucesso('Nota fiscal excluída.');
+    await carregarControleCombustivel();
+    telaCombustivel.carregar();
+  } catch (e) { if (!e.cancelado) SGMF.falha(e.message); }
+}
+
+async function carregarControleCombustivel(manual = false) {
+  const botao = document.getElementById('botaoAtualizarEstoque');
+  const htmlBotao = botao ? botao.innerHTML : '';
+  if (botao) {
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Atualizando…';
+  }
+  const erroHtml = (e) => `<div class="p-3 text-danger">${SGMF.esc((e && e.message) || 'Não foi possível carregar.')}</div>`;
+  try {
+    // Cada bloco é independente: se um falhar, os outros continuam aparecendo.
+    const [rResumo, rNotas, rMovs] = await Promise.allSettled([
+      SGMF.get('/api/combustivel/estoque-resumo'),
+      SGMF.get('/api/notas-combustivel'),
+      SGMF.get('/api/combustivel/movimentacoes')
+    ]);
+
+    // ---- resumo + saldo por combustível + avisos de inconsistência
+    if (rResumo.status === 'fulfilled') {
+      const resumo = rResumo.value;
+      estoqueCombustivelCache = resumo;
+      const alertas = resumo.alertas || [];
+      document.getElementById('alertasEstoqueCombustivel').innerHTML = alertas.length ? `
+        <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:12.5px">
+          <strong><i class="fa-solid fa-triangle-exclamation me-1"></i>O estoque tem ${alertas.length} inconsistência(s) no histórico.</strong>
+          <ul class="mb-1 mt-1 ps-3">${alertas.slice(0, 10).map(a => `<li>${SGMF.esc(a)}</li>`).join('')}</ul>
+          ${alertas.length > 10 ? `<div>… e mais ${alertas.length - 10}.</div>` : ''}
+          <div>Confira a <strong>data de entrada</strong> das NFs e as datas/litros dos abastecimentos citados.</div>
+        </div>` : '';
+      document.getElementById('resumoEstoqueCombustivel').innerHTML = [
+        `<div class="medidor"><div class="rotulo">Saldo físico</div><div class="valor num">${SGMF.numero(resumo.litros_estoque, 1)} <small>L</small></div></div>`,
+        `<div class="medidor"><div class="rotulo">Valor do estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(resumo.valor_estoque)}</div><div class="nota">controle separado</div></div>`,
+        `<div class="medidor ok"><div class="rotulo">Entradas por NF</div><div class="valor num">${SGMF.numero(resumo.litros_comprados, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_comprado)}</div></div>`,
+        `<div class="medidor atencao"><div class="rotulo">Baixas por abastecimento</div><div class="valor num">${SGMF.numero(resumo.litros_consumidos, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_consumido)}</div></div>`
+      ].join('');
+
+      document.getElementById('estoquePorCombustivel').innerHTML = resumo.itens && resumo.itens.length ? `
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:12.5px"><thead><tr>
+        <th>Combustível</th><th>Controle desde</th><th class="text-end">Saldo L</th><th class="text-end">Custo médio</th><th class="text-end">Valor estoque</th>
+        </tr></thead><tbody>${resumo.itens.map(x => `<tr><td><strong>${SGMF.esc(x.combustivel)}</strong></td><td>${SGMF.data(x.data_inicio)}</td>
+        <td class="text-end num">${SGMF.numero(x.litros_estoque, 2)}</td><td class="text-end num">${SGMF.moeda(x.custo_medio)}</td><td class="text-end num">${SGMF.moeda(x.valor_estoque)}</td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="text-muted">Controle ainda não ativado. Lance a primeira nota fiscal de combustível.</div>';
+    } else {
+      document.getElementById('alertasEstoqueCombustivel').innerHTML = '';
+      document.getElementById('resumoEstoqueCombustivel').innerHTML = erroHtml(rResumo.reason);
+      document.getElementById('estoquePorCombustivel').innerHTML = '';
+    }
+
+    // ---- notas fiscais
+    if (rNotas.status === 'fulfilled') {
+      const notas = rNotas.value || [];
+      notasCombustivelCache = notas;
+      document.getElementById('tabelaNotasCombustivel').innerHTML = notas.length ? `
+        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
+        <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th></th>
+        </tr></thead><tbody>${notas.map(n => `<tr><td class="ps-3">${SGMF.data(n.data)}</td><td>${SGMF.esc(n.numero_nf)}</td><td>${SGMF.esc(n.combustivel)}</td>
+        <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
+        <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
+    } else {
+      document.getElementById('tabelaNotasCombustivel').innerHTML = erroHtml(rNotas.reason);
+    }
+
+    // ---- movimentações (kardex)
+    if (rMovs.status === 'fulfilled') {
+      const ultimos = (rMovs.value || []).slice(-100).reverse();
+      document.getElementById('tabelaMovComb').innerHTML = ultimos.length ? `
+        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:11.5px"><thead><tr>
+        <th class="ps-3">Data</th><th>Movimento</th><th>Documento</th><th class="text-end">Entrada</th><th class="text-end">Saída</th><th class="text-end">Saldo</th>
+        </tr></thead><tbody>${ultimos.map(m => `<tr${m.alerta ? ' class="table-warning" title="' + SGMF.esc(m.alerta) + '"' : ''}><td class="ps-3">${SGMF.data(m.data)}</td><td>${SGMF.esc(m.tipo)}${m.alerta ? ' <i class="fa-solid fa-triangle-exclamation text-warning"></i>' : ''}</td><td>${SGMF.esc(m.documento)}<br><small>${SGMF.esc(m.combustivel)}</small></td>
+        <td class="text-end num">${m.entrada ? SGMF.numero(m.entrada, 2) : '—'}</td><td class="text-end num">${m.saida ? SGMF.numero(m.saida, 2) : '—'}</td><td class="text-end num"><strong>${SGMF.numero(m.saldo_litros, 2)}</strong></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="p-3 text-muted">Nenhuma movimentação de estoque.</div>';
+    } else {
+      document.getElementById('tabelaMovComb').innerHTML = erroHtml(rMovs.reason);
+    }
+
+    // ---- retorno visual do clique (antes o botão não mostrava nada se os dados fossem iguais)
+    if (manual) {
+      const falhou = [rResumo, rNotas, rMovs].find(r => r.status === 'rejected');
+      if (falhou) SGMF.falha((falhou.reason && falhou.reason.message) || 'Não foi possível atualizar o estoque.');
+      else SGMF.sucesso('Estoque atualizado.');
+    }
+  } finally {
+    if (botao) { botao.disabled = false; botao.innerHTML = htmlBotao; }
+  }
+}
+
+
+document.getElementById('botaoNovaNFCombustivel').onclick = () => abrirNFCombustivel();
+document.getElementById('salvarNFCombustivel').onclick = salvarNFCombustivel;
+document.getElementById('botaoAjustarEstoque').onclick = abrirAjusteCombustivel;
+document.getElementById('salvarAjusteCombustivel').onclick = salvarAjusteCombustivel;
+document.getElementById('ajusteCombTipo').onchange = atualizarPreviaAjusteCombustivel;
+document.getElementById('ajusteCombSaldoFisico').oninput = atualizarPreviaAjusteCombustivel;
+
+document.getElementById('botaoImportarExcel').onclick = () => {
+  document.getElementById('arquivoAbastecimentos').click();
+};
+
+document.getElementById('arquivoAbastecimentos').onchange = async (evento) => {
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+  const corpo = new FormData();
+  corpo.append('arquivo', arquivo);
+
+  const botao = document.getElementById('botaoImportarExcel');
+  botao.disabled = true;
+  botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Conferindo…';
+
+  try {
+    const resposta = await fetch('/api/abastecimentos/importar/conferir', {
+      method: 'POST', body: corpo, credentials: 'same-origin'
+    });
+    const dados = await resposta.json();
+    if (!resposta.ok) throw new Error(dados.erro || 'Não consegui ler a planilha.');
+    previaAbastecimentos = dados;
+    mostrarPreviaAbastecimentos(dados);
+  } catch (e) {
+    SGMF.falha(e.message);
+  } finally {
+    botao.disabled = false;
+    botao.innerHTML = '<i class="fa-solid fa-file-excel me-1"></i> Importar Excel';
+    evento.target.value = '';
+  }
+};
+
+function mostrarPreviaAbastecimentos(d) {
+  const prontas = d.prontas.length, problemas = d.problemas.length;
+  const resumo = d.resumo || {};
+  const semAbastecimento = d.sem_abastecimento || [];
+  const datasArquivo = (resumo.datas || []).map(x => SGMF.data(x)).join(', ') || '—';
+  const tabela = prontas ? `
+    <div class="cartao mt-3">
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-circle-check me-2" style="color:var(--ok)"></i>Prontas para importar</h3>
+        <span class="etiqueta verde ms-auto">${prontas}</span>
+      </div>
+      <div class="cartao-corpo p-0" style="max-height:360px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:12.5px">
+          <thead><tr><th class="ps-3">Frota</th><th>Veículo</th><th>Data</th><th>Litros</th><th>Km</th></tr></thead>
+          <tbody>${d.prontas.slice(0, 200).map(l => `<tr>
+            <td class="ps-3 num">${SGMF.esc((l.dados.veiculo_nome || '').split(' · ')[0])}</td>
+            <td>${SGMF.esc(l.dados.veiculo_nome || '')}</td>
+            <td>${SGMF.data(l.dados.data)}</td>
+            <td class="num">${SGMF.numero(l.dados.litros, 2)}</td>
+            <td class="num">${SGMF.numero(l.dados.km_atual)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        ${prontas > 200 ? `<div class="p-2 text-center text-muted">Mostrando 200 primeiras; todas as ${prontas} serão importadas.</div>` : ''}
+      </div>
+    </div>` : '';
+
+  const erros = problemas ? `
+    <div class="cartao mt-3">
+      <div class="faixa-sinalizacao"></div>
+      <div class="cartao-topo">
+        <h3><i class="fa-solid fa-triangle-exclamation me-2" style="color:var(--alerta)"></i>Linhas recusadas</h3>
+        <span class="etiqueta vermelha ms-auto">${problemas}</span>
+      </div>
+      <div class="cartao-corpo p-0" style="max-height:300px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:12.5px">
+          <thead><tr><th class="ps-3">Linha</th><th>Veículo</th><th>Motivo</th></tr></thead>
+          <tbody>${d.problemas.map(p => `<tr><td class="ps-3 num">${p.linha}</td><td>${SGMF.esc((p.dados && p.dados.veiculo_nome) || '')}</td><td style="color:var(--alerta)">${SGMF.esc(p.erro)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  document.getElementById('previaImportacaoAbastecimentos').innerHTML = `
+    <div class="instrumentos">
+      <div class="medidor"><div class="rotulo">Data do arquivo</div>
+        <div class="valor num" style="font-size:20px">${datasArquivo}</div></div>
+      <div class="medidor ok"><div class="rotulo">Prontas</div><div class="valor num">${prontas}</div></div>
+      <div class="medidor"><div class="rotulo">Litros a lançar</div><div class="valor num">${SGMF.numero(resumo.litros || 0, 1)}</div></div>
+      <div class="medidor ${problemas ? 'critico' : ''}"><div class="rotulo">Recusadas</div><div class="valor num">${problemas}</div></div>
+      <div class="medidor"><div class="rotulo">Sem abastecimento</div><div class="valor num">${semAbastecimento.length}</div>
+        ${semAbastecimento.length ? `<div class="nota">Frotas: ${SGMF.esc(semAbastecimento.join(', '))}</div>` : ''}</div>
+    </div>
+    ${tabela}${erros}
+    <div class="mt-3 mb-3 d-flex gap-2">
+      <button class="btn btn-primario" id="botaoGravarAbastecimentos" ${prontas ? '' : 'disabled'}>
+        <i class="fa-solid fa-database me-1"></i> Gravar ${prontas} abastecimento${prontas === 1 ? '' : 's'}
+      </button>
+      <button class="btn btn-contorno" id="cancelarImportacaoAbastecimentos">Cancelar</button>
+    </div>`;
+
+  const gravar = document.getElementById('botaoGravarAbastecimentos');
+  if (gravar) gravar.onclick = gravarAbastecimentos;
+  document.getElementById('cancelarImportacaoAbastecimentos').onclick = () => {
+    document.getElementById('previaImportacaoAbastecimentos').innerHTML = '';
+    previaAbastecimentos = null;
+  };
+}
+
+async function gravarAbastecimentos() {
+  const ok = await SGMF.confirmar(
+    'Gravar abastecimentos?',
+    `${previaAbastecimentos.prontas.length} registro(s) serão inseridos na aba Abastecimentos e recalculados para o Dashboard.`,
+    'Gravar'
+  );
+  if (!ok) return;
+
+  const botao = document.getElementById('botaoGravarAbastecimentos');
+  botao.disabled = true;
+  botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Gravando…';
+
+  try {
+    const r = await SGMF.post('/api/abastecimentos/importar/gravar', {
+      linhas: previaAbastecimentos.prontas
+    });
+    await Swal.fire({
+      icon: 'success',
+      title: 'Importação concluída',
+      text: `${r.gravadas} abastecimento(s) foram inseridos. Os gráficos do painel já refletem esses lançamentos.`,
+      confirmButtonColor: '#0F3D56'
+    });
+    document.getElementById('previaImportacaoAbastecimentos').innerHTML = '';
+    previaAbastecimentos = null;
+    SGMF.limparCache();
+    telaCombustivel.carregar();
+  } catch (e) {
+    SGMF.falha(e.message);
+    botao.disabled = false;
+    botao.innerHTML = '<i class="fa-solid fa-database me-1"></i> Gravar';
+  }
+}
+
+const telaCombustivel = SGMF.tela({
+  recurso: 'abastecimentos',
+  tela: 'combustivel',
+  acoesLinha: (item) => SGMF.anexos.botao('abastecimentos', item),
+  titulo: 'abastecimento',
+  filtroPeriodo: true,
+  ordem: [[0, 'desc']],
+  campos: [
+    { nome: 'data', rotulo: 'Data', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 5, obrigatorio: true },
+    { nome: 'motorista_id', rotulo: 'Motorista', tipo: 'ref', recurso: 'motoristas', col: 4 },
+    { nome: 'fornecedor_id', rotulo: 'Posto', tipo: 'ref', recurso: 'fornecedores', col: 5 },
+    { nome: 'combustivel', rotulo: 'Combustível', tipo: 'select', col: 3, padrao: 'Diesel S10',
+      opcoes: ['Diesel S10', 'Diesel S500', 'Gasolina', 'Etanol', 'GNV', 'ARLA 32'] },
+    { nome: 'km_atual', rotulo: 'Km no painel', tipo: 'number', col: 4, obrigatorio: true,
+      ajuda: 'Precisa ser maior que o último km lançado para o veículo.' },
+    { nome: 'litros', rotulo: 'Litros', tipo: 'number', col: 4, obrigatorio: true },
+    { nome: 'valor_litro', rotulo: 'Valor por litro (R$)', tipo: 'moeda', col: 4, ajuda: 'Com estoque por NF ativo, este valor é substituído automaticamente pelo custo médio ponderado.' },
+    { nome: 'tanque_cheio', rotulo: 'Tanque completo', tipo: 'checkbox', col: 4 }
+  ],
+  colunas: [
+    { campo: 'data', rotulo: 'Data', render: v => SGMF.data(v) },
+    { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'motorista_nome', rotulo: 'Motorista' },
+    { campo: 'km_atual', rotulo: 'Km painel', classe: 'num text-end', render: v => SGMF.numero(v) },
+    { campo: 'km_percorridos', rotulo: 'Km rodados', classe: 'num text-end', render: v => v ? SGMF.numero(v) : '—' },
+    { campo: 'litros', rotulo: 'Litros', classe: 'num text-end', render: v => SGMF.numero(v, 2) },
+    { campo: 'valor_litro', rotulo: 'R$/L', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'km_por_litro', rotulo: 'Km/L', classe: 'num text-end',
+      render: v => v ? `<strong>${SGMF.numero(v, 2)}</strong>` : '—' },
+    { campo: 'custo_por_km', rotulo: 'Custo/km', classe: 'num text-end', render: v => v ? SGMF.moeda(v) : '—' },
+    { campo: 'valor_total', rotulo: 'Total', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  aoRenderizar: (linhas) => {
+    SGMF.anexos.ligarBotoes('abastecimentos', linhas,
+      (a) => `${a.data ? SGMF.data(a.data) : ''} · ${a.veiculo_nome || ''}`,
+      () => telaCombustivel.carregar());
+    const litros = linhas.reduce((s, a) => s + (a.litros || 0), 0);
+    const km = linhas.reduce((s, a) => s + (a.km_percorridos || 0), 0);
+    const total = linhas.reduce((s, a) => s + (a.valor_total || 0), 0);
+    document.getElementById('resumoCombustivel').innerHTML = `
+      <div class="medidor"><div class="rotulo">Abastecimentos</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Litros</div><div class="valor num">${SGMF.numero(litros, 1)}</div></div>
+      <div class="medidor"><div class="rotulo">Km percorridos</div><div class="valor num">${SGMF.numero(km)}</div></div>
+      <div class="medidor ok"><div class="rotulo">Consumo médio</div><div class="valor num">${litros ? SGMF.numero(km / litros, 2) : '0'} <small>km/L</small></div></div>
+      <div class="medidor atencao"><div class="rotulo">Combustível consumido no período</div><div class="valor num" style="font-size:20px">${SGMF.moeda(total)}</div></div>`;
+  }
+});
+
+carregarControleCombustivel();
+</script>
+{% endblock %}

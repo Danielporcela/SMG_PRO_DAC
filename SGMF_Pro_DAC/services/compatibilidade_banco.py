@@ -1,0 +1,428 @@
+"""Compatibilidade de banco para módulos adicionados após a instalação inicial."""
+from sqlalchemy import inspect, text
+
+from extensions import db
+
+
+
+def garantir_estoque_combustivel():
+    """Cria as tabelas do estoque de combustível sem depender de migration pendente."""
+    from models import AjusteEstoqueCombustivel, ControleEstoqueCombustivel, NotaFiscalCombustivel
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+    # Banco totalmente novo ainda não possui as tabelas-base; `preparar_banco()`
+    # executará db.create_all() depois.
+    if "fornecedores" not in tabelas or "abastecimentos" not in tabelas:
+        return
+    # Em banco existente, cria somente o módulo novo sem tocar nas tabelas antigas.
+    if "controle_estoque_combustivel" not in tabelas:
+        ControleEstoqueCombustivel.__table__.create(engine, checkfirst=True)
+    if "notas_fiscais_combustivel" not in tabelas:
+        NotaFiscalCombustivel.__table__.create(engine, checkfirst=True)
+    else:
+        # Versões anteriores tinham apenas a data fiscal. A data_entrada
+        # permite reconciliar recebimentos físicos ocorridos antes da emissão.
+        existentes = {c["name"] for c in inspect(engine).get_columns("notas_fiscais_combustivel")}
+        if "data_entrada" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "notas_fiscais_combustivel" ADD COLUMN "data_entrada" DATE'))
+                conn.execute(text('UPDATE "notas_fiscais_combustivel" SET "data_entrada" = "data" WHERE "data_entrada" IS NULL'))
+    if "ajustes_estoque_combustivel" not in tabelas:
+        AjusteEstoqueCombustivel.__table__.create(engine, checkfirst=True)
+    else:
+        # O ajuste moderno guarda o SALDO FÍSICO conferido. Versões anteriores
+        # gravavam somente um delta fixo em litros, o que quebrava o kardex
+        # quando uma NF retroativa era lançada.
+        existentes = {c["name"] for c in inspect(engine).get_columns("ajustes_estoque_combustivel")}
+        if "saldo_fisico" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE "ajustes_estoque_combustivel" '
+                    'ADD COLUMN "saldo_fisico" FLOAT'))
+
+
+
+def garantir_consumo_diario():
+    """Garante a tabela do histórico diário de consumo.
+
+    Bancos antigos podem não possuir a tabela `consumo_diario`. Em banco
+    novo, `db.create_all()` a criará normalmente; aqui só criamos a tabela
+    antecipadamente quando as tabelas-base já existem.
+    """
+    from models import ConsumoDiario
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "consumo_diario" in tabelas:
+        return
+
+    # Em instalação nova, o create_all() será executado depois desta etapa.
+    # Não tentamos criar aqui porque as tabelas relacionadas/base ainda podem
+    # não existir.
+    if "abastecimentos" not in tabelas:
+        return
+
+    ConsumoDiario.__table__.create(engine, checkfirst=True)
+
+def garantir_ordens_compra():
+    """Garante a estrutura mínima do módulo de ordens de compra.
+
+    Resolve instalações antigas em que o código do módulo foi publicado antes
+    da atualização correspondente do banco de dados.
+    """
+    from models import ItemOrdemCompra, OrdemCompra
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "ordens_compra" not in tabelas:
+        OrdemCompra.__table__.create(engine, checkfirst=True)
+    if "itens_ordem_compra" not in tabelas:
+        ItemOrdemCompra.__table__.create(engine, checkfirst=True)
+
+    # Reinspeciona, pois alguma tabela pode ter acabado de ser criada.
+    insp = inspect(engine)
+
+    esperadas = {
+        "ordens_compra": {
+            "numero": "VARCHAR(20)",
+            "data_solicitacao": "DATE",
+            "solicitante": "VARCHAR(120)",
+            "setor": "VARCHAR(60)",
+            "fornecedor_id": "INTEGER",
+            "prioridade": "VARCHAR(20)",
+            "status": "VARCHAR(20)",
+            "justificativa": "TEXT",
+            "observacao": "VARCHAR(200)",
+            "aprovado_por": "VARCHAR(120)",
+            "data_aprovacao": "DATE",
+            "motivo_reprovacao": "VARCHAR(200)",
+            "comprado_por": "VARCHAR(120)",
+            "data_compra": "DATE",
+            "fechado_por": "VARCHAR(120)",
+            "data_fechamento": "DATE",
+        },
+        "itens_ordem_compra": {
+            "ordem_compra_id": "INTEGER",
+            "peca_id": "INTEGER",
+            "descricao": "VARCHAR(160)",
+            "unidade": "VARCHAR(10)",
+            "quantidade": "FLOAT",
+            "valor_unitario": "FLOAT",
+            "observacao": "VARCHAR(200)",
+            # Campos adicionados posteriormente ao módulo de compras.
+            # Precisam ser garantidos aqui porque bancos antigos podem estar
+            # marcados no Alembic como atualizados, mas ainda não possuir
+            # essas colunas. Sem elas, o SELECT de ItemOrdemCompra falha
+            # quando /api/ordens_compra carrega a lista da tela.
+            "comprado": "BOOLEAN DEFAULT false",
+            "comprado_por": "VARCHAR(120)",
+            "data_compra_item": "DATE",
+            "recebido": "BOOLEAN DEFAULT false",
+            "data_recebimento": "DATE",
+            "recebido_por": "VARCHAR(120)",
+        },
+    }
+
+    with engine.begin() as conn:
+        for tabela, colunas in esperadas.items():
+            existentes = {c["name"] for c in inspect(engine).get_columns(tabela)}
+            for nome, tipo in colunas.items():
+                if nome not in existentes:
+                    conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+    # Corrige registros antigos que possam ter NULL no campo booleano.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE itens_ordem_compra SET comprado = false "
+            "WHERE comprado IS NULL"))
+
+    # Instalações antigas tinham o fluxo Pendente/Aprovada/Reprovada/Comprada.
+    # O fluxo atual é Compras do dia/Efetuado a compra/Fechada — converte o
+    # que já estiver gravado para o status mais próximo, uma única vez.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE ordens_compra SET status = 'Compras do dia' "
+            "WHERE status IN ('Pendente', 'Aprovada', 'Reprovada')"))
+        conn.execute(text(
+            "UPDATE ordens_compra SET status = 'Efetuado a compra' "
+            "WHERE status = 'Comprada'"))
+        # Ordens antigas já compradas não têm itens marcados como recebidos —
+        # sem essa marcação, todo item delas apareceria como pendência nova.
+        # Como não há como saber o que já chegou, assume-se recebido para não
+        # gerar uma lista de pendências cheia de itens de compras já feitas.
+        conn.execute(text(
+            "UPDATE itens_ordem_compra SET recebido = true "
+            "WHERE COALESCE(recebido, false) != true AND ordem_compra_id IN ("
+            "  SELECT id FROM ordens_compra WHERE status = 'Efetuado a compra')"))
+
+
+def garantir_pecas_serial():
+    """Garante a estrutura mínima do rastreio de peças por número de série.
+
+    Cria as tabelas novas (pecas_serial, movimentos_peca_serial,
+    itens_os_pecas_serial) e a coluna numeros_serie em itens_nota_fiscal,
+    resolvendo instalações antigas do mesmo jeito que garantir_ordens_compra
+    já faz para o módulo de compras.
+    """
+    from models import ItemOSPecaSerial, MovimentoPecaSerial, PecaSerial
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "pecas_serial" not in tabelas:
+        PecaSerial.__table__.create(engine, checkfirst=True)
+    if "movimentos_peca_serial" not in tabelas:
+        MovimentoPecaSerial.__table__.create(engine, checkfirst=True)
+    if "itens_os_pecas_serial" not in tabelas:
+        ItemOSPecaSerial.__table__.create(engine, checkfirst=True)
+
+    insp = inspect(engine)
+    if "itens_nota_fiscal" not in set(insp.get_table_names()):
+        # Banco novo: itens_nota_fiscal ainda não foi criada por
+        # db.create_all() (que só roda mais adiante, em preparar_banco()).
+        # Nada a fazer agora — a coluna nasce certa quando a tabela for
+        # criada, porque o modelo já a declara.
+        return
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in insp.get_columns("itens_nota_fiscal")}
+        if "numeros_serie" not in existentes:
+            conn.execute(text('ALTER TABLE "itens_nota_fiscal" ADD COLUMN "numeros_serie" TEXT'))
+
+
+def garantir_itens_os_servicos_terceiros():
+    """Adiciona, sem apagar dados, os campos usados por serviços de terceiros.
+
+    Instalações antigas recebem as colunas automaticamente no primeiro start
+    da aplicação, tanto em SQLite quanto em PostgreSQL.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "itens_os" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "tipo_item": "VARCHAR(24)",
+        "prestador_servico": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("itens_os")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "itens_os" ADD COLUMN "{nome}" {tipo}'))
+
+def garantir_servicos_terceiros_financeiros():
+    """Cria a tabela dos lançamentos financeiros de serviços de terceiros.
+
+    A OS é apenas uma referência opcional; a despesa é registrada pela própria
+    data do lançamento. Em instalações novas, ``db.create_all`` cria a tabela.
+    Em bancos já existentes, esta função adiciona a tabela sem alterar dados.
+    """
+    from models import ServicoTerceiro
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    # Em uma instalação totalmente nova, as tabelas-pai ainda serão criadas
+    # por db.create_all logo depois. Evita criar FK antes das tabelas-pai.
+    if "veiculos" not in tabelas or "ordens_servico" not in tabelas:
+        return
+    if "servicos_terceiros" not in tabelas:
+        ServicoTerceiro.__table__.create(engine, checkfirst=True)
+        return
+
+    existentes = {c["name"] for c in inspect(engine).get_columns("servicos_terceiros")}
+    esperadas = {
+        "categoria": "VARCHAR(40)",
+        "valor_pecas": "FLOAT",
+        "valor_mao_obra": "FLOAT",
+        "nota_fiscal": "VARCHAR(80)",
+        "vencimento": "DATE",
+        "status_financeiro": "VARCHAR(20)",
+    }
+    with engine.begin() as conn:
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "servicos_terceiros" ADD COLUMN "{nome}" {tipo}'))
+        # Registros antigos continuam válidos como serviços genéricos.
+        if "categoria" in existentes or True:
+            conn.execute(text(
+                "UPDATE \"servicos_terceiros\" SET \"categoria\" = 'Serviço de terceiros' "
+                'WHERE "categoria" IS NULL'
+            ))
+            conn.execute(text(
+                'UPDATE "servicos_terceiros" SET "valor_pecas" = 0 WHERE "valor_pecas" IS NULL'
+            ))
+            conn.execute(text(
+                'UPDATE "servicos_terceiros" SET "valor_mao_obra" = 0 WHERE "valor_mao_obra" IS NULL'
+            ))
+            conn.execute(text(
+                "UPDATE \"servicos_terceiros\" SET \"status_financeiro\" = 'Pendente' "
+                'WHERE "status_financeiro" IS NULL'
+            ))
+
+def garantir_lavagens_financeiro():
+    """Cria a tabela dos lançamentos financeiros de lavagem.
+
+    Em instalações novas, ``db.create_all`` cria a tabela. Em bancos já
+    existentes, esta função adiciona a tabela sem alterar dados.
+    """
+    from models import Lavagem
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "veiculos" not in tabelas:
+        return
+    if "lavagens" not in tabelas:
+        Lavagem.__table__.create(engine, checkfirst=True)
+
+
+def garantir_notas_fiscais_uniforme():
+    """Garante as tabelas das notas fiscais de uniformes em bancos existentes."""
+    from models import ItemNotaFiscalUniforme, NotaFiscalUniforme
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    # Banco novo: db.create_all() criará as tabelas com as FKs normalmente.
+    if "fornecedores" not in tabelas or "itens_uniforme" not in tabelas:
+        return
+
+    if "notas_fiscais_uniforme" not in tabelas:
+        NotaFiscalUniforme.__table__.create(engine, checkfirst=True)
+    if "itens_nota_fiscal_uniforme" not in tabelas:
+        ItemNotaFiscalUniforme.__table__.create(engine, checkfirst=True)
+
+def garantir_usuario_movimentos_estoque():
+    """Adiciona a identificação do responsável sem alterar registros existentes."""
+    engine = db.engine
+    insp = inspect(engine)
+    if "movimentos_estoque" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "usuario_id": "INTEGER",
+        "usuario_nome": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("movimentos_estoque")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "{nome}" {tipo}'))
+
+
+
+def garantir_ultimo_acesso_usuario():
+    """Adiciona a coluna de presença (última requisição autenticada).
+
+    Resolve instalações antigas do mesmo jeito que as demais funções deste
+    módulo: adiciona a coluna sem apagar nenhum dado existente. Alimenta o
+    card "Logins conectados agora" do Painel.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "usuarios" not in set(insp.get_table_names()):
+        return
+
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("usuarios")}
+        if "ultimo_acesso" not in existentes:
+            # SQL bruto precisa respeitar o dialeto do banco. PostgreSQL não
+            # possui o tipo DATETIME (usado pelo SQLite).
+            tipo_coluna = "TIMESTAMP" if engine.dialect.name == "postgresql" else "DATETIME"
+            conn.execute(text(
+                f'ALTER TABLE "usuarios" ADD COLUMN "ultimo_acesso" {tipo_coluna}'
+            ))
+
+
+def garantir_campos_execucao_os():
+    """Garante as colunas de execução da OS adicionadas após a instalação inicial.
+
+    - hora_inicio_servico: horário em que o mecânico começou a execução,
+      separado do horário de abertura da OS (hora_inicio).
+    - assinatura_mecanico: nome digitado pelo mecânico responsável para
+      confirmar o serviço executado.
+
+    Resolve instalações antigas do mesmo jeito que as demais funções deste
+    módulo: adiciona a coluna sem apagar nenhum dado existente.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "ordens_servico" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "hora_inicio_servico": "TIME",
+        "assinatura_mecanico": "VARCHAR(120)",
+    }
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("ordens_servico")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "ordens_servico" ADD COLUMN "{nome}" {tipo}'))
+
+
+def garantir_grupos_consumo():
+    """Cria grupos de consumo e vínculos opcionais sem excluir dados existentes."""
+    from models import GrupoConsumo
+
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    if "veiculos" not in tabelas:
+        return
+    if "grupos_consumo" not in tabelas:
+        GrupoConsumo.__table__.create(engine, checkfirst=True)
+
+    estruturas = {
+        "veiculos": {"grupo_consumo_legado": "BOOLEAN DEFAULT FALSE"},
+        "movimentos_estoque": {"grupo_consumo_id": "INTEGER"},
+        "orcamentos": {"grupo_consumo_id": "INTEGER"},
+    }
+    with engine.begin() as conn:
+        for tabela, colunas in estruturas.items():
+            if tabela not in set(inspect(engine).get_table_names()):
+                continue
+            existentes = {c["name"] for c in inspect(engine).get_columns(tabela)}
+            for nome, tipo in colunas.items():
+                if nome not in existentes:
+                    conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+
+    from services.grupos_consumo import garantir_grupos_padrao, marcar_veiculos_grupo_consumo_legado
+    garantir_grupos_padrao()
+    marcar_veiculos_grupo_consumo_legado()
+    db.session.commit()
+
+
+def garantir_campos_ordens_servico():
+    """Garante campos adicionados posteriormente à tabela de ordens de serviço.
+
+    Compatível com bancos existentes (SQLite/PostgreSQL): adiciona somente as
+    colunas ausentes e não altera nem apaga os registros já gravados.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "ordens_servico" not in set(insp.get_table_names()):
+        return
+
+    esperadas = {
+        "hora_abertura": "TIME",
+        "assinatura_mecanico": "TEXT",
+    }
+
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("ordens_servico")}
+        for nome, tipo in esperadas.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "ordens_servico" ADD COLUMN "{nome}" {tipo}'))

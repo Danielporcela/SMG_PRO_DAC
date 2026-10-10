@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+database/*.db
+database/*.db.backup_*
+database/*.sqlite3
+database/*.sqlite3.backup_*
+uploads/*
+!uploads/.gitkeep
+backup/*
+!backup/.gitkeep
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# pasta de sincronização do OneDrive que acabou entrando no projeto e
+# trazia cópias antigas e duplicadas de models.py, app.py etc. (a causa
+# do AttributeError em 'ultimo_acesso') — nunca deve ir para o repositório
+OneDrive/
+
+# as migrações FAZEM parte do projeto e devem ir para o repositório
+!migrations/
+!migrations/versions/

@@ -12,6 +12,21 @@
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoOS"></div>
+<div class="cartao mb-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-chart-line me-2" style="color:var(--petroleo)"></i>Evolução dos mecânicos</h3>
+    <select class="form-select form-select-sm ms-auto" style="max-width:280px" id="filtroGraficoMecanico">
+      <option value="">Todos (5 com mais OS)</option>
+    </select>
+  </div>
+  <div class="cartao-corpo">
+    <canvas id="graficoMecanicos" height="90"></canvas>
+    <div class="vazio d-none" id="graficoMecanicosVazio">
+      <i class="fa-solid fa-chart-line"></i><strong>Sem OS com mecânico informado no período</strong>
+      Selecione um mecânico responsável nas ordens de serviço para ver a evolução aqui.
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -56,17 +71,6 @@
           <div id="itemPecaEscolhida" class="form-text mt-1"></div>
         </div>{% endif %}
 
-        <div class="mb-3 d-flex justify-content-between align-items-center">
-          <div>
-            <strong>Serviços externos</strong>
-            <div class="form-text">Registre o serviço do posto de molas diretamente nesta OS, sem abrir outra tela.</div>
-          </div>
-          <button type="button" class="btn btn-primario btn-sm" id="botaoPostoMolas" data-bs-toggle="modal" data-bs-target="#modalPostoMolas">
-            <i class="fa-solid fa-wrench me-1"></i> Abrir aba Posto de Molas
-          </button>
-        </div>
-        <div id="resumoPostoMolas" class="mb-3"></div>
-
         <div class="row g-2 align-items-end mb-3">
           {% if not is_cco %}<div class="col-md-4" id="colunaPecaEstoque">
             <label class="form-label" for="itemPeca">Peça do estoque (lista completa)</label>
@@ -96,75 +100,9 @@
         <p class="form-text mt-0" id="itemAjuda">Peças do estoque saem do saldo automaticamente ao serem adicionadas
           e voltam se o item for removido.</p>
         <div id="listaItens"></div>
-        <div id="listaPostosMolas" class="mt-3"></div>
       </div>
       <div class="modal-footer justify-content-between">
         <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Aba/formulário interno do SGMF: Posto de Molas. Não usa prompt do navegador. -->
-<div class="modal fade" id="modalPostoMolas" tabindex="-1" aria-labelledby="modalPostoMolasLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header" style="background:var(--aco);color:#fff">
-        <div>
-          <h5 class="modal-title display mb-0" id="modalPostoMolasLabel"><i class="fa-solid fa-wrench me-2"></i>Posto de Molas</h5>
-          <small style="color:var(--hi-vis)">Lançamento vinculado à Ordem de Serviço e ao caminhão</small>
-        </div>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="postoMolasOsId">
-        <div class="alert alert-secondary py-2 mb-3">
-          <div class="row g-2">
-            <div class="col-md-4"><strong>OS:</strong> <span id="postoMolasOsNumero">—</span></div>
-            <div class="col-md-4"><strong>Veículo:</strong> <span id="postoMolasVeiculo">—</span></div>
-            <div class="col-md-4"><strong>Custo lançado:</strong> <span id="postoMolasCustoAtual">R$ 0,00</span></div>
-          </div>
-        </div>
-        <form id="formPostoMolas" novalidate>
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label" for="postoMolasData">Data do serviço *</label>
-              <input type="date" class="form-control" id="postoMolasData" required>
-            </div>
-            <div class="col-md-8">
-              <label class="form-label" for="postoMolasPrestador">Posto de molas / empresa *</label>
-              <input class="form-control" id="postoMolasPrestador" maxlength="120" placeholder="Nome do posto de molas" required>
-            </div>
-            <div class="col-md-8">
-              <label class="form-label" for="postoMolasDescricao">Serviço realizado *</label>
-              <input class="form-control" id="postoMolasDescricao" maxlength="300" placeholder="Ex.: troca de feixe e buchas da suspensão traseira" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label" for="postoMolasNF">NF *</label>
-              <input class="form-control" id="postoMolasNF" maxlength="80" placeholder="000123" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label" for="postoMolasPecas">Peças fornecidas pelo posto</label>
-              <input type="text" inputmode="decimal" class="form-control text-end" id="postoMolasPecas" value="0,00">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label" for="postoMolasMao">Mão de obra</label>
-              <input type="text" inputmode="decimal" class="form-control text-end" id="postoMolasMao" value="0,00">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label" for="postoMolasVencimento">Vencimento</label>
-              <input type="date" class="form-control" id="postoMolasVencimento">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Total do serviço</label>
-              <div class="form-control text-end fw-bold" id="postoMolasTotal">R$ 0,00</div>
-            </div>
-          </div>
-        </form>
-      </div>
-      <div class="modal-footer justify-content-between">
-        <button type="button" class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primario" id="salvarPostoMolas"><i class="fa-solid fa-floppy-disk me-1"></i> Salvar lançamento</button>
       </div>
     </div>
   </div>
@@ -197,11 +135,9 @@
 <script>
 /* Lista fixa dos mecânicos que aparecem no campo "Mecânico responsável"
    (select) e no filtro do gráfico de evolução, em ordem alfabética. */
-const MECANICOS = ['Adrian', 'Alan soldador dia ', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
-  'Jonas', 'Kleyton', 'Leandro', 'Maicon soldador dia ', 'Manuel', 'Marvin', 'Mor', 'Nelson',
-  'Reny', 'Rodrigo', 'Vinícius', 'Cristiano','Luis soldador da noite'];
-
-let linhasOS = [];   // últimas OS carregadas; usada pela delegação de cliques abaixo
+const MECANICOS = ['Adrian', 'Alan', 'Antônio', 'Edson', 'Everton', 'Fabio', 'Gilmar',
+  'Jonas', 'Kleyton', 'Leandro', 'Maicon', 'Manuel', 'Marvin', 'Mor', 'Nelson',
+  'Reny', 'Rodrigo', 'Vinícius', 'Cristiano'];
 
 const telaOS = SGMF.tela({
   recurso: 'ordens',
@@ -209,15 +145,12 @@ const telaOS = SGMF.tela({
   titulo: 'ordem de serviço',
   filtroPeriodo: true,
   autoSalvarAoFechar: true,
-  ordem: [[0, 'desc']],
-  pageLength: 10,
+  ordem: [[1, 'desc']],
   campos: [
     { nome: 'cco', rotulo: 'CCO', col: 2, padrao: SGMF.usuarioNome, travarParaOutroSetor: true },
     { nome: 'veiculo_id', rotulo: 'Frota (veículo)', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
     { nome: 'data_abertura', rotulo: 'Data / início do serviço', tipo: 'date', col: 3, obrigatorio: true, padrao: SGMF.hoje, travarParaOutroSetor: true },
-    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 3,
-      padrao: SGMF.horaAtual, travarSempre: true,
-      ajuda: 'Preenchido sozinho com o horário atual ao abrir a OS — não é editável.' },
+    { nome: 'hora_inicio', rotulo: 'Horário da abertura', tipo: 'time', col: 3, travarParaOutroSetor: true },
     { nome: 'hora_inicio_servico', rotulo: 'Horário do início do serviço', tipo: 'time', col: 3, travarParaCargos: ['CCO'] },
     { nome: 'solicitante', rotulo: 'Solicitante', col: 4, travarParaOutroSetor: true },
     { nome: 'setor', rotulo: 'Setor', col: 4, travarParaOutroSetor: true },
@@ -226,11 +159,11 @@ const telaOS = SGMF.tela({
       exemplo: 'Digite a primeira letra para buscar o problema cadastrado ou descreva livremente...',
       autocompletar: true, opcoes: PROBLEMAS_OS, travarParaOutroSetor: true },
     { nome: 'grupo', rotulo: 'Tipo de serviço', tipo: 'select', col: 4, travarParaOutroSetor: true,
-      opcoes: ['Mecânica','Serviço moleiro ','Elétrica', 'Borracharia', 'Serviço hidráulico',
+      opcoes: ['Mecânica', 'Elétrica', 'Borracharia', 'Serviço hidráulico',
                'Serviço solda', 'Chapeação e pintura'] },
     { nome: 'status', rotulo: 'Situação', tipo: 'select', col: 4, padrao: 'Aberta', travarParaCargos: ['CCO'],
       opcoes: ['Aberta', 'Em execução', 'Aguardando peça', 'Finalizada'] },
-    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true,
+    { nome: 'tipo', rotulo: 'Tipo de manutenção', tipo: 'select', col: 4, padrao: 'Preventiva', travarParaOutroSetor: true, travarParaCargos: ['CCO'],
       opcoes: ['Preventiva', 'Corretiva', 'Emergencial'] },
     { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', col: 4, padrao: 'Média', travarParaCargos: ['CCO'],
       opcoes: ['Baixa', 'Média', 'Alta', 'Crítica'] },
@@ -242,12 +175,9 @@ const telaOS = SGMF.tela({
     { nome: 'descricao', rotulo: 'Descrição do serviço executado', tipo: 'textarea', col: 12, travarParaCargos: ['CCO'] }
   ],
   colunas: [
-    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>`,
-      ordenarPor: v => Number(v) || 0 },
+    { campo: 'numero', rotulo: 'OS', classe: 'num', render: v => `<strong>${v || '—'}</strong>` },
     { campo: 'data_abertura', rotulo: 'Abertura', render: v => SGMF.data(v) },
     { campo: 'veiculo_nome', rotulo: 'Veículo' },
-    { campo: 'problema', rotulo: 'Problema relatado',
-      render: v => v ? `<span class="celula-problema" title="${v}">${v}</span>` : '—' },
     { campo: 'cco', rotulo: 'CCO', render: v => v || '—' },
     { campo: 'setor', rotulo: 'Setor', render: v => v || '—' },
     { campo: 'tipo', rotulo: 'Tipo', render: v => SGMF.status(v) },
@@ -267,9 +197,11 @@ const telaOS = SGMF.tela({
   ],
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-pecas="${item.id}" title="Peças e serviços">
                            <i class="fa-solid fa-gears"></i></button>
-                         <button class="btn btn-primario btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
+                         <button class="btn btn-contorno btn-icone" data-imprimir="${item.id}" title="Imprimir OS">
                            <i class="fa-solid fa-print"></i></button>` + SGMF.anexos.botao('ordens', item),
   aoRenderizar: (linhas) => {
+    ultimasLinhasOS = linhas;
+    desenharGraficoMecanicos(linhas);
     const abertas = linhas.filter(o => o.status !== 'Finalizada');
     const prev = linhas.filter(o => o.tipo === 'Preventiva').length;
     const perc = linhas.length ? Math.round(prev / linhas.length * 100) : 0;
@@ -278,30 +210,11 @@ const telaOS = SGMF.tela({
       <div class="medidor ${abertas.length ? 'atencao' : 'ok'}"><div class="rotulo">Em aberto</div><div class="valor num">${abertas.length}</div></div>
       <div class="medidor ok"><div class="rotulo">Preventivas</div><div class="valor num">${perc}<small>%</small></div><div class="nota">${prev} de ${linhas.length} ordens</div></div>`;
 
-    /* Os botões "Peças e serviços" e "Imprimir" ficam dentro da tabela do
-       DataTables, que só mantém no DOM as linhas da página exibida (10 por
-       vez). Ligar onclick direto em cada botão só alcançava a 1ª página:
-       nas seguintes o botão aparecia, mas sem ação nenhuma. Por isso a
-       ligação é feita uma única vez, por delegação de evento no container
-       da tabela — igual crud.js (Editar/Excluir) e anexos.js (clipe). */
-    linhasOS = linhas;
-    const areaTabelaOS = document.getElementById('areaTabela');
-    if (!areaTabelaOS.dataset.acoesOsLigadas) {
-      areaTabelaOS.dataset.acoesOsLigadas = '1';
-      areaTabelaOS.addEventListener('click', (e) => {
-        const botaoPecas = e.target.closest('[data-pecas]');
-        if (botaoPecas) {
-          const os = linhasOS.find(o => o.id == botaoPecas.dataset.pecas);
-          if (os) abrirPecas(os);
-          return;
-        }
-        const botaoImprimir = e.target.closest('[data-imprimir]');
-        if (botaoImprimir) {
-          const os = linhasOS.find(o => o.id == botaoImprimir.dataset.imprimir);
-          if (os) imprimirOS(os);
-        }
-      });
-    }
+    document.querySelectorAll('[data-pecas]').forEach(b =>
+      b.onclick = () => abrirPecas(linhas.find(o => o.id == b.dataset.pecas)));
+
+    document.querySelectorAll('[data-imprimir]').forEach(b =>
+      b.onclick = () => imprimirOS(linhas.find(o => o.id == b.dataset.imprimir)));
 
     SGMF.anexos.ligarBotoes('ordens', linhas,
       (os) => `OS ${os.numero} · ${os.veiculo_nome || ''}`,
@@ -309,108 +222,78 @@ const telaOS = SGMF.tela({
   }
 });
 
-/* ------------------------------------------------- bloqueio de problema duplicado na mesma frota */
-(function ligarBloqueioProblemaOS() {
-  const modal = document.getElementById('modal_ordens');
-  if (!modal) return;
+/* ─── Gráfico "Evolução dos mecânicos" ───────────────────────────────────
+   Agrupa as OS do período (já carregadas pela tela) por mês e por
+   mecânico. Sem filtro selecionado, mostra os 5 mecânicos com mais OS no
+   período; com um mecânico escolhido no select, mostra só a linha dele. */
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const CORES_GRAFICO = ['#0F3D56', '#F5A800', '#C4451D', '#2E7D32', '#6B4EA0', '#17587B', '#8D6E63'];
+let graficoMecanicosChart = null;
+let ultimasLinhasOS = [];
 
-  const campoProblema = document.getElementById('campo_problema');
-  const campoFrota = document.getElementById('campo_veiculo_id');
-  const botaoSalvar = document.getElementById('modal_ordens_salvar');
-  const campoId = document.getElementById('modal_ordens_id');
-  if (!campoProblema || !campoFrota || !botaoSalvar || !campoId) return;
+document.getElementById('filtroGraficoMecanico').innerHTML =
+  '<option value="">Todos (5 com mais OS)</option>' +
+  MECANICOS.map(nome => `<option value="${SGMF.esc(nome)}">${SGMF.esc(nome)}</option>`).join('');
 
-  let bloqueadoPorDuplicidade = false;
-  let avisoExibido = false;
-  let sequenciaConsulta = 0;
+function desenharGraficoMecanicos(linhas) {
+  const comMecanico = linhas.filter(o => o.mecanico && o.data_abertura);
+  const meses = [...new Set(comMecanico.map(o => o.data_abertura.slice(0, 7)))].sort();
 
-  const normalizar = valor => String(valor || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase().replace(/\s+/g, ' ').trim();
+  const vazio = !meses.length;
+  document.getElementById('graficoMecanicosVazio').classList.toggle('d-none', !vazio);
+  document.getElementById('graficoMecanicos').classList.toggle('d-none', vazio);
+  if (vazio) {
+    if (graficoMecanicosChart) { graficoMecanicosChart.destroy(); graficoMecanicosChart = null; }
+    return;
+  }
 
-  const problemaCadastrado = valor => {
-    const alvo = normalizar(valor);
-    return alvo && PROBLEMAS_OS.some(p => normalizar(p) === alvo);
-  };
+  const porMecanico = {};
+  comMecanico.forEach(o => {
+    const mes = o.data_abertura.slice(0, 7);
+    porMecanico[o.mecanico] = porMecanico[o.mecanico] || {};
+    porMecanico[o.mecanico][mes] = (porMecanico[o.mecanico][mes] || 0) + 1;
+  });
 
-  const obterAlerta = () => {
-    let alerta = document.getElementById('alerta-problema-os-duplicado');
-    if (!alerta) {
-      alerta = document.createElement('div');
-      alerta.id = 'alerta-problema-os-duplicado';
-      alerta.className = 'alert alert-danger py-2 px-3 mt-2 mb-0';
-      alerta.setAttribute('role', 'alert');
-      campoProblema.parentElement.appendChild(alerta);
-    }
-    return alerta;
-  };
+  const filtro = document.getElementById('filtroGraficoMecanico').value;
+  const nomesParaMostrar = filtro ? [filtro] : Object.keys(porMecanico)
+    .sort((a, b) => Object.values(porMecanico[b]).reduce((s, v) => s + v, 0) -
+                    Object.values(porMecanico[a]).reduce((s, v) => s + v, 0))
+    .slice(0, 5);
 
-  const limparBloqueio = () => {
-    bloqueadoPorDuplicidade = false;
-    avisoExibido = false;
-    const alerta = document.getElementById('alerta-problema-os-duplicado');
-    if (alerta) { alerta.classList.add('d-none'); alerta.textContent = ''; }
-    if (!campoId.value) botaoSalvar.disabled = false;
-  };
+  const rotulos = meses.map(m => {
+    const [ano, mes] = m.split('-');
+    return `${MESES_ABREV[Number(mes) - 1]}/${ano.slice(2)}`;
+  });
 
-  const verificar = async () => {
-    const minhaConsulta = ++sequenciaConsulta;
+  const datasets = nomesParaMostrar.map((nome, i) => ({
+    label: nome,
+    data: meses.map(m => (porMecanico[nome] && porMecanico[nome][m]) || 0),
+    borderColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    backgroundColor: CORES_GRAFICO[i % CORES_GRAFICO.length],
+    tension: .3,
+    fill: false
+  }));
 
-    // A regra vale somente para abertura de uma nova OS.
-    if (campoId.value) {
-      limparBloqueio();
-      return;
-    }
-
-    const veiculoId = campoFrota.value;
-    const problema = campoProblema.value.trim();
-    if (!veiculoId || !problemaCadastrado(problema)) {
-      limparBloqueio();
-      return;
-    }
-
-    try {
-      const dados = await SGMF.get(`/api/ordens/verificar-problema-aberto?veiculo_id=${encodeURIComponent(veiculoId)}&problema=${encodeURIComponent(problema)}`);
-      if (minhaConsulta !== sequenciaConsulta) return;
-
-      if (dados.duplicada) {
-        bloqueadoPorDuplicidade = true;
-        botaoSalvar.disabled = true;
-        const alerta = obterAlerta();
-        alerta.textContent = `Não é possível abrir esta OS: a frota ${dados.frota} já possui a OS #${dados.numero} aberta com o mesmo problema (${problema}).`;
-        alerta.classList.remove('d-none');
-        if (!avisoExibido) {
-          avisoExibido = true;
-          SGMF.aviso(`A frota ${dados.frota} já possui a OS #${dados.numero} aberta com o mesmo problema.`);
-        }
-      } else {
-        limparBloqueio();
+  if (graficoMecanicosChart) {
+    graficoMecanicosChart.data.labels = rotulos;
+    graficoMecanicosChart.data.datasets = datasets;
+    graficoMecanicosChart.update();
+  } else {
+    graficoMecanicosChart = new Chart(document.getElementById('graficoMecanicos'), {
+      type: 'line',
+      data: { labels: rotulos, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' }, title: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'OS abertas' } } }
       }
-    } catch (e) {
-      if (minhaConsulta !== sequenciaConsulta) return;
-      // Se a consulta falhar, não bloqueia a tela por erro de rede;
-      // a validação definitiva continua protegendo o salvamento no backend.
-      limparBloqueio();
-    }
-  };
+    });
+  }
+}
 
-  campoProblema.addEventListener('input', verificar);
-  campoFrota.addEventListener('change', verificar);
-
-  modal.addEventListener('show.bs.modal', () => {
-    bloqueadoPorDuplicidade = false;
-    avisoExibido = false;
-    sequenciaConsulta++;
-    const alerta = document.getElementById('alerta-problema-os-duplicado');
-    if (alerta) { alerta.classList.add('d-none'); alerta.textContent = ''; }
-  });
-
-  modal.addEventListener('hide.bs.modal', () => {
-    sequenciaConsulta++;
-    bloqueadoPorDuplicidade = false;
-    avisoExibido = false;
-  });
-})();
+document.getElementById('filtroGraficoMecanico').addEventListener('change',
+  () => desenharGraficoMecanicos(ultimasLinhasOS));
 
 /* ------------------------------------------------- peças aplicadas na OS */
 let pecasDisponiveis = [];
@@ -603,7 +486,6 @@ async function abrirPecas(os) {
   atualizarTipoItem();
   limparEscolhaPeca(false);
   await recarregarItens(os.id);
-  await carregarPostosMolas(os.id);
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPecas')).show();
 }
 
@@ -652,112 +534,6 @@ function ehItemPneu(descricao, peca) {
   return [descricao, peca && peca.grupo, peca && peca.descricao]
     .some(t => semAcento(t).includes('pneu'));
 }
-
-
-async function carregarPostosMolas(osId) {
-  const area = document.getElementById('listaPostosMolas');
-  const resumo = document.getElementById('resumoPostoMolas');
-  try {
-    const registros = await SGMF.get(`/api/ordens/${osId}/postos-molas`);
-    const total = registros.reduce((s, x) => s + Number(x.valor || 0), 0);
-    const pecas = registros.reduce((s, x) => s + Number(x.valor_pecas || 0), 0);
-    const mao = registros.reduce((s, x) => s + Number(x.valor_mao_obra || 0), 0);
-    resumo.innerHTML = registros.length ? `
-      <div class="instrumentos">
-        <div class="medidor"><div class="rotulo">Serviços posto de molas</div><div class="valor num">${registros.length}</div></div>
-        <div class="medidor"><div class="rotulo">Peças</div><div class="valor num">${SGMF.moeda(pecas)}</div></div>
-        <div class="medidor"><div class="rotulo">Mão de obra</div><div class="valor num">${SGMF.moeda(mao)}</div></div>
-        <div class="medidor atencao"><div class="rotulo">Total posto de molas</div><div class="valor num">${SGMF.moeda(total)}</div></div>
-      </div>` : '';
-    area.innerHTML = registros.length ? `
-      <div class="cartao">
-        <div class="cartao-topo"><h3 style="font-size:15px">Serviços de posto de molas vinculados à OS</h3></div>
-        <div class="table-responsive"><table class="table table-sm mb-0">
-          <thead><tr><th>Data</th><th>Posto</th><th>NF</th><th>Descrição</th><th class="text-end">Peças</th><th class="text-end">M/O</th><th class="text-end">Total</th><th>Vencimento</th><th></th></tr></thead>
-          <tbody>${registros.map(x => `<tr>
-            <td>${SGMF.data(x.data)}</td><td>${SGMF.esc(x.prestador)}</td><td>${SGMF.esc(x.nota_fiscal || '—')}</td>
-            <td>${SGMF.esc(x.descricao)}</td><td class="text-end">${SGMF.moeda(x.valor_pecas)}</td>
-            <td class="text-end">${SGMF.moeda(x.valor_mao_obra)}</td><td class="text-end"><strong>${SGMF.moeda(x.valor)}</strong></td>
-            <td>${SGMF.data(x.vencimento)}</td>
-            <td class="text-end"><button class="btn btn-contorno btn-icone" data-excluir-posto-molas="${x.id}" title="Excluir"><i class="fa-solid fa-trash"></i></button></td>
-          </tr>`).join('')}</tbody>
-        </table></div>
-      </div>` : '';
-    area.querySelectorAll('[data-excluir-posto-molas]').forEach(btn => btn.onclick = async () => {
-      if (!await SGMF.confirmar('Excluir serviço de posto de molas?', 'O valor será retirado do custo da OS e do relatório específico.', 'Excluir')) return;
-      try {
-        await SGMF.del(`/api/ordens/${osId}/postos-molas/${btn.dataset.excluirPostoMolas}`);
-        SGMF.sucesso('Serviço excluído');
-        await carregarPostosMolas(osId);
-        await recarregarItens(osId);
-        telaOS.carregar();
-      } catch (e) { SGMF.falha(e.message); }
-    });
-  } catch (e) { area.innerHTML = `<div class="alert alert-danger">${SGMF.esc(e.message)}</div>`; }
-}
-
-function abrirAbaPostoMolas() {
-  const osId = document.getElementById('pecasOsId').value;
-  document.getElementById('postoMolasOsId').value = osId || '';
-  document.getElementById('postoMolasData').value = SGMF.hoje();
-  document.getElementById('postoMolasVencimento').value = '';
-  document.getElementById('postoMolasPrestador').value = '';
-  document.getElementById('postoMolasDescricao').value = '';
-  document.getElementById('postoMolasNF').value = '';
-  document.getElementById('postoMolasPecas').value = '0,00';
-  document.getElementById('postoMolasMao').value = '0,00';
-  atualizarTotalPostoMolas();
-  const sub = document.getElementById('pecasSubtitulo');
-  const texto = sub ? sub.textContent : '';
-  document.getElementById('postoMolasOsNumero').textContent = texto || osId || '—';
-  document.getElementById('postoMolasVeiculo').textContent = telaOS.veiculoAtual || '—';
-}
-
-function valorPostoMolas(id) {
-  const v = document.getElementById(id)?.value || '0';
-  return Number(String(v).replace(/\./g, '').replace(',', '.')) || 0;
-}
-function atualizarTotalPostoMolas() {
-  const total = Math.round((valorPostoMolas('postoMolasPecas') + valorPostoMolas('postoMolasMao')) * 100) / 100;
-  document.getElementById('postoMolasTotal').textContent = SGMF.moeda(total);
-}
-
-async function salvarPostoMolas() {
-  const osId = document.getElementById('postoMolasOsId').value;
-  const data = document.getElementById('postoMolasData').value;
-  const prestador = document.getElementById('postoMolasPrestador').value.trim();
-  const descricao = document.getElementById('postoMolasDescricao').value.trim();
-  const nf = document.getElementById('postoMolasNF').value.trim();
-  const vencimento = document.getElementById('postoMolasVencimento').value;
-  const valorPecas = valorPostoMolas('postoMolasPecas');
-  const valorMao = valorPostoMolas('postoMolasMao');
-  const valor = Math.round((valorPecas + valorMao) * 100) / 100;
-
-  if (!osId) return SGMF.aviso('Não foi possível identificar a Ordem de Serviço.');
-  if (!data) return SGMF.aviso('Informe a data do serviço.');
-  if (!prestador) return SGMF.aviso('Informe o posto de molas.');
-  if (!descricao) return SGMF.aviso('Informe o serviço realizado.');
-  if (!nf) return SGMF.aviso('Informe o número da NF.');
-  if (valor <= 0) return SGMF.aviso('Informe um valor de peças e/ou mão de obra maior que zero.');
-
-  try {
-    await SGMF.post(`/api/ordens/${osId}/posto-molas`, {
-      data, prestador, descricao, nota_fiscal: nf, vencimento,
-      valor_pecas: valorPecas, valor_mao_obra: valorMao, valor
-    });
-    const modal = bootstrap.Modal.getInstance(document.getElementById('modalPostoMolas'));
-    if (modal) modal.hide();
-    SGMF.sucesso(`Posto de molas lançado: ${SGMF.moeda(valor)}`);
-    await carregarPostosMolas(osId);
-    telaOS.carregar();
-  } catch (e) { SGMF.falha(e.message); }
-}
-
-document.getElementById('botaoPostoMolas').onclick = abrirAbaPostoMolas;
-document.getElementById('salvarPostoMolas').onclick = salvarPostoMolas;
-['postoMolasPecas','postoMolasMao'].forEach(id => {
-  document.getElementById(id).addEventListener('input', atualizarTotalPostoMolas);
-});
 
 
 document.getElementById('itemAdicionar').onclick = async () => {

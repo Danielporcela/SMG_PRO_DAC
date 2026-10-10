@@ -1,0 +1,17 @@
+CORREÇÃO DOS ALERTAS DO SGMF PRO
+
+Este pacote mantém os arquivos recebidos e acrescenta a correção do ciclo de vida dos alertas.
+
+O alerta agora é calculado pela condição atual do cadastro. Quando a causa deixa de existir, o alerta deixa a lista ativa e passa para o estado sanado no controle interno.
+
+Ao finalizar uma ordem de serviço preventiva, o sistema atualiza automaticamente a data da última preventiva. Quando a descrição da ordem informa troca de óleo, também atualiza o marco de quilometragem da última troca. Se não houver outra ordem aberta para o veículo, a situação volta para Disponível.
+
+Foram incluídos avisos de mudança de estado por e mail. O sistema pode avisar quando surge um novo alerta e quando um alerta é sanado.
+
+Para envio por e mail, configure SMTP_SENHA no ambiente do Render. Sem essa senha o sistema continua calculando os alertas normalmente, mas não consegue enviar mensagens.
+
+Para atualizar uma instalação existente, preserve o banco de produção e copie estes arquivos sobre a versão completa do projeto. Depois execute o comando abaixo.
+
+flask db upgrade
+
+Os testes da correção estão em tests/test_alertas_sanados.py.

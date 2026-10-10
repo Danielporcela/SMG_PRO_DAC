@@ -1,0 +1,31 @@
+{% extends "lista.html" %}
+{% block titulo %}Funcionários{% endblock %}
+{% block cabecalho %}Funcionários{% endblock %}
+{% block descricao %}Cadastro de funcionários — usado nas entregas de uniforme.{% endblock %}
+{% block rotulo_novo %}Novo funcionário{% endblock %}
+
+{% block scripts %}
+<script>
+SGMF.tela({
+  recurso: 'funcionarios',
+  titulo: 'funcionário',
+  campos: [
+    { nome: 'nome', rotulo: 'Nome', col: 6, obrigatorio: true },
+    { nome: 'matricula', rotulo: 'Matrícula', col: 3 },
+    { nome: 'cargo', rotulo: 'Cargo', col: 3, exemplo: 'Mecânico, Motorista, Almoxarife...' },
+    { nome: 'setor', rotulo: 'Setor', col: 4 },
+    { nome: 'telefone', rotulo: 'Telefone', col: 4 },
+    { nome: 'ativo', rotulo: 'Funcionário ativo', tipo: 'checkbox', col: 4 }
+  ],
+  colunas: [
+    { campo: 'nome', rotulo: 'Nome' },
+    { campo: 'matricula', rotulo: 'Matrícula' },
+    { campo: 'cargo', rotulo: 'Cargo' },
+    { campo: 'setor', rotulo: 'Setor' },
+    { campo: 'telefone', rotulo: 'Telefone' },
+    { campo: 'ativo', rotulo: 'Situação', render: v => v ? SGMF.etiqueta('Ativo', 'verde') : SGMF.etiqueta('Inativo', 'cinza') }
+  ],
+  ordem: [[0, 'asc']]
+});
+</script>
+{% endblock %}

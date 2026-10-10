@@ -1,0 +1,56 @@
+{% extends "lista.html" %}
+{% block titulo %}Lavagem{% endblock %}
+{% block cabecalho %}Lavagem{% endblock %}
+{% block descricao %}Lance a frota e o valor da lavagem: o gasto entra automaticamente em Despesas, na categoria própria "Lavagem".{% endblock %}
+{% block rotulo_novo %}Lançar lavagem{% endblock %}
+{% block acoes %}{% include "_filtro_periodo.html" %}{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoLavagem"></div>
+<div class="alert alert-light border mb-3" style="font-size:12.5px">
+  <i class="fa-solid fa-circle-info me-1" style="color:var(--petroleo)"></i>
+  <strong>Como funciona:</strong> ao finalizar, o valor já entra em <strong>Despesas</strong> e em
+  <strong>Gasto total</strong> do período, na categoria própria "Lavagem", pela data informada.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const telaLavagem = SGMF.tela({
+  recurso: 'lavagens',
+  tela: 'manutencao',
+  titulo: 'lavagem',
+  rotuloSalvar: 'Finalizar',
+  filtroPeriodo: true,
+  ordem: [[0, 'desc']],
+  campos: [
+    { nome: 'data', rotulo: 'Data da lavagem', tipo: 'date', col: 4, obrigatorio: true, padrao: SGMF.hoje },
+    { nome: 'veiculo_id', rotulo: 'Veículo', tipo: 'ref', recurso: 'veiculos', col: 4, obrigatorio: true },
+    { nome: 'valor', rotulo: 'Valor da lavagem (R$)', tipo: 'moeda', col: 4, obrigatorio: true },
+    { nome: 'observacao', rotulo: 'Observação', col: 12 }
+  ],
+  colunas: [
+    { campo: 'data', rotulo: 'Data', render: v => SGMF.data(v) },
+    { campo: 'veiculo_nome', rotulo: 'Veículo' },
+    { campo: 'observacao', rotulo: 'Observação', render: v => v || '—' },
+    { campo: 'valor', rotulo: 'Despesa', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
+  ],
+  aoRenderizar: (linhas) => {
+    const total = linhas.reduce((s, x) => s + (x.valor || 0), 0);
+    const veiculos = new Set(linhas.map(x => x.veiculo_id).filter(Boolean)).size;
+    document.getElementById('resumoLavagem').innerHTML = `
+      <div class="medidor"><div class="rotulo">Lançamentos</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Veículos lavados</div><div class="valor num">${veiculos}</div></div>
+      <div class="medidor atencao"><div class="rotulo">Despesas no período</div>
+        <div class="valor num" style="font-size:20px">${SGMF.moeda(total)}</div></div>`;
+  }
+});
+
+// Ao entrar pelo botão lateral (?novo=1), abre diretamente o formulário de lançamento.
+if (new URLSearchParams(window.location.search).get('novo') === '1') {
+  window.addEventListener('load', () => {
+    setTimeout(() => telaLavagem.abrir(), 0);
+  });
+}
+</script>
+{% endblock %}

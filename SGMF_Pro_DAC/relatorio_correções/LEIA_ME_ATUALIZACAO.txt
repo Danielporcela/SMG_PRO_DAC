@@ -1,0 +1,28 @@
+ATUALIZAÇÃO DE ALERTAS E POSIÇÃO DE PNEUS NA OS
+
+Este pacote é incremental e foi preparado para preservar o banco já existente.
+
+O pacote não contém banco de dados.
+O pacote não contém seed.py.
+O pacote não executa limpeza de tabelas.
+O pacote não recria usuários, veículos, ordens, estoque ou pneus.
+
+Ajustes realizados
+
+1. A tela de manutenção recebe um complemento que identifica pneus lançados em uma OS sem posição.
+2. O sistema permite escolher Dianteiro Esquerdo, Dianteiro Direito e as quatro posições traseiras.
+3. Ao informar a posição, o pneu que estava Em uso naquela posição passa para Descartado e continua preservado no histórico.
+4. O ItemOS registra posicao_pneu e pneu_substituido_id.
+5. O alerta de sulco mínimo do pneu retirado deixa de permanecer ativo porque o pneu antigo não está mais Em uso.
+6. Após alterações feitas pela interface, o motor de alertas é recalculado para reconhecer imediatamente condições sanadas.
+7. A lógica anterior de preventiva e troca de óleo permanece ativa.
+
+Aplicação
+
+Faça uma cópia de segurança do banco antes de atualizar.
+Copie os arquivos deste pacote por cima do projeto completo já instalado.
+Não substitua a pasta database.
+Não execute seed.py.
+Publique normalmente.
+
+A atualização de código não exige apagar registros existentes.

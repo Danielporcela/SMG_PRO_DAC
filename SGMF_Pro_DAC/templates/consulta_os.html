@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block titulo %}Consulta de OS por frota{% endblock %}
+{% block cabecalho %}Consulta de OS por frota{% endblock %}
+{% block descricao %}Consulte o histórico completo de ordens de serviço de um veículo pelo número da frota.{% endblock %}
+
+{% block acoes %}
+  <div class="d-flex gap-2 align-items-end flex-wrap">
+    <div>
+      <label class="form-label mb-1" for="filtroFrota">Número da frota</label>
+      <div class="input-group">
+        <span class="input-group-text"><i class="fa-solid fa-truck-front"></i></span>
+        <input class="form-control" id="filtroFrota" maxlength="20"
+               placeholder="Ex.: 1234" autocomplete="off">
+        <button class="btn btn-primario" id="consultarFrota">
+          <i class="fa-solid fa-magnifying-glass me-1"></i> Consultar
+        </button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block conteudo %}
+<style>
+  .consulta-veiculo { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+  .consulta-indicador { background:#F4F7F9; border:1px solid #DDE4E9; border-radius:8px; padding:12px 14px; }
+  .consulta-indicador small { display:block; color:#687B88; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .consulta-indicador strong { display:block; margin-top:3px; font-size:18px; }
+  .consulta-vazio { text-align:center; padding:55px 20px; color:#6B7C8A; }
+  .consulta-vazio i { display:block; font-size:34px; margin-bottom:10px; }
+  .consulta-tabela td { vertical-align:middle; }
+  @media (max-width:800px) { .consulta-veiculo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:520px) { .consulta-veiculo { grid-template-columns:1fr; } }
+</style>
+
+<div id="areaConsulta">
+  <div class="cartao">
+    <div class="cartao-corpo consulta-vazio">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <strong>Consulte uma frota</strong>
+      <div>Digite o número da frota acima para visualizar todas as ordens de serviço relacionadas.</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalConsultaOS" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--aco);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="consultaTitulo">Detalhes da OS</h5>
+          <small style="color:var(--hi-vis)" id="consultaSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="consultaDetalhes"></div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const input = document.getElementById('filtroFrota');
+  const botao = document.getElementById('consultarFrota');
+  const area = document.getElementById('areaConsulta');
+
+  const esc = v => SGMF.esc(v == null ? '' : String(v));
+  const dataBR = v => {
+    if (!v) return '—';
+    const p = String(v).split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : esc(v);
+  };
+  const dinheiro = v => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+  const numero = v => Number(v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 2});
+
+  function statusBadge(status) {
+    const cls = {
+      'Finalizada':'sucesso', 'Em execução':'aviso',
+      'Aguardando peça':'aviso', 'Aberta':'info'
+    }[status] || 'cinza';
+    return `<span class="etiqueta ${cls}">${esc(status || '—')}</span>`;
+  }
+
+  function mostrarErro(msg) {
+    area.innerHTML = `<div class="cartao"><div class="cartao-corpo consulta-vazio">
+      <i class="fa-solid fa-circle-exclamation"></i><strong>Não foi possível consultar</strong>
+      <div>${esc(msg)}</div></div></div>`;
+  }
+
+  function renderizar(dados) {
+    const v = dados.veiculo || {};
+    const ordens = dados.ordens || [];
+    const custo = ordens.reduce((s, o) => s + Number(o.custo_total || 0), 0);
+    const finalizadas = ordens.filter(o => o.status === 'Finalizada').length;
+
+    area.innerHTML = `
+      <div class="consulta-veiculo">
+        <div class="consulta-indicador"><small>Frota</small><strong>${esc(v.prefixo || '—')}</strong></div>
+        <div class="consulta-indicador"><small>Placa</small><strong>${esc(v.placa || '—')}</strong></div>
+        <div class="consulta-indicador"><small>Veículo</small><strong>${esc([v.marca, v.modelo].filter(Boolean).join(' ') || '—')}</strong></div>
+        <div class="consulta-indicador"><small>Total de OS</small><strong>${ordens.length}</strong></div>
+      </div>
+      <div class="cartao mb-3">
+        <div class="cartao-topo d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div><h3 class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2" style="color:var(--petroleo)"></i>Histórico da frota ${esc(v.prefixo)}</h3>
+          <small class="text-muted">${finalizadas} finalizada(s) · custo acumulado ${dinheiro(custo)}</small></div>
+        </div>
+        <div class="cartao-corpo p-0">
+          ${ordens.length ? `<div class="table-responsive"><table class="table table-hover mb-0 consulta-tabela">
+            <thead><tr><th>OS</th><th>Abertura</th><th>Tipo</th><th>Serviço</th><th>Mecânico</th><th>Situação</th><th class="text-end">Custo</th><th></th></tr></thead>
+            <tbody>${ordens.map(o => `
+              <tr>
+                <td><strong>${esc(o.numero || '—')}</strong></td>
+                <td>${dataBR(o.data_abertura)}</td>
+                <td>${esc(o.tipo || '—')}</td>
+                <td>${esc(o.grupo || '—')}</td>
+                <td>${esc(o.mecanico || '—')}</td>
+                <td>${statusBadge(o.status)}</td>
+                <td class="text-end">${dinheiro(o.custo_total)}</td>
+                <td class="text-end"><button class="btn btn-sm btn-contorno ver-os" data-id="${o.id}"><i class="fa-solid fa-eye me-1"></i>Ver</button></td>
+              </tr>`).join('')}</tbody>
+          </table></div>` :
+          `<div class="consulta-vazio"><i class="fa-solid fa-folder-open"></i><strong>Nenhuma ordem de serviço encontrada</strong><div>Esta frota ainda não possui OS cadastrada.</div></div>`}
+        </div>
+      </div>`;
+    area.querySelectorAll('.ver-os').forEach(btn => {
+      btn.addEventListener('click', () => abrirOS(ordens.find(o => String(o.id) === String(btn.dataset.id))));
+    });
+  }
+
+  function abrirOS(os) {
+    if (!os) return;
+    document.getElementById('consultaTitulo').textContent = `OS ${os.numero || '—'}`;
+    document.getElementById('consultaSubtitulo').textContent = `Frota ${os.veiculo_nome || '—'}`;
+    const itens = os.itens || [];
+    document.getElementById('consultaDetalhes').innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-3"><strong>Data de abertura</strong><div>${dataBR(os.data_abertura)}</div></div>
+        <div class="col-md-3"><strong>Data de conclusão</strong><div>${dataBR(os.data_fechamento)}</div></div>
+        <div class="col-md-3"><strong>Situação</strong><div>${statusBadge(os.status)}</div></div>
+        <div class="col-md-3"><strong>Prioridade</strong><div>${esc(os.prioridade || '—')}</div></div>
+        <div class="col-md-3"><strong>Tipo</strong><div>${esc(os.tipo || '—')}</div></div>
+        <div class="col-md-3"><strong>Serviço</strong><div>${esc(os.grupo || '—')}</div></div>
+        <div class="col-md-3"><strong>Mecânico</strong><div>${esc(os.mecanico || '—')}</div></div>
+        <div class="col-md-3"><strong>Km</strong><div>${numero(os.km_veiculo)}</div></div>
+        <div class="col-12"><strong>Problema relatado</strong><div class="mt-1">${esc(os.problema || '—')}</div></div>
+        <div class="col-12"><strong>Descrição do serviço executado</strong><div class="mt-1">${esc(os.descricao || '—')}</div></div>
+      </div>
+      <hr>
+      <h6 class="display">Peças e serviços lançados</h6>
+      ${itens.length ? `<div class="table-responsive"><table class="table table-sm">
+        <thead><tr><th>Descrição</th><th>Tipo</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
+        <tbody>${itens.map(i => `<tr><td>${esc(i.descricao || '—')}</td><td>${esc(i.tipo_item || '—')}</td><td class="text-end">${numero(i.quantidade)}</td><td class="text-end">${dinheiro(i.valor_unitario)}</td><td class="text-end">${dinheiro(Number(i.quantidade || 0) * Number(i.valor_unitario || 0))}</td></tr>`).join('')}</tbody>
+      </table></div>` : '<div class="text-muted">Nenhum item lançado nesta OS.</div>'}
+      <div class="row justify-content-end mt-2"><div class="col-md-4"><div class="consulta-indicador"><small>Custo total da OS</small><strong>${dinheiro(os.custo_total)}</strong></div></div></div>`;
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalConsultaOS')).show();
+  }
+
+  async function consultar() {
+    const frota = input.value.trim();
+    if (!frota) {
+      mostrarErro('Informe o número da frota para realizar a consulta.');
+      input.focus();
+      return;
+    }
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Consultando…';
+    area.innerHTML = `<div class="cartao"><div class="cartao-corpo consulta-vazio"><i class="fa-solid fa-spinner fa-spin"></i><strong>Consultando frota ${esc(frota)}…</strong></div></div>`;
+    try {
+      const resp = await fetch(`/api/ordens/consulta-frota?frota=${encodeURIComponent(frota)}`);
+      const dados = await resp.json();
+      if (!resp.ok) {
+        const extras = dados.veiculos?.length ? ` Frotas compatíveis: ${dados.veiculos.map(v => v.prefixo).join(', ')}.` : '';
+        throw new Error((dados.erro || 'Erro na consulta.') + extras);
+      }
+      renderizar(dados);
+    } catch (e) {
+      mostrarErro(e.message || 'Erro de comunicação com o servidor.');
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = '<i class="fa-solid fa-magnifying-glass me-1"></i> Consultar';
+    }
+  }
+
+  botao.addEventListener('click', consultar);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') consultar(); });
+})();
+</script>
+{% endblock %}

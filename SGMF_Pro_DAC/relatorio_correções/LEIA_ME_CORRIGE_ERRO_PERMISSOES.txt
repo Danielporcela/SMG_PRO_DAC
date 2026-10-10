@@ -1,0 +1,54 @@
+CORRIGE O "IntegrityError" AO EDITAR PERMISSOES DE USUARIO — SGMF PRO
+========================================================================
+
+O que estava acontecendo
+-------------------------
+Ao editar as permissoes de um usuario que JA TINHA permissoes salvas
+antes (ou seja, na segunda vez que voce mexia nas permissoes dele, nao
+na primeira), o sistema apagava as permissoes antigas e criava as
+novas — mas, por causa da ordem interna que o banco usa para gravar
+essas operacoes, ele tentava criar a linha nova ANTES de apagar a
+antiga. Como so pode existir uma permissao por usuario+tela ao mesmo
+tempo (regra de unicidade do banco), isso gerava o erro
+"IntegrityError" e a edicao nao era salva.
+
+O que foi corrigido
+---------------------
+Ajustada a funcao que salva as permissoes (definir_permissoes, em
+models.py) para garantir que as linhas antigas sejam realmente
+apagadas do banco ANTES de criar as novas. So isso — nenhum dado,
+usuario ou permissao existente e alterado por essa correcao; ela so
+evita o erro na hora de salvar dai em diante.
+
+Arquivo deste pacote (apenas 1)
+--------------------------------
+  models.py   -> substitui o arquivo de mesmo nome na raiz do projeto
+                (mesma pasta de app.py, config.py, extensions.py)
+
+Como publicar (pelo VS Code)
+------------------------------
+1. Copie o models.py deste pacote para a raiz do seu projeto,
+   substituindo o arquivo existente.
+2. Abra o VS Code, va no icone de Controle de Origem (Ctrl+Shift+G).
+3. Confira que so o models.py aparece como alterado.
+4. Passe o mouse em "Changes" e clique no "+" para preparar (staged).
+5. Escreva uma mensagem, por exemplo:
+   "Corrige IntegrityError ao editar permissoes de usuario"
+6. Clique em "Commit" e depois em "Sync Changes" (ou "Push").
+
+Ou pelo Terminal do VS Code (Terminal -> New Terminal):
+   git add models.py
+   git commit -m "Corrige IntegrityError ao editar permissoes de usuario"
+   git push
+
+Depois disso o Render publica sozinho em alguns minutos. Nao e
+preciso rodar "flask db upgrade" — a estrutura do banco nao muda,
+so o comportamento do codigo ao salvar.
+
+Como testar depois de publicado
+---------------------------------
+1. Va em Usuarios, abra um usuario que ja tenha permissoes definidas.
+2. Altere alguma permissao (ex.: troque o nivel de uma tela) e salve.
+3. Abra o mesmo usuario de novo e altere outra permissao, salvando
+   uma segunda vez — antes esse segundo salvamento e' que costumava
+   dar o erro. Se salvar sem mensagem de erro, a correcao funcionou.

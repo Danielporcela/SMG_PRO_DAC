@@ -1,0 +1,66 @@
+RELATORIOS NOVOS DO SGMF PRO — PACOTE COMPLETO
+===============================================
+
+Este pacote traz TRES melhorias na tela Relatorios (substitui o pacote
+anterior do filtro de grupo — ja esta tudo incluido aqui):
+
+1. FILTRO "GRUPO (PECAS)"
+   Caixinha nova nos filtros. Escolhendo um grupo (Eletrica, Motor,
+   Freios...), os relatorios "Posicao de estoque" e "Movimentacao de
+   estoque" saem so com aquele grupo, e o nome do grupo aparece no
+   titulo (ex.: "Posicao de estoque — Grupo: Eletrica").
+
+2. RELATORIO "MOVIMENTACAO DE PNEUS"
+   Cartao novo. Lista as trocas de pneus feitas pelas ordens de servico
+   no periodo escolhido (datas Inicio e Fim dos filtros), com colunas:
+   Data | OS | Veiculo | Posicao | Pneu retirado | Sulco retirado |
+   Pneu instalado | Item aplicado na OS.
+   Tambem obedece o filtro de Veiculo. Sai em PDF, Excel, CSV e Imprimir.
+
+   Observacoes:
+   - A troca aparece quando a POSICAO do pneu foi informada na OS (e
+     assim que o sistema registra a substituicao).
+   - A coluna "Pneu instalado" mostra o numero de fogo quando o pneu
+     novo foi cadastrado no modulo Pneus naquele veiculo e posicao com
+     data igual ou depois da OS. Se o pneu novo ainda nao foi
+     cadastrado la, aparece "—" (e a coluna "Item aplicado" identifica
+     a peca usada).
+
+3. RELATORIO "OLEOS E FLUIDOS"
+   Cartao novo. Lista entradas e saidas de oleos, fluido hidraulico,
+   fluido de freio, ATF, graxas e lubrificantes no periodo, com colunas:
+   Data | Produto | Grupo | Tipo | Quantidade | Un. | Custo unit. |
+   Total | Veiculo/OS | Documento.
+   O produto e reconhecido pelo texto do cadastro da peca (descricao,
+   grupo ou codigo contendo oleo, fluido, hidraulico, lubrificante,
+   graxa ou ATF). Tambem obedece o filtro de Veiculo (mostra so as
+   saidas aplicadas em OS daquele veiculo).
+
+Arquivos deste pacote (apenas 2)
+--------------------------------
+  routes/relatorios.py       -> substitui o arquivo de mesmo nome
+  templates/relatorios.html  -> substitui o arquivo de mesmo nome
+
+Nada de banco de dados e alterado. Nenhum dado e apagado ou modificado.
+Nao precisa rodar "flask db upgrade" — a mudanca e so de codigo.
+
+Como publicar (pelo site do GitHub, sem programas)
+--------------------------------------------------
+1. Entre em github.com e abra o repositorio do SGMF.
+2. Clique na pasta "routes". Dentro dela, clique em "Add file" (canto
+   direito) e escolha "Upload files".
+3. Arraste o arquivo routes/relatorios.py deste pacote para a pagina.
+   O GitHub vai substituir o arquivo existente — e isso mesmo.
+4. No campo de descricao, escreva algo como "novos relatorios de pneus
+   e oleos" e clique no botao verde "Commit changes".
+5. Repita os passos 2 a 4 na pasta "templates", enviando o arquivo
+   templates/relatorios.html.
+6. O Render publica sozinho em alguns minutos (se nao publicar, use
+   Manual Deploy -> Deploy latest commit no painel do Render).
+
+Como usar depois de publicado
+-----------------------------
+1. Abra a tela Relatorios.
+2. Escolha as datas de Inicio e Fim (e o veiculo, se quiser).
+3. Clique em Imprimir (ou PDF/Excel/CSV) no cartao desejado:
+   "Movimentacao de pneus" ou "Oleos e fluidos".

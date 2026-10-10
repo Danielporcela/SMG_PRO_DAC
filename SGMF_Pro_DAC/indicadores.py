@@ -572,11 +572,12 @@ def series_graficos(inicio=None, fim=None):
 
         qtd = item.quantidade or 0
         valor = qtd * (item.valor_unitario or 0)
-        # Só produtos cadastrados entram no Top 15. Itens digitados à mão na OS
-        # (sem peça vinculada) ficam de fora deste ranking.
         if item.peca:
             _somar_consumo(f"p{item.peca.id}",
                            f"{item.peca.codigo} · {item.peca.descricao}", qtd, valor)
+        elif (item.descricao or "").strip():
+            texto = item.descricao.strip()
+            _somar_consumo("d" + texto.casefold(), texto, qtd, valor)
 
     # Saídas de estoque sem OS (ex.: óleo entregue direto no balcão) também
     # contam como uso da frota. As saídas ligadas a uma OS já entraram acima,

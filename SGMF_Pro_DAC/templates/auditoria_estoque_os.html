@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block titulo %}Auditoria de estoque das OS{% endblock %}
+{% block cabecalho %}Auditoria de estoque das OS{% endblock %}
+{% block descricao %}OS finalizadas que ainda possuem peças sem baixa registrada no estoque.{% endblock %}
+
+{% block acoes %}
+<button class="btn btn-contorno" id="botaoAtualizar" title="Atualizar dados">
+  <i class="fa-solid fa-rotate me-1"></i> Atualizar
+</button>
+{% endblock %}
+
+{% block conteudo %}
+<div class="instrumentos mb-3" id="resumoPendencias"></div>
+
+<div class="cartao">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-clipboard-check me-2" style="color:var(--petroleo)"></i>Regularização de baixas pendentes</h3>
+  </div>
+  <div class="cartao-corpo p-0" id="areaPendencias">
+    <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando pendências…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ordensAtuais = [];
+
+function medidor(rotulo, valor, classe, nota) {
+  return `<div class="medidor ${classe || ''}">
+    <div class="rotulo">${SGMF.esc(rotulo)}</div>
+    <div class="valor num">${SGMF.esc(valor)}</div>
+    <div class="nota">${SGMF.esc(nota)}</div>
+  </div>`;
+}
+
+function detalheItens(ordem) {
+  return ordem.itens.map(item => `
+    <div class="d-flex justify-content-between gap-3 py-1 border-bottom">
+      <div>
+        <strong>${SGMF.esc(item.codigo || 'Peça')}</strong>
+        <span class="ms-1">${SGMF.esc(item.descricao)}</span>
+      </div>
+      <div class="text-end num" style="white-space:nowrap">
+        solicitado ${SGMF.numero(item.quantidade, 2)} ${SGMF.esc(item.unidade)} ·
+        estoque ${SGMF.numero(item.estoque_atual, 2)} ${SGMF.esc(item.unidade)}
+      </div>
+    </div>`).join('');
+}
+
+function statusOrdem(ordem) {
+  if (ordem.pode_regularizar) return SGMF.etiqueta('Pode regularizar', 'verde');
+  return SGMF.etiqueta('Aguardando estoque', 'ambar');
+}
+
+async function carregar() {
+  const dados = await SGMF.get('/api/auditoria_estoque_os');
+  const r = dados.resumo;
+  ordensAtuais = dados.ordens || [];
+  document.getElementById('resumoPendencias').innerHTML = [
+    medidor('OS pendentes', r.total_os, r.total_os ? 'atencao' : 'ok', 'finalizadas sem baixa completa'),
+    medidor('Itens pendentes', r.total_itens, r.total_itens ? 'atencao' : 'ok', 'peças aguardando regularização'),
+    medidor('Podem regularizar', r.podem_regularizar, r.podem_regularizar ? 'ok' : '', 'estoque atual suficiente'),
+    medidor('Aguardando estoque', r.aguardando_estoque, r.aguardando_estoque ? 'critico' : 'ok', 'saldo atual insuficiente')
+  ].join('');
+
+  const area = document.getElementById('areaPendencias');
+  if (!dados.ordens.length) {
+    area.innerHTML = `<div class="vazio py-5">
+      <i class="fa-solid fa-circle-check" style="color:var(--ok)"></i>
+      <strong>Nenhuma OS com baixa pendente</strong>
+      Todas as OS finalizadas estão regularizadas no estoque.
+    </div>`;
+    return;
+  }
+
+  area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead><tr>
+      <th>OS</th><th>Fechamento</th><th>Veículo</th><th>Peças pendentes</th><th>Situação</th><th class="text-end">Ação</th>
+    </tr></thead>
+    <tbody>${dados.ordens.map(ordem => `<tr>
+      <td class="num"><strong>${SGMF.esc(ordem.numero || ordem.id)}</strong></td>
+      <td class="num">${SGMF.data(ordem.data_fechamento)}</td>
+      <td>${SGMF.esc(ordem.veiculo_nome || 'Não informado')}</td>
+      <td style="min-width:420px">${detalheItens(ordem)}</td>
+      <td>${statusOrdem(ordem)}</td>
+      <td class="text-end">
+        <button class="btn btn-primario btn-sm" ${ordem.pode_regularizar ? '' : 'disabled'}
+                onclick="regularizar(${ordem.id})">
+          <i class="fa-solid fa-check me-1"></i> Regularizar
+        </button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function regularizar(id) {
+  const ordem = ordensAtuais.find(o => o.id === id);
+  const numero = ordem && ordem.numero ? ordem.numero : id;
+  const confirmou = await SGMF.confirmar(
+    'Regularizar estoque',
+    `Confirmar a baixa das peças pendentes da OS ${numero || id}?`,
+    'Regularizar'
+  );
+  if (!confirmou) return;
+  try {
+    const resposta = await SGMF.post(`/api/auditoria_estoque_os/${id}/regularizar`, {});
+    SGMF.sucesso(`${resposta.itens_regularizados} item(ns) regularizado(s).`);
+    await carregar();
+    await SGMF.carregarContadorAlertas();
+  } catch (e) {
+    SGMF.falha(e.message);
+    await carregar();
+  }
+}
+
+document.getElementById('botaoAtualizar').onclick = () => carregar().catch(e => SGMF.falha(e.message));
+carregar().catch(e => SGMF.falha(e.message));
+</script>
+{% endblock %}
