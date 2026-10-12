@@ -280,8 +280,9 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_manutencao": gasto_manut,
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
+        # Gasto total = Manutenção (OS + serviços terceiros) + Lavagem + Uniformes (NF).
         # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
-        "gasto_total": round(gasto_manut + gasto_lavagem, 2),
+        "gasto_total": round(gasto_manut + gasto_lavagem + gasto_uniformes, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
         "gasto_uniformes": gasto_uniformes,
@@ -307,7 +308,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "os_preventivas": sum(1 for o in ordens if o.tipo == "Preventiva"),
         "os_corretivas": len(corretivas),
         "orcamento_mes": round(orcado, 2),
-        "aderencia_orcamento": round((gasto_manut + gasto_lavagem) / orcado * 100, 1) if orcado else 0,
+        "aderencia_orcamento": round((gasto_manut + gasto_lavagem + gasto_uniformes) / orcado * 100, 1) if orcado else 0,
         "estoque_valor": round(db.session.query(
             func.coalesce(func.sum(func.coalesce(Peca.quantidade, 0)
                                    * func.coalesce(Peca.custo_unitario, 0)), 0)).scalar() or 0, 2),
