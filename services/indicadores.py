@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 
 from flask import current_app
-from sqlalchemy import case, extract, func
+from sqlalchemy import case, extract, func, or_
 from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from extensions import db
@@ -244,6 +244,7 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     orcado = db.session.query(func.sum(Orcamento.meta_valor)).filter(
         Orcamento.ano == ref_orcamento.year, Orcamento.mes == ref_orcamento.month,
         Orcamento.grupo_consumo_id.is_(None),
+        or_(Orcamento.categoria.is_(None), Orcamento.categoria != "Combustível"),  # combustível fica fora da meta
         ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True))).scalar() or 0
 
     # Economia do período: quanto o custo por km atual está melhor (ou pior)
@@ -280,8 +281,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_manutencao": gasto_manut,
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
-        # Gasto total = Manutenção (OS + serviços terceiros) + Lavagem + Uniformes (NF).
         # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
+        # Gasto total = (OS + terceiros) + lavagem + uniformes (NF).
         "gasto_total": round(gasto_manut + gasto_lavagem + gasto_uniformes, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
@@ -365,6 +366,7 @@ def _somar_por_mes_orcamento(meses_ref):
     ano_fim, mes_fim = meses_ref[-1]
     linhas = (db.session.query(Orcamento.ano, Orcamento.mes, func.sum(Orcamento.meta_valor))
               .filter(Orcamento.grupo_consumo_id.is_(None),
+                      or_(Orcamento.categoria.is_(None), Orcamento.categoria != "Combustível"),  # combustível fica fora da meta
                       ~Orcamento.veiculo.has(Veiculo.grupo_consumo_legado.is_(True)),
                       (Orcamento.ano * 12 + Orcamento.mes) >= ano_ini * 12 + mes_ini,
                       (Orcamento.ano * 12 + Orcamento.mes) <= ano_fim * 12 + mes_fim)
@@ -610,7 +612,7 @@ def series_graficos(inicio=None, fim=None):
         "meses": meses, "combustivel_mes": comb_mes, "nfs_combustivel_mes": nfs_comb_mes, "manutencao_mes": manut_mes,
         "compras_mes": compras_mes, "uniformes_mes": uniformes_mes, "lavagem_mes": lavagem_mes,
         "meta_mes": meta_mes,
-        "realizado_mes": [round(m + l, 2) for m, l in zip(manut_mes, lavagem_mes)],
+        "realizado_mes": [round(m + l + u, 2) for m, l, u in zip(manut_mes, lavagem_mes, uniformes_mes)],
         "realizado_geral_mes": [round(m + l + p + u, 2)
                                 for m, l, p, u in zip(manut_mes, lavagem_mes, compras_mes, uniformes_mes)],
         "por_veiculo": por_veiculo[:10],
