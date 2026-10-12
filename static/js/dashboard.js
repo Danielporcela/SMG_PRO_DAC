@@ -51,7 +51,7 @@
         nota: `${d.os_preventivas} preventivas · ${d.os_corretivas} corretivas · inclui terceiros` }),
       medidor('Serviços terceiros', SGMF.moeda(d.gasto_servicos_terceiros), {
         icone: 'fa-hand-holding-dollar', estilo: 'font-size:19px',
-        nota: `${d.servicos_terceiros_qtd} lançamento(s) no período` }),
+        nota: `${d.servicos_terceiros_qtd} lançamento(s) · Valores já incluídos em Manutenção e Gasto Total` }),
       medidor('Lavagem', SGMF.moeda(d.gasto_lavagem), {
         icone: 'fa-soap', estilo: 'font-size:19px',
         nota: `${d.lavagens_qtd} lançamento(s) no período` }),
@@ -63,7 +63,8 @@
         nota: `${d.notas_uniformes_qtd} nota(s) finalizada(s)` }),
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
-        icone: 'fa-sack-dollar', estilo: 'font-size:19px', nota: aderencia }),
+        icone: 'fa-sack-dollar', estilo: 'font-size:19px',
+        nota: `Inclui OS + terceiros + lavagem + uniformes · ${aderencia}` }),
     
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
