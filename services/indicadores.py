@@ -281,8 +281,8 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_manutencao": gasto_manut,
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
+        # Gasto total = Manutenção (OS + serviços terceiros) + Lavagem + Uniformes (NF).
         # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
-        # Gasto total = (OS + terceiros) + lavagem + uniformes (NF).
         "gasto_total": round(gasto_manut + gasto_lavagem + gasto_uniformes, 2),
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
