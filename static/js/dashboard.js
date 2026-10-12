@@ -64,7 +64,7 @@
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px',
-        nota: `Inclui OS + terceiros + lavagem + uniformes · ${aderencia}` }),
+        nota: `OS + terceiros + lavagem + uniformes + grupos de consumo (${SGMF.moeda(d.gasto_grupos_consumo || 0)})<br>${aderencia} (meta da frota)` }),
     
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
