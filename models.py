@@ -1093,6 +1093,8 @@ class NotaFiscalCombustivel(db.Model):
     valor_total = db.Column(db.Float, default=0, nullable=False)
     vencimento = db.Column(db.Date)
     observacao = db.Column(db.Text)
+    # Nome do usuário logado que lançou a NF no sistema.
+    lancado_por = db.Column(db.String(120))
     criado_em = db.Column(db.DateTime, default=_agora)
 
     fornecedor = db.relationship("Fornecedor")
@@ -1100,6 +1102,7 @@ class NotaFiscalCombustivel(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
+            "lancado_por": self.lancado_por,
             "numero_nf": self.numero_nf,
             "data": self.data.isoformat() if self.data else None,
             "data_entrada": (self.data_entrada or self.data).isoformat() if (self.data_entrada or self.data) else None,

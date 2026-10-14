@@ -29,9 +29,10 @@ def garantir_estoque_combustivel():
             with engine.begin() as conn:
                 conn.execute(text('ALTER TABLE "notas_fiscais_combustivel" ADD COLUMN "data_entrada" DATE'))
                 conn.execute(text('UPDATE "notas_fiscais_combustivel" SET "data_entrada" = "data" WHERE "data_entrada" IS NULL'))
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "notas_fiscais_combustivel" ADD COLUMN "lancado_por" VARCHAR(120)'))
     if "ajustes_estoque_combustivel" not in tabelas:
         AjusteEstoqueCombustivel.__table__.create(engine, checkfirst=True)
-    else:
         # O ajuste moderno guarda o SALDO FÍSICO conferido. Versões anteriores
         # gravavam somente um delta fixo em litros, o que quebrava o kardex
         # quando uma NF retroativa era lançada.

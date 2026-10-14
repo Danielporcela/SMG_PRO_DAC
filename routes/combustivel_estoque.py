@@ -79,6 +79,7 @@ def criar_nota():
     nota = NotaFiscalCombustivel()
     try:
         _aplicar(nota, dados)
+        nota.lancado_por = session.get("usuario_nome") or "sistema"
         db.session.add(nota)
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)

@@ -332,9 +332,10 @@ async function carregarControleCombustivel(manual = false) {
       notasCombustivelCache = notas;
       document.getElementById('tabelaNotasCombustivel').innerHTML = notas.length ? `
         <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
-        <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th></th>
+        <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th>Lançado por</th><th></th>
         </tr></thead><tbody>${notas.map(n => `<tr><td class="ps-3">${SGMF.data(n.data)}</td><td>${SGMF.esc(n.numero_nf)}</td><td>${SGMF.esc(n.combustivel)}</td>
         <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
+        <td>${n.lancado_por ? SGMF.esc(n.lancado_por) : '<span class="text-muted">—</span>'}</td>
         <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
         <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`
         : '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
