@@ -4,7 +4,10 @@ O controle passa a valer, para cada produto, a partir da primeira NF registrada.
 Abastecimentos anteriores permanecem históricos e não são retroativamente bloqueados.
 """
 from collections import defaultdict
+from contextlib import nullcontext
 from datetime import date
+
+from sqlalchemy.orm import joinedload, lazyload
 
 from extensions import db
 from models import (Abastecimento, AjusteEstoqueCombustivel,
@@ -54,7 +57,11 @@ def _eventos(combustivel):
                .filter(AjusteEstoqueCombustivel.combustivel == combustivel,
                        AjusteEstoqueCombustivel.data >= cfg.data_inicio)
                .all())
+    # O kardex não usa anexos: lazyload evita uma consulta extra de anexos
+    # (selectin) para todos os abastecimentos; joinedload traz o veículo junto.
     saidas = (Abastecimento.query
+              .options(lazyload(Abastecimento.anexos),
+                       joinedload(Abastecimento.veiculo))
               .filter(Abastecimento.combustivel == combustivel,
                       Abastecimento.data >= cfg.data_inicio)
               .all())
@@ -75,7 +82,7 @@ def _eventos(combustivel):
     return cfg, eventos
 
 
-def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
+def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, persistir=True):
     """Reprocessa o kardex cronologicamente e atualiza o custo médio das saídas.
 
     estrito=True  (padrão): saldo insuficiente levanta ErroNegocio. É o que
@@ -83,6 +90,10 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
     estrito=False: usado nas CONSULTAS (tela/botão "Atualizar estoque"). Não
                   levanta erro; registra o problema em "alertas" e segue, para
                   uma inconsistência antiga não travar a tela inteira.
+    persistir=True (padrão): atualiza custo/km dos abastecimentos (gravações).
+    persistir=False: só calcula o kardex para exibir. Pula o recálculo por
+                  abastecimento (1 consulta + 1 UPDATE para cada linha), que
+                  nas telas de consulta era descartado pelo rollback.
     """
     combustivel = _normalizar_combustivel(combustivel)
     cfg, eventos = _eventos(combustivel)
@@ -244,9 +255,10 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
             # Sem saldo (só no modo não estrito): valoriza pelo último custo médio conhecido.
             custo_medio = saldo_valor / saldo_litros if saldo_litros > EPS else ultimo_custo
             custo_saida = litros * custo_medio
-            obj.valor_litro = round(custo_medio, 4)
-            obj.valor_total = round(custo_saida, 2)
-            recalcular_abastecimento(obj)
+            if persistir:
+                obj.valor_litro = round(custo_medio, 4)
+                obj.valor_total = round(custo_saida, 2)
+                recalcular_abastecimento(obj)
             if sem_saldo:
                 # Não deixa o saldo ficar negativo: o que faltou fica sinalizado no alerta.
                 saldo_litros = 0.0
@@ -286,16 +298,22 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True):
     }
 
 
-def recalcular_todos_combustiveis(estrito=True):
+def recalcular_todos_combustiveis(estrito=True, persistir=True):
     resultados = []
-    for cfg in ControleEstoqueCombustivel.query.order_by(ControleEstoqueCombustivel.combustivel).all():
-        resultados.append(recalcular_estoque_combustivel(cfg.combustivel, estrito=estrito))
-    db.session.flush()
+    # Em consulta (persistir=False) nada deve ser gravado: no_autoflush impede
+    # que alterações em memória virem UPDATEs durante o cálculo.
+    contexto = nullcontext() if persistir else db.session.no_autoflush
+    with contexto:
+        for cfg in ControleEstoqueCombustivel.query.order_by(ControleEstoqueCombustivel.combustivel).all():
+            resultados.append(recalcular_estoque_combustivel(
+                cfg.combustivel, estrito=estrito, persistir=persistir))
+    if persistir:
+        db.session.flush()
     return resultados
 
 
-def resumo_geral(estrito=True):
-    itens = recalcular_todos_combustiveis(estrito)
+def resumo_geral(estrito=True, persistir=True):
+    itens = recalcular_todos_combustiveis(estrito, persistir)
     return {
         "itens": itens,
         "alertas": [a for x in itens for a in x.get("alertas", [])],
@@ -308,9 +326,9 @@ def resumo_geral(estrito=True):
     }
 
 
-def movimentacoes(inicio=None, fim=None, estrito=True):
+def movimentacoes(inicio=None, fim=None, estrito=True, persistir=True):
     linhas = []
-    for item in recalcular_todos_combustiveis(estrito):
+    for item in recalcular_todos_combustiveis(estrito, persistir):
         for mov in item["movimentacoes"]:
             d = date.fromisoformat(mov["data"])
             if inicio and d < inicio:

@@ -94,7 +94,6 @@ def criar_nota():
     nota = NotaFiscalCombustivel()
     try:
         _aplicar(nota, dados)
-        nota.lancado_por = session.get("usuario_nome") or "sistema"
         db.session.add(nota)
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
@@ -234,7 +233,7 @@ def reconciliar_estoque():
 def estoque_resumo():
     try:
         # Consulta: não trava a tela por inconsistência antiga; devolve "alertas".
-        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False))
+        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False, persistir=False))
         db.session.rollback()  # GET não persiste eventual recálculo de custo.
         return jsonify(dados)
     except ErroNegocio as e:
@@ -253,7 +252,7 @@ def listar_movimentacoes():
         inicio = _data(request.args.get("inicio"), "data inicial") if request.args.get("inicio") else None
         fim = _data(request.args.get("fim"), "data final") if request.args.get("fim") else None
         linhas = _consultar_com_nova_tentativa(
-            lambda: movimentacoes(inicio, fim, estrito=False))
+            lambda: movimentacoes(inicio, fim, estrito=False, persistir=False))
         db.session.rollback()
         return jsonify(linhas)
     except ErroNegocio as e:
