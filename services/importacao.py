@@ -685,12 +685,13 @@ def gravar_abastecimentos(linhas):
 
         db.session.flush()
 
-        from services.calculos import recalcular_abastecimento, atualizar_consumo_diario_frota
+        from services.calculos import (atualizar_consumo_diario_frota, historico_em_memoria,
+                                       recalcular_abastecimento)
         # no_autoflush: cada recálculo consulta o abastecimento anterior; sem
         # isso, TODA consulta descarrega a sessão inteira (milhares de objetos
         # alterados) e uma planilha grande estoura o tempo do servidor (erro 500).
         # Os campos usados nessas consultas (data, id, km_atual) não mudam aqui.
-        with db.session.no_autoflush:
+        with db.session.no_autoflush, historico_em_memoria():
             for veiculo_id in veiculos_afetados:
                 historico = (Abastecimento.query
                              .filter_by(veiculo_id=veiculo_id)

@@ -1,4 +1,7 @@
 """Cálculos automáticos disparados quando um registro é salvo."""
+import bisect
+import threading
+from contextlib import contextmanager
 from datetime import date
 
 from flask import has_request_context, session
@@ -13,6 +16,43 @@ from services.crud import ErroNegocio
 
 
 # ------------------------------------------------------------ combustível
+_estado = threading.local()
+_SEM_CACHE = object()
+
+
+@contextmanager
+def historico_em_memoria():
+    """Acelera recálculos em lote (importação de planilha).
+
+    Dentro deste bloco, o "abastecimento anterior" de cada veículo sai de uma
+    lista carregada UMA vez (1 consulta por veículo) em vez de 1 consulta por
+    registro. Só use quando data, id e km_atual dos abastecimentos não mudam
+    durante o bloco e os registros novos já foram gravados com flush().
+    """
+    anterior = getattr(_estado, "hist", None)
+    _estado.hist = {}
+    try:
+        yield
+    finally:
+        _estado.hist = anterior
+
+
+def _anterior_em_memoria(abast):
+    cache = getattr(_estado, "hist", None)
+    if cache is None or abast.id is None or abast.data is None:
+        return _SEM_CACHE
+    if abast.veiculo_id not in cache:
+        regs = [r for r in db.session.query(Abastecimento.id, Abastecimento.data,
+                                            Abastecimento.km_atual)
+                .filter(Abastecimento.veiculo_id == abast.veiculo_id).all()
+                if r.data is not None]
+        regs.sort(key=lambda r: (r.data, r.id))
+        cache[abast.veiculo_id] = ([(r.data, r.id) for r in regs], regs)
+    chaves, regs = cache[abast.veiculo_id]
+    pos = bisect.bisect_left(chaves, (abast.data, abast.id)) - 1
+    return regs[pos] if pos >= 0 else None
+
+
 def recalcular_abastecimento(abast):
     """Km percorridos, km/L e custo por km a partir do abastecimento anterior."""
     if abast.litros and abast.valor_litro and not abast.valor_total:
@@ -22,15 +62,17 @@ def recalcular_abastecimento(abast):
 
     # O abastecimento anterior é cronológico, não simplesmente o menor KM.
     # Isso é essencial quando existe troca/reset de hodômetro.
-    anterior = (Abastecimento.query
-                .filter(Abastecimento.veiculo_id == abast.veiculo_id,
-                        Abastecimento.id != abast.id,
-                        or_(
-                            Abastecimento.data < abast.data,
-                            and_(Abastecimento.data == abast.data,
-                                 Abastecimento.id < abast.id)))
-                .order_by(Abastecimento.data.desc(), Abastecimento.id.desc())
-                .first())
+    anterior = _anterior_em_memoria(abast)
+    if anterior is _SEM_CACHE:
+        anterior = (Abastecimento.query
+                    .filter(Abastecimento.veiculo_id == abast.veiculo_id,
+                            Abastecimento.id != abast.id,
+                            or_(
+                                Abastecimento.data < abast.data,
+                                and_(Abastecimento.data == abast.data,
+                                     Abastecimento.id < abast.id)))
+                    .order_by(Abastecimento.data.desc(), Abastecimento.id.desc())
+                    .first())
 
     if anterior and abast.km_atual is not None and anterior.km_atual is not None:
         diferenca = float(abast.km_atual) - float(anterior.km_atual)
