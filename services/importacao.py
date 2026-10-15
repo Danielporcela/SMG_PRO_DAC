@@ -686,21 +686,28 @@ def gravar_abastecimentos(linhas):
         db.session.flush()
 
         from services.calculos import recalcular_abastecimento, atualizar_consumo_diario_frota
-        for veiculo_id in veiculos_afetados:
-            historico = (Abastecimento.query
-                         .filter_by(veiculo_id=veiculo_id)
-                         .order_by(Abastecimento.data.asc(), Abastecimento.id.asc())
-                         .all())
-            for obj in historico:
-                recalcular_abastecimento(obj)
+        # no_autoflush: cada recálculo consulta o abastecimento anterior; sem
+        # isso, TODA consulta descarrega a sessão inteira (milhares de objetos
+        # alterados) e uma planilha grande estoura o tempo do servidor (erro 500).
+        # Os campos usados nessas consultas (data, id, km_atual) não mudam aqui.
+        with db.session.no_autoflush:
+            for veiculo_id in veiculos_afetados:
+                historico = (Abastecimento.query
+                             .filter_by(veiculo_id=veiculo_id)
+                             .order_by(Abastecimento.data.asc(), Abastecimento.id.asc())
+                             .all())
+                for obj in historico:
+                    recalcular_abastecimento(obj)
 
-        # Baixa automática do estoque. Se o controle já estiver ativo por NF,
-        # a importação inteira é atômica: saldo insuficiente cancela tudo.
-        from services.estoque_combustivel import recalcular_estoque_combustivel
-        combustiveis_afetados = {obj.combustivel for obj in criados}
-        for combustivel in combustiveis_afetados:
-            recalcular_estoque_combustivel(combustivel)
+            # Baixa automática do estoque. Se o controle já estiver ativo por NF,
+            # a importação inteira é atômica: saldo insuficiente cancela tudo.
+            from services.estoque_combustivel import recalcular_estoque_combustivel
+            combustiveis_afetados = {obj.combustivel for obj in criados}
+            for combustivel in combustiveis_afetados:
+                recalcular_estoque_combustivel(combustivel)
 
+        # O consumo diário soma km_percorridos no banco: precisa dos valores já gravados.
+        db.session.flush()
         atualizar_consumo_diario_frota()
         db.session.flush()
         return len(criados)
