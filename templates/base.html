@@ -33,7 +33,7 @@
     {% if pode('grupos_consumo') %}<a href="{{ url_for('paginas.grupos_consumo') }}" class="{{ 'ativo' if pagina == 'grupos_consumo' }}"><i class="fa-solid fa-people-group"></i> Grupos de consumo</a>{% endif %}
     {% if (pode('estoque') or pode('manutencao')) and not is_cco %}<a href="/pesquisa-pecas" class="{{ 'ativo' if pagina == 'busca_pecas' }}"><i class="fa-solid fa-magnifying-glass"></i> Pesquisa de peças</a>{% endif %}
 
-    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('importacao') %}
+    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') %}
     <div class="menu-titulo">Cadastros</div>
     {% if pode('veiculos') %}<a href="{{ url_for('paginas.veiculos') }}" class="{{ 'ativo' if pagina == 'veiculos' }}"><i class="fa-solid fa-truck-front"></i> Veículos</a>{% endif %}
     {% if pode('motoristas') %}<a href="{{ url_for('paginas.motoristas') }}" class="{{ 'ativo' if pagina == 'motoristas' }}"><i class="fa-solid fa-id-card"></i> Motoristas</a>{% endif %}
@@ -41,9 +41,6 @@
     {% if pode('estoque') %}<a href="{{ url_for('paginas.estoque') }}" class="{{ 'ativo' if pagina == 'estoque' }}"><i class="fa-solid fa-boxes-stacked"></i> Estoque de peças</a>{% endif %}
     {% if pode('funcionarios') %}<a href="{{ url_for('paginas.funcionarios') }}" class="{{ 'ativo' if pagina == 'funcionarios' }}"><i class="fa-solid fa-users"></i> Funcionários</a>{% endif %}
     {% if pode('uniformes') %}<a href="{{ url_for('paginas.uniformes') }}" class="{{ 'ativo' if pagina == 'uniformes' }}"><i class="fa-solid fa-shirt"></i> Uniformes</a>{% endif %}
-    {% if pode('importacao') %}
-    <a href="{{ url_for('paginas.importacao') }}" class="{{ 'ativo' if pagina == 'importacao' }}"><i class="fa-solid fa-file-import"></i> Importar planilha</a>
-    {% endif %}
     {% endif %}
 
     {% if pode('orcamento') or pode('ranking') or pode('relatorios') or session.perfil == 'admin' %}
@@ -54,7 +51,6 @@
     {% if session.perfil == 'admin' %}
     <a href="{{ url_for('paginas.usuarios') }}" class="{{ 'ativo' if pagina == 'usuarios' }}"><i class="fa-solid fa-users-gear"></i> Usuários</a>
     <a href="{{ url_for('paginas.auditoria') }}" class="{{ 'ativo' if pagina == 'auditoria' }}"><i class="fa-solid fa-clipboard-list"></i> Auditoria</a>
-    <a href="{{ url_for('paginas.auditoria_estoque_os') }}" class="{{ 'ativo' if pagina == 'auditoria_estoque_os' }}"><i class="fa-solid fa-boxes-stacked"></i> Auditoria de estoque das OS</a>
     <a href="{{ url_for('paginas.notificacoes') }}" class="{{ 'ativo' if pagina == 'notificacoes' }}"><i class="fa-solid fa-envelope"></i> Avisos por e-mail</a>
     {% endif %}
     {% endif %}
