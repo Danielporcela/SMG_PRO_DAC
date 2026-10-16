@@ -430,3 +430,24 @@ def garantir_campos_ordens_servico():
         for nome, tipo in esperadas.items():
             if nome not in existentes:
                 conn.execute(text(f'ALTER TABLE "ordens_servico" ADD COLUMN "{nome}" {tipo}'))
+
+
+def garantir_ferramentas():
+    """Garante as tabelas do módulo de ferramentas dos mecânicos em bancos existentes.
+
+    Banco novo: db.create_all() cria tudo. Banco antigo: cria só as tabelas que
+    faltam, sem tocar em nenhum dado existente.
+    """
+    from models import (EntregaFerramenta, Ferramenta, ItemNotaFiscalFerramenta,
+                        MovimentoFerramenta, NotaFiscalFerramenta)
+
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    # As FKs apontam para fornecedores e funcionarios: sem elas é banco novo.
+    if "fornecedores" not in tabelas or "funcionarios" not in tabelas:
+        return
+    # A ordem respeita as dependências entre as tabelas.
+    for modelo in (Ferramenta, NotaFiscalFerramenta, ItemNotaFiscalFerramenta,
+                   EntregaFerramenta, MovimentoFerramenta):
+        if modelo.__tablename__ not in tabelas:
+            modelo.__table__.create(engine, checkfirst=True)

@@ -71,6 +71,7 @@ def criar_app(config=Config):
     from routes.relatorios_compras import bp_relatorios_compras
     from routes.correcao_os import bp_correcao_os
     from routes.uniformes import bp_uniformes
+    from routes.ferramentas import bp_ferramentas
     from routes.rastreio_pecas import bp_rastreio_pecas
 
     app.register_blueprint(bp_auth)
@@ -85,6 +86,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_paginas)
     app.register_blueprint(bp_correcao_os)
     app.register_blueprint(bp_uniformes)
+    app.register_blueprint(bp_ferramentas)
     app.register_blueprint(bp_busca_pecas)
     app.register_blueprint(bp_compras)
     app.register_blueprint(bp_combustivel_estoque)
@@ -107,6 +109,7 @@ def criar_app(config=Config):
                                                      garantir_ultimo_acesso_usuario,
                                                      garantir_usuario_movimentos_estoque,
                                                      garantir_grupos_consumo,
+                                                     garantir_ferramentas,
                                                      garantir_campos_ordens_servico)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
@@ -121,6 +124,7 @@ def criar_app(config=Config):
         garantir_campos_execucao_os()
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
+        garantir_ferramentas()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -216,14 +220,8 @@ def criar_app(config=Config):
     @app.context_processor
     def datas_padrao():
         data = hoje()
-        # Início do ciclo operacional 20→20 (mesmo critério do painel).
-        if data.day >= 20:
-            inicio_ciclo = data.replace(day=20)
-        else:
-            inicio_ciclo = (data.replace(day=1) - timedelta(days=1)).replace(day=20)
         return {"hoje": data.isoformat(),
                 "primeiro_dia": data.replace(day=1).isoformat(),
-                "inicio_ciclo": inicio_ciclo.isoformat(),
                 "inicio_periodo": (data - timedelta(days=29)).isoformat(),
                 "ano": data.year}
 

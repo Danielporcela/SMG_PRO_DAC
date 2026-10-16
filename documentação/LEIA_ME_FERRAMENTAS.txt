@@ -1,0 +1,34 @@
+FERRAMENTAS MECÂNICOS — como instalar e usar
+=============================================
+
+INSTALAR
+  Copie os arquivos deste pacote para dentro da pasta do projeto, mantendo as
+  pastas (substitui os existentes). Reinicie o sistema.
+  As tabelas novas são criadas sozinhas na inicialização (mesmo mecanismo do
+  módulo de uniformes). Não precisa de migration.
+
+  Arquivos NOVOS:    routes/ferramentas.py, templates/ferramentas.html,
+                     tests/test_ferramentas.py
+  Arquivos ALTERADOS (só acréscimos): models.py, app.py, routes/paginas.py,
+                     services/compatibilidade_banco.py, templates/base.html
+
+PERMISSÃO
+  Nova tela "Ferramentas mecânicos" na matriz de permissões (Usuários).
+  Admin e operador já enxergam. Para os demais, libere em Usuários.
+  O cargo sugerido "Almoxarifado" já vem com "Ferramentas" em editar.
+  Quem já estava logado precisa sair e entrar uma vez.
+
+FLUXO
+  1. Cadastre as ferramentas (Nova ferramenta). O saldo só muda por movimento.
+  2. Notas fiscais de entrada: Nova nota > lançar itens > Finalizar.
+     Só ao finalizar o saldo sobe (igual ao estoque de peças).
+  3. Entregar ao mecânico: escolha o mecânico e a ferramenta. O sistema DÁ
+     BAIXA no estoque e registra a ferramenta em nome dele.
+  4. Cancelar a entrega (devolução ou erro) devolve o saldo ao estoque.
+
+REGRAS
+  - Só recebe ferramenta funcionário ATIVO com cargo contendo "mecânico"
+    (cadastro em Cadastros > Funcionários).
+  - Saldo insuficiente bloqueia a entrega; nada é gravado.
+  - Cancelar entrega e excluir nota pedem a senha de administrador
+    (regra que o sistema já aplica a toda exclusão).

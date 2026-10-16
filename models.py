@@ -46,6 +46,7 @@ TELAS_SISTEMA = [
     ("relatorios", "Relatórios", "Gestão"),
     ("funcionarios", "Funcionários", "Cadastros"),
     ("uniformes", "Uniformes", "Cadastros"),
+    ("ferramentas", "Ferramentas mecânicos", "Cadastros"),
 ]
 TELAS_VALIDAS = {chave for chave, _, _ in TELAS_SISTEMA}
 TELAS_ROTULOS = {chave: rotulo for chave, rotulo, _ in TELAS_SISTEMA}
@@ -78,6 +79,7 @@ CARGOS_SUGERIDOS = {
             "manutencao": "editar", "pneus": "visualizar", "veiculos": "visualizar",
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
             "grupos": "editar", "grupos_consumo": "editar",
+            "ferramentas": "editar", "funcionarios": "visualizar",
         },
     },
     # Quem aprova e efetiva a compra. 'compras' em nível 'editar' é o que
@@ -1927,3 +1929,160 @@ class BloqueioAcesso(db.Model):
                 "criado_em": self.criado_em.isoformat() if self.criado_em else None,
                 "liberado": self.liberado, "liberado_por": self.liberado_por,
                 "liberado_em": self.liberado_em.isoformat() if self.liberado_em else None}
+
+
+# ============================================================================
+# Ferramentas dos mecânicos
+# ----------------------------------------------------------------------------
+# Estoque PRÓPRIO de ferramentas (separado do estoque de peças e do de
+# uniformes). Segue o mesmo padrão de lançamento das peças: a nota fiscal
+# nasce "Aberta", recebe os itens e só ao ser finalizada dá entrada no saldo.
+# A baixa acontece quando a ferramenta é colocada em nome de um mecânico
+# (EntregaFerramenta) — e o cancelamento dessa entrega devolve o saldo.
+# ============================================================================
+class Ferramenta(db.Model):
+    __tablename__ = "ferramentas"
+    id = db.Column(db.Integer, primary_key=True)
+    codigo = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    descricao = db.Column(db.String(160), nullable=False)
+    marca = db.Column(db.String(60))
+    unidade = db.Column(db.String(10), default="UN")
+    quantidade = db.Column(db.Float, default=0)
+    estoque_minimo = db.Column(db.Float, default=0)
+    custo_unitario = db.Column(db.Float, default=0)
+    localizacao = db.Column(db.String(40))
+    ativo = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        qtd = self.quantidade or 0
+        return {"id": self.id, "codigo": self.codigo, "descricao": self.descricao,
+                "marca": self.marca, "unidade": self.unidade, "quantidade": qtd,
+                "estoque_minimo": self.estoque_minimo,
+                "custo_unitario": self.custo_unitario,
+                "valor_total": round(qtd * (self.custo_unitario or 0), 2),
+                "localizacao": self.localizacao, "ativo": self.ativo,
+                "abaixo_minimo": bool(self.estoque_minimo) and qtd <= (self.estoque_minimo or 0),
+                "identificacao": f"{self.codigo} · {self.descricao}"}
+
+
+def proximo_codigo_ferramenta():
+    """Próximo código sequencial (0001, 0002...) a partir do maior número puro."""
+    maior = 0
+    for (codigo,) in db.session.query(Ferramenta.codigo).all():
+        if codigo and codigo.strip().isdigit():
+            maior = max(maior, int(codigo))
+    return f"{maior + 1:04d}"
+
+
+class MovimentoFerramenta(db.Model):
+    """Histórico do estoque de ferramentas: o saldo nunca muda sem rastro."""
+    __tablename__ = "movimentos_ferramenta"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje)
+    ferramenta_id = db.Column(db.Integer, db.ForeignKey("ferramentas.id"), nullable=False, index=True)
+    tipo = db.Column(db.String(10), default="entrada")  # entrada | saida | ajuste
+    quantidade = db.Column(db.Float, default=0)
+    custo_unitario = db.Column(db.Float, default=0)
+    documento = db.Column(db.String(80))
+    # Sem FK de propósito: o histórico sobrevive ao cancelamento da entrega.
+    entrega_id = db.Column(db.Integer, index=True)
+    observacao = db.Column(db.String(200))
+    usuario_id = db.Column(db.Integer)
+    usuario_nome = db.Column(db.String(120))
+    ferramenta = db.relationship("Ferramenta")
+
+    def to_dict(self):
+        return {"id": self.id, "data": self.data.isoformat() if self.data else None,
+                "ferramenta_id": self.ferramenta_id,
+                "ferramenta_descricao": (f"{self.ferramenta.codigo} · {self.ferramenta.descricao}"
+                                         if self.ferramenta else None),
+                "tipo": self.tipo, "quantidade": self.quantidade,
+                "custo_unitario": self.custo_unitario,
+                "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
+                "documento": self.documento, "entrega_id": self.entrega_id,
+                "observacao": self.observacao, "usuario_nome": self.usuario_nome}
+
+
+class NotaFiscalFerramenta(db.Model):
+    """Nota fiscal de entrada de ferramentas (mesmo ciclo da NotaFiscal de peças)."""
+    __tablename__ = "notas_fiscais_ferramenta"
+    id = db.Column(db.Integer, primary_key=True)
+    numero = db.Column(db.String(30), nullable=False, index=True)
+    serie = db.Column(db.String(10))
+    data_emissao = db.Column(db.Date, default=_hoje)
+    data_entrada = db.Column(db.Date)      # preenchida ao finalizar
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"), nullable=False)
+    status = db.Column(db.String(20), default="Aberta")  # Aberta | Finalizada | Cancelada
+    observacao = db.Column(db.String(200))
+    fornecedor = db.relationship("Fornecedor")
+    itens = db.relationship("ItemNotaFiscalFerramenta", backref="nota",
+                            cascade="all, delete-orphan", lazy="selectin")
+
+    @property
+    def valor_total(self):
+        return round(sum((i.quantidade or 0) * (i.valor_unitario or 0) for i in self.itens), 2)
+
+    def to_dict(self, com_itens=False):
+        d = {"id": self.id, "numero": self.numero, "serie": self.serie,
+             "data_emissao": self.data_emissao.isoformat() if self.data_emissao else None,
+             "data_entrada": self.data_entrada.isoformat() if self.data_entrada else None,
+             "fornecedor_id": self.fornecedor_id,
+             "fornecedor_nome": self.fornecedor.nome if self.fornecedor else None,
+             "status": self.status, "observacao": self.observacao,
+             "valor_total": self.valor_total, "qtd_itens": len(self.itens),
+             "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else "")}
+        if com_itens:
+            d["itens"] = [i.to_dict() for i in self.itens]
+        return d
+
+
+class ItemNotaFiscalFerramenta(db.Model):
+    __tablename__ = "itens_nota_fiscal_ferramenta"
+    id = db.Column(db.Integer, primary_key=True)
+    nota_fiscal_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais_ferramenta.id"), nullable=False)
+    ferramenta_id = db.Column(db.Integer, db.ForeignKey("ferramentas.id"), nullable=False)
+    descricao = db.Column(db.String(160))
+    quantidade = db.Column(db.Float, default=1)
+    valor_unitario = db.Column(db.Float, default=0)
+    baixado_estoque = db.Column(db.Boolean, default=False)  # True = já deu entrada no saldo
+    ferramenta = db.relationship("Ferramenta")
+
+    @property
+    def subtotal(self):
+        return round((self.quantidade or 0) * (self.valor_unitario or 0), 2)
+
+    def to_dict(self):
+        return {"id": self.id, "nota_fiscal_id": self.nota_fiscal_id,
+                "ferramenta_id": self.ferramenta_id,
+                "ferramenta_descricao": (f"{self.ferramenta.codigo} · {self.ferramenta.descricao}"
+                                         if self.ferramenta else None),
+                "descricao": self.descricao, "quantidade": self.quantidade,
+                "valor_unitario": self.valor_unitario, "valor_total": self.subtotal,
+                "baixado_estoque": self.baixado_estoque}
+
+
+class EntregaFerramenta(db.Model):
+    """Ferramenta colocada em nome de um mecânico — é aqui que ocorre a baixa."""
+    __tablename__ = "entregas_ferramenta"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, default=_hoje)
+    funcionario_id = db.Column(db.Integer, db.ForeignKey("funcionarios.id"), nullable=False, index=True)
+    ferramenta_id = db.Column(db.Integer, db.ForeignKey("ferramentas.id"), nullable=False, index=True)
+    quantidade = db.Column(db.Float, default=1)
+    custo_unitario = db.Column(db.Float, default=0)   # custo médio na data da baixa
+    observacao = db.Column(db.String(200))
+    usuario_nome = db.Column(db.String(120))
+    funcionario = db.relationship("Funcionario")
+    ferramenta = db.relationship("Ferramenta")
+
+    def to_dict(self):
+        return {"id": self.id, "data": self.data.isoformat() if self.data else None,
+                "funcionario_id": self.funcionario_id,
+                "mecanico_nome": self.funcionario.nome if self.funcionario else None,
+                "ferramenta_id": self.ferramenta_id,
+                "ferramenta_descricao": (f"{self.ferramenta.codigo} · {self.ferramenta.descricao}"
+                                         if self.ferramenta else None),
+                "quantidade": self.quantidade, "custo_unitario": self.custo_unitario,
+                "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
+                "observacao": self.observacao, "usuario_nome": self.usuario_nome,
+                "identificacao": f"Entrega #{self.id}"}

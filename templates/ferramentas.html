@@ -1,0 +1,694 @@
+{% extends "lista.html" %}
+{% block titulo %}Ferramentas mecânicos{% endblock %}
+{% block cabecalho %}Ferramentas mecânicos{% endblock %}
+{% block descricao %}Estoque de ferramentas — a nota fiscal dá entrada e a ferramenta colocada em nome do mecânico dá baixa.{% endblock %}
+{% block rotulo_novo %}Nova ferramenta{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoFerramentas"></div>
+{% endblock %}
+
+{% block depois_tabela %}
+<!-- ============================================ em nome dos mecânicos -->
+<div class="cartao mt-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-user-gear me-2" style="color:var(--petroleo)"></i>Ferramentas em nome dos mecânicos</h3>
+    <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroMecanico">Mecânico</label>
+        <select class="form-select form-select-sm" id="filtroMecanico" style="min-width:220px">
+          <option value="">Todos os mecânicos</option>
+        </select>
+      </div>
+      {% if pode('ferramentas', 'editar') %}
+      <button class="btn btn-primario btn-sm" id="botaoNovaEntrega">
+        <i class="fa-solid fa-hand-holding me-1"></i> Entregar ao mecânico
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  <div class="cartao-corpo p-0"><div id="areaEntregas">
+    <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando…</div>
+  </div></div>
+</div>
+
+<!-- ======================================================= notas fiscais -->
+<div class="cartao mt-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-file-invoice me-2" style="color:var(--petroleo)"></i>Notas fiscais de entrada</h3>
+    <span id="totalGastoNotas" class="ms-2" style="font-size:12.5px;color:var(--texto-suave)"></span>
+    <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroBuscaNota">Pesquisar</label>
+        <input type="search" class="form-control form-control-sm" id="filtroBuscaNota"
+               style="min-width:220px" autocomplete="off" placeholder="Número ou fornecedor">
+      </div>
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroInicio">Início</label>
+        <input type="date" class="form-control form-control-sm" id="filtroInicio" value="{{ inicio_periodo }}">
+      </div>
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroFim">Fim</label>
+        <input type="date" class="form-control form-control-sm" id="filtroFim" value="{{ hoje }}">
+      </div>
+      {% if pode('ferramentas', 'editar') %}
+      <button class="btn btn-primario btn-sm" id="botaoNovaNota">
+        <i class="fa-solid fa-plus me-1"></i> Nova nota
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  <div class="cartao-corpo p-0"><div id="areaNotasFiscais">
+    <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando notas…</div>
+  </div></div>
+</div>
+
+<!-- ============================================================ movimentos -->
+<div class="cartao mt-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Últimas movimentações</h3>
+  </div>
+  <div class="cartao-corpo p-0"><div id="listaMovimentos"></div></div>
+</div>
+
+<!-- ======================================================== modal: nota -->
+<div class="modal fade" id="modalNota" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Nova nota fiscal de ferramentas</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="notaNumero">Número <span style="color:var(--alerta)">*</span></label>
+            <input class="form-control" id="notaNumero">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaSerie">Série</label>
+            <input class="form-control" id="notaSerie">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaEmissao">Data de emissão</label>
+            <input type="date" class="form-control" id="notaEmissao">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="notaFornecedor">Fornecedor <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="notaFornecedor"><option value="">— selecione —</option></select>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label" for="notaObservacao">Observação</label>
+            <input class="form-control" id="notaObservacao">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="notaSalvar">Salvar nota</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================== modal: itens da nota -->
+<div class="modal fade" id="modalItensNota" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0" id="itensNotaTitulo">Itens da nota</h5>
+          <small style="color:var(--hi-vis)" id="itensNotaSubtitulo"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="itensNotaLista" class="mb-3"></div>
+
+        <div id="itensNotaFormulario" class="cartao">
+          <div class="cartao-corpo">
+            <h6 class="mb-3">Lançar item</h6>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="itemPesquisaFerramenta">Pesquisar ferramenta <span style="color:var(--alerta)">*</span></label>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                  <input type="search" class="form-control" id="itemPesquisaFerramenta"
+                         autocomplete="off" placeholder="Digite o nome, a marca ou o código — ex.: chave">
+                </div>
+                <select class="form-select mt-2" id="itemFerramenta" aria-label="Ferramenta selecionada">
+                  <option value="">— selecione uma ferramenta —</option>
+                </select>
+                <small class="text-muted">A ferramenta precisa estar cadastrada acima (botão "Nova ferramenta").</small>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="itemQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
+                <input type="number" step="any" min="0" class="form-control" id="itemQuantidade">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="itemValorUnitario">Valor unitário (R$)</label>
+                <input type="number" step="any" min="0" class="form-control" id="itemValorUnitario">
+              </div>
+            </div>
+            <button class="btn btn-primario btn-sm mt-3" id="itemAdicionar">
+              <i class="fa-solid fa-plus me-1"></i> Adicionar item
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-primario" id="notaFinalizar">
+          <i class="fa-solid fa-check me-1"></i> Finalizar nota e dar entrada no estoque
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================= modal: entrega ao mecânico -->
+<div class="modal fade" id="modalEntrega" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Ferramenta em nome do mecânico</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-12">
+            <label class="form-label" for="entregaMecanico">Mecânico <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="entregaMecanico"><option value="">— selecione —</option></select>
+            <small class="text-muted" id="avisoSemMecanico" style="display:none">
+              Nenhum mecânico encontrado. Cadastre o funcionário em Cadastros &gt; Funcionários com o cargo "Mecânico".
+            </small>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label" for="entregaFerramenta">Ferramenta <span style="color:var(--alerta)">*</span></label>
+            <select class="form-select" id="entregaFerramenta"><option value="">— selecione —</option></select>
+            <small class="text-muted" id="entregaSaldo"></small>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="entregaQuantidade">Quantidade <span style="color:var(--alerta)">*</span></label>
+            <input type="number" step="any" min="0" class="form-control" id="entregaQuantidade" value="1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="entregaData">Data</label>
+            <input type="date" class="form-control" id="entregaData">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label" for="entregaObservacao">Observação</label>
+            <input class="form-control" id="entregaObservacao" placeholder="Ex.: ferramenta nova, em substituição à quebrada...">
+          </div>
+        </div>
+        <div class="alert alert-warning mt-3 mb-0 py-2" style="font-size:12.5px">
+          <i class="fa-solid fa-circle-info me-1"></i>
+          Ao salvar, a quantidade é <strong>baixada do estoque</strong> e a ferramenta fica registrada em nome do mecânico.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="entregaSalvar">Entregar e dar baixa</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================== modal: ajuste de saldo -->
+<div class="modal fade" id="modalAjuste" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Ajustar saldo (inventário)</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" id="ajusteFerramenta"></p>
+        <input type="hidden" id="ajusteFerramentaId">
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label" for="ajusteQuantidade">Saldo contado <span style="color:var(--alerta)">*</span></label>
+            <input type="number" step="any" min="0" class="form-control" id="ajusteQuantidade">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label" for="ajusteMotivo">Motivo <span style="color:var(--alerta)">*</span></label>
+            <input class="form-control" id="ajusteMotivo" placeholder="Ex.: contagem do inventário, quebra, perda...">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="ajusteSalvar">Salvar ajuste</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CORES_STATUS_NF = { Aberta: 'ambar', Finalizada: 'verde', Cancelada: 'cinza' };
+const PODE_EDITAR = {{ 'true' if pode('ferramentas', 'editar') else 'false' }};
+let notaAtual = null;
+let notasCarregadas = [];
+let mecanicos = [];
+
+function normalizarBusca(texto) {
+  if (!texto) return '';
+  return String(texto).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+const modal = (id) => bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
+const el = (id) => document.getElementById(id);
+
+/* ===================================================== catálogo de ferramentas */
+const telaFerramentas = SGMF.tela({
+  recurso: 'ferramentas',
+  titulo: 'ferramenta',
+  campos: [
+    { nome: 'codigo', rotulo: 'Código', col: 3, exemplo: 'Gerado automaticamente' },
+    { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Chave de impacto 1/2"' },
+    { nome: 'marca', rotulo: 'Marca', col: 3 },
+    { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
+      opcoes: ['UN', 'PC', 'JG', 'KIT', 'CX', 'M'] },
+    { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Armário 2' },
+    { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'moeda', col: 3 },
+    { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 3,
+      ajuda: 'Abaixo disso o sistema avisa para repor.' },
+    { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 3, somenteNovo: true,
+      ajuda: 'Lançado como entrada. Depois o saldo só muda por nota fiscal, entrega ou ajuste.' },
+    { nome: 'ativo', rotulo: 'Ferramenta ativa', tipo: 'checkbox', col: 3 }
+  ],
+  aoAbrirFormulario: () => {
+    const campoCodigo = el('campo_codigo');
+    if (campoCodigo) campoCodigo.disabled = true;
+  },
+  colunas: [
+    { campo: 'codigo', rotulo: 'Código', classe: 'num' },
+    { campo: 'descricao', rotulo: 'Descrição' },
+    { campo: 'marca', rotulo: 'Marca', render: v => v || '—' },
+    { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',
+      render: (v, i) => `<strong>${SGMF.numero(v, 2)}</strong> ${SGMF.esc(i.unidade || '')}` },
+    { campo: 'estoque_minimo', rotulo: 'Mínimo', classe: 'num text-end', render: v => SGMF.numero(v, 2) },
+    { campo: 'custo_unitario', rotulo: 'Custo unit.', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'valor_total', rotulo: 'Valor em estoque', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'localizacao', rotulo: 'Local', render: v => v || '—' },
+    { campo: 'abaixo_minimo', rotulo: 'Situação',
+      render: (v, i) => !i.ativo ? SGMF.etiqueta('Inativa', 'cinza')
+        : (v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde')) }
+  ],
+  acoesLinha: (item) => `
+    <button class="btn btn-contorno btn-icone" data-entregar="${item.id}" title="Entregar ao mecânico">
+      <i class="fa-solid fa-hand-holding"></i></button>
+    <button class="btn btn-contorno btn-icone" data-ajustar="${item.id}" title="Ajustar saldo (inventário)">
+      <i class="fa-solid fa-scale-balanced"></i></button>`,
+  aoRenderizar: (linhas) => {
+    const valor = linhas.reduce((s, f) => s + (f.valor_total || 0), 0);
+    const repor = linhas.filter(f => f.ativo && f.abaixo_minimo).length;
+    el('resumoFerramentas').innerHTML = `
+      <div class="medidor"><div class="rotulo">Ferramentas cadastradas</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Valor em estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(valor)}</div></div>
+      <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div><div class="valor num">${repor}</div><div class="nota">${repor ? 'Providencie a compra' : 'Estoque saudável'}</div></div>`;
+
+    const area = el('areaTabela');
+    if (area && !area.dataset.ferrLigado) {
+      area.dataset.ferrLigado = '1';
+      area.addEventListener('click', (e) => {
+        const entregar = e.target.closest('[data-entregar]');
+        if (entregar) return abrirEntrega(Number(entregar.dataset.entregar));
+        const ajustar = e.target.closest('[data-ajustar]');
+        if (!ajustar) return;
+        const f = telaFerramentas.dados().find(x => x.id == ajustar.dataset.ajustar);
+        if (!f) return;
+        el('ajusteFerramentaId').value = f.id;
+        el('ajusteFerramenta').innerHTML = `<strong>${SGMF.esc(f.codigo)}</strong> · ${SGMF.esc(f.descricao)}<br>
+          <span class="text-muted">Saldo atual: ${SGMF.numero(f.quantidade, 2)} ${SGMF.esc(f.unidade || '')}</span>`;
+        el('ajusteQuantidade').value = '';
+        el('ajusteMotivo').value = '';
+        modal('modalAjuste').show();
+      });
+    }
+    carregarMovimentos();
+  }
+});
+
+const ferramentasAtivas = () => telaFerramentas.dados().filter(f => f.ativo);
+
+/* ============================================ ajuste de saldo (inventário) */
+el('ajusteSalvar').onclick = async () => {
+  if (el('ajusteQuantidade').value === '') return SGMF.aviso('Informe o saldo contado.');
+  if (!el('ajusteMotivo').value.trim()) return SGMF.aviso('Informe o motivo do ajuste.');
+  try {
+    await SGMF.post('/api/ferramentas/ajuste', {
+      ferramenta_id: Number(el('ajusteFerramentaId').value),
+      quantidade: Number(el('ajusteQuantidade').value),
+      observacao: el('ajusteMotivo').value.trim()
+    });
+    modal('modalAjuste').hide();
+    SGMF.sucesso('Saldo ajustado');
+    telaFerramentas.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+/* ================================================ ferramentas do mecânico */
+async function carregarMecanicos() {
+  mecanicos = await SGMF.get('/api/ferramentas/mecanicos');
+  const opcoes = mecanicos.map(m => `<option value="${m.id}">${SGMF.esc(m.nome)}</option>`).join('');
+  el('filtroMecanico').innerHTML = '<option value="">Todos os mecânicos</option>' + opcoes;
+  el('entregaMecanico').innerHTML = '<option value="">— selecione —</option>' + opcoes;
+  el('avisoSemMecanico').style.display = mecanicos.length ? 'none' : '';
+}
+
+async function carregarEntregas() {
+  const area = el('areaEntregas');
+  const mecanico = el('filtroMecanico').value;
+  try {
+    const entregas = await SGMF.get('/api/entregas_ferramenta' + (mecanico ? `?funcionario_id=${mecanico}` : ''));
+    if (!entregas.length) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-user-gear"></i>
+        <strong>Nenhuma ferramenta em nome de mecânico</strong>Use "Entregar ao mecânico" para registrar e dar baixa no estoque.</div>`;
+      return;
+    }
+    area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+      <thead><tr><th class="ps-3">Data</th><th>Mecânico</th><th>Ferramenta</th>
+      <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Observação</th><th>Lançado por</th>
+      ${PODE_EDITAR ? '<th class="pe-3">Ações</th>' : ''}</tr></thead>
+      <tbody>${entregas.map(e => `<tr>
+        <td class="ps-3 num">${SGMF.data(e.data)}</td>
+        <td><strong>${SGMF.esc(e.mecanico_nome) || '—'}</strong></td>
+        <td>${SGMF.esc(e.ferramenta_descricao) || '—'}</td>
+        <td class="text-end num">${SGMF.numero(e.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(e.valor_total)}</td>
+        <td>${SGMF.esc(e.observacao) || '—'}</td>
+        <td>${SGMF.esc(e.usuario_nome) || '—'}</td>
+        ${PODE_EDITAR ? `<td class="pe-3 text-nowrap">
+          <button class="btn btn-contorno btn-icone" data-cancelar-entrega="${e.id}"
+                  title="Cancelar / devolver ao estoque"><i class="fa-solid fa-rotate-left"></i></button></td>` : ''}
+      </tr>`).join('')}</tbody></table></div>`;
+
+    area.querySelectorAll('[data-cancelar-entrega]').forEach(b => b.onclick = async () => {
+      const e = entregas.find(x => x.id == b.dataset.cancelarEntrega);
+      if (!await SGMF.confirmar('Cancelar esta entrega?',
+          `${e.ferramenta_descricao} (${SGMF.numero(e.quantidade, 2)}) em nome de ${e.mecanico_nome} volta para o estoque.`,
+          'Cancelar entrega')) return;
+      try {
+        await SGMF.del(`/api/entregas_ferramenta/${e.id}`);
+        SGMF.sucesso('Entrega cancelada e saldo devolvido');
+        telaFerramentas.carregar();
+        carregarEntregas();
+      } catch (err) { SGMF.falha(err.message); }
+    });
+  } catch (e) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>Não foi possível carregar</strong>${SGMF.esc(e.message)}</div>`;
+  }
+}
+el('filtroMecanico').onchange = carregarEntregas;
+
+function mostrarSaldoEntrega() {
+  const f = telaFerramentas.dados().find(x => x.id == el('entregaFerramenta').value);
+  el('entregaSaldo').textContent = f
+    ? `Saldo disponível: ${SGMF.numero(f.quantidade, 2)} ${f.unidade || ''}` : '';
+}
+el('entregaFerramenta').onchange = mostrarSaldoEntrega;
+
+function abrirEntrega(ferramentaId = null) {
+  el('entregaMecanico').value = '';
+  el('entregaFerramenta').innerHTML = '<option value="">— selecione —</option>' +
+    ferramentasAtivas().map(f => `<option value="${f.id}" ${f.quantidade <= 0 ? 'disabled' : ''}>
+      ${SGMF.esc(f.codigo)} · ${SGMF.esc(f.descricao)} (saldo ${SGMF.numero(f.quantidade, 2)})</option>`).join('');
+  el('entregaFerramenta').value = ferramentaId || '';
+  el('entregaQuantidade').value = 1;
+  el('entregaData').value = SGMF.hoje();
+  el('entregaObservacao').value = '';
+  mostrarSaldoEntrega();
+  modal('modalEntrega').show();
+}
+if (el('botaoNovaEntrega')) el('botaoNovaEntrega').onclick = () => abrirEntrega();
+
+el('entregaSalvar').onclick = async () => {
+  if (!el('entregaMecanico').value || !el('entregaFerramenta').value)
+    return SGMF.aviso('Selecione o mecânico e a ferramenta.');
+  const botao = el('entregaSalvar');
+  botao.disabled = true;
+  try {
+    await SGMF.post('/api/entregas_ferramenta', {
+      funcionario_id: Number(el('entregaMecanico').value),
+      ferramenta_id: Number(el('entregaFerramenta').value),
+      quantidade: Number(el('entregaQuantidade').value) || 0,
+      data: el('entregaData').value,
+      observacao: el('entregaObservacao').value.trim()
+    });
+    modal('modalEntrega').hide();
+    SGMF.sucesso('Ferramenta entregue e baixada do estoque');
+    telaFerramentas.carregar();
+    carregarEntregas();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+/* ============================================================ movimentações */
+async function carregarMovimentos() {
+  const area = el('listaMovimentos');
+  try {
+    const movimentos = await SGMF.get('/api/ferramentas/movimentos');
+    if (!movimentos.length) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-right-left"></i>
+        <strong>Nenhuma movimentação</strong>As entradas, baixas e ajustes aparecem aqui.</div>`;
+      return;
+    }
+    const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+    area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0" style="font-size:13px">
+      <thead><tr><th class="ps-3">Data</th><th>Ferramenta</th><th>Tipo</th><th class="text-end">Qtde</th>
+      <th>Documento</th><th>Observação</th><th>Responsável</th></tr></thead>
+      <tbody>${movimentos.map(m => `<tr>
+        <td class="ps-3 num">${SGMF.data(m.data)}</td>
+        <td>${SGMF.esc(m.ferramenta_descricao) || '—'}</td>
+        <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
+        <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+        <td>${SGMF.esc(m.documento) || '—'}</td>
+        <td>${SGMF.esc(m.observacao) || '—'}</td>
+        <td>${SGMF.esc(m.usuario_nome) || '—'}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>Não foi possível carregar</strong>${SGMF.esc(e.message)}</div>`;
+  }
+}
+
+/* ============================================================ notas fiscais */
+async function carregarFornecedores() {
+  const opcoes = await SGMF.opcoes('fornecedores', 'identificacao');
+  el('notaFornecedor').innerHTML = '<option value="">— selecione —</option>' +
+    opcoes.map(o => `<option value="${o.valor}">${SGMF.esc(o.texto)}</option>`).join('');
+}
+
+function abrirModalNota() {
+  ['notaNumero', 'notaSerie', 'notaFornecedor', 'notaObservacao'].forEach(id => el(id).value = '');
+  el('notaEmissao').value = SGMF.hoje();
+  modal('modalNota').show();
+}
+if (el('botaoNovaNota')) el('botaoNovaNota').onclick = abrirModalNota;
+
+el('notaSalvar').onclick = async () => {
+  const numero = el('notaNumero').value.trim();
+  const fornecedor_id = el('notaFornecedor').value;
+  if (!numero || !fornecedor_id) return SGMF.aviso('Preencha o número e o fornecedor.');
+  const botao = el('notaSalvar');
+  botao.disabled = true;
+  try {
+    const nota = await SGMF.post('/api/notas_fiscais_ferramenta', {
+      numero, serie: el('notaSerie').value.trim(), data_emissao: el('notaEmissao').value,
+      fornecedor_id: Number(fornecedor_id), observacao: el('notaObservacao').value.trim()
+    });
+    modal('modalNota').hide();
+    SGMF.sucesso('Nota fiscal criada');
+    await carregarNotasFiscais();
+    abrirItensNota(nota);   // já abre para lançar os itens
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+function notasFiltradas() {
+  const termo = normalizarBusca(el('filtroBuscaNota').value);
+  if (!termo) return notasCarregadas;
+  return notasCarregadas.filter(n => normalizarBusca(n.numero).includes(termo) ||
+                                     normalizarBusca(n.fornecedor_nome).includes(termo));
+}
+
+async function carregarNotasFiscais() {
+  notasCarregadas = await SGMF.get(
+    `/api/notas_fiscais_ferramenta?inicio=${el('filtroInicio').value}&fim=${el('filtroFim').value}`);
+  renderizarNotasFiscais();
+}
+
+function renderizarNotasFiscais() {
+  const notas = notasFiltradas();
+  const area = el('areaNotasFiscais');
+  const pesquisando = el('filtroBuscaNota').value.trim() !== '';
+
+  const finalizadas = notasCarregadas.filter(n => n.status === 'Finalizada');
+  const totalGasto = finalizadas.reduce((soma, n) => soma + (n.valor_total || 0), 0);
+  el('totalGastoNotas').textContent = notasCarregadas.length
+    ? `Gasto no período: ${SGMF.moeda(totalGasto)} em ${finalizadas.length} nota(s) finalizada(s)` : '';
+
+  if (!notas.length) {
+    area.innerHTML = pesquisando
+      ? `<div class="vazio"><i class="fa-solid fa-magnifying-glass"></i>
+          <strong>Nenhuma nota encontrada</strong>Tente outro número ou fornecedor.</div>`
+      : `<div class="vazio"><i class="fa-solid fa-file-invoice"></i>
+          <strong>Nenhuma nota fiscal no período</strong>Lance a primeira com o botão "Nova nota".</div>`;
+    return;
+  }
+
+  area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0" style="width:100%">
+    <thead><tr><th class="ps-3">Número</th><th>Fornecedor</th><th>Emissão</th>
+    <th class="text-end">Itens</th><th class="text-end">Valor</th><th>Situação</th><th class="pe-3">Ações</th></tr></thead>
+    <tbody>${notas.map(n => `<tr>
+      <td class="ps-3"><span class="prefixo">${SGMF.esc(n.identificacao)}</span></td>
+      <td>${SGMF.esc(n.fornecedor_nome) || '—'}</td>
+      <td class="num">${SGMF.data(n.data_emissao)}</td>
+      <td class="text-end num">${SGMF.numero(n.qtd_itens)}</td>
+      <td class="text-end num">${SGMF.moeda(n.valor_total)}</td>
+      <td>${SGMF.etiqueta(n.status, CORES_STATUS_NF[n.status] || 'cinza')}</td>
+      <td class="pe-3 text-nowrap">
+        <button class="btn btn-contorno btn-icone" data-itens-nota="${n.id}" title="Itens da nota">
+          <i class="fa-solid fa-list"></i></button>
+        ${PODE_EDITAR && n.status === 'Aberta' ? `<button class="btn btn-contorno btn-icone" data-excluir-nota="${n.id}" title="Excluir">
+          <i class="fa-solid fa-trash"></i></button>` : ''}
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  area.querySelectorAll('[data-itens-nota]').forEach(b => b.onclick = () =>
+    abrirItensNota(notas.find(n => n.id == b.dataset.itensNota)));
+
+  area.querySelectorAll('[data-excluir-nota]').forEach(b => b.onclick = async () => {
+    const n = notas.find(x => x.id == b.dataset.excluirNota);
+    if (!await SGMF.confirmar('Excluir nota fiscal?', `${n.identificacao} será removida definitivamente.`, 'Excluir')) return;
+    try {
+      await SGMF.del(`/api/notas_fiscais_ferramenta/${n.id}`);
+      SGMF.sucesso('Nota fiscal excluída');
+      await carregarNotasFiscais();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+el('filtroBuscaNota').oninput = renderizarNotasFiscais;
+el('filtroInicio').onchange = carregarNotasFiscais;
+el('filtroFim').onchange = carregarNotasFiscais;
+
+/* ------------------------------------------------------ itens da nota */
+function preencherSelectFerramentaNF(filtro = '') {
+  const termo = normalizarBusca(filtro);
+  const lista = ferramentasAtivas().filter(f => !termo ||
+    normalizarBusca(`${f.codigo} ${f.descricao} ${f.marca || ''}`).includes(termo));
+  const atual = el('itemFerramenta').value;
+  el('itemFerramenta').innerHTML = '<option value="">— selecione uma ferramenta —</option>' +
+    lista.map(f => `<option value="${f.id}">${SGMF.esc(f.codigo)} · ${SGMF.esc(f.descricao)}${f.marca ? ' (' + SGMF.esc(f.marca) + ')' : ''}</option>`).join('');
+  if (atual && lista.some(f => f.id == atual)) el('itemFerramenta').value = atual;
+  else if (termo && lista.length === 1) el('itemFerramenta').value = lista[0].id;
+  if (el('itemFerramenta').value) preencherValorSugerido();
+}
+el('itemPesquisaFerramenta').oninput = () => preencherSelectFerramentaNF(el('itemPesquisaFerramenta').value);
+
+function preencherValorSugerido() {
+  const f = telaFerramentas.dados().find(x => x.id == el('itemFerramenta').value);
+  if (f && !el('itemValorUnitario').value) el('itemValorUnitario').value = f.custo_unitario || '';
+}
+el('itemFerramenta').onchange = preencherValorSugerido;
+
+function limparFormularioItem() {
+  ['itemQuantidade', 'itemValorUnitario', 'itemPesquisaFerramenta'].forEach(id => el(id).value = '');
+  preencherSelectFerramentaNF('');
+  el('itemFerramenta').value = '';
+}
+
+async function abrirItensNota(notaResumo) {
+  notaAtual = await SGMF.get(`/api/notas_fiscais_ferramenta/${notaResumo.id}`);
+  const aberta = notaAtual.status === 'Aberta' && PODE_EDITAR;
+  el('itensNotaTitulo').textContent = notaAtual.identificacao;
+  el('itensNotaSubtitulo').textContent =
+    `${notaAtual.fornecedor_nome || ''} · Emissão ${SGMF.data(notaAtual.data_emissao)} · ${notaAtual.status}`;
+  el('itensNotaFormulario').style.display = aberta ? '' : 'none';
+  el('notaFinalizar').style.display = aberta ? '' : 'none';
+  limparFormularioItem();
+  renderizarItensNota();
+  modal('modalItensNota').show();
+}
+
+function renderizarItensNota() {
+  const area = el('itensNotaLista');
+  const aberta = notaAtual.status === 'Aberta' && PODE_EDITAR;
+  if (!notaAtual.itens.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      <strong>Nenhum item lançado</strong>Use o formulário abaixo para lançar as ferramentas desta nota.</div>`;
+    return;
+  }
+  const total = notaAtual.itens.reduce((s, i) => s + (i.valor_total || 0), 0);
+  area.innerHTML = `<table class="table table-sm align-middle" style="font-size:13px">
+    <thead><tr><th>Ferramenta</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th>
+    <th class="text-end">Total</th>${aberta ? '<th></th>' : ''}</tr></thead>
+    <tbody>${notaAtual.itens.map(i => `<tr>
+      <td>${SGMF.esc(i.ferramenta_descricao || i.descricao)}</td>
+      <td class="text-end num">${SGMF.numero(i.quantidade, 2)}</td>
+      <td class="text-end num">${SGMF.moeda(i.valor_unitario)}</td>
+      <td class="text-end num"><strong>${SGMF.moeda(i.valor_total)}</strong></td>
+      ${aberta ? `<td><button class="btn btn-contorno btn-icone" data-remover-item="${i.id}" title="Remover">
+        <i class="fa-solid fa-trash"></i></button></td>` : ''}
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3" class="text-end">Total da nota</td>
+      <td class="text-end num"><strong>${SGMF.moeda(total)}</strong></td>${aberta ? '<td></td>' : ''}</tr></tfoot></table>`;
+
+  area.querySelectorAll('[data-remover-item]').forEach(b => b.onclick = async () => {
+    try {
+      notaAtual = await SGMF.del(`/api/notas_fiscais_ferramenta/${notaAtual.id}/itens/${b.dataset.removerItem}`);
+      SGMF.sucesso('Item removido');
+      renderizarItensNota();
+      carregarNotasFiscais();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+el('itemAdicionar').onclick = async () => {
+  const ferramentaId = el('itemFerramenta').value;
+  if (!ferramentaId || !el('itemQuantidade').value)
+    return SGMF.aviso('Selecione a ferramenta e informe a quantidade.');
+  const botao = el('itemAdicionar');
+  botao.disabled = true;
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais_ferramenta/${notaAtual.id}/itens`, {
+      ferramenta_id: Number(ferramentaId),
+      quantidade: Number(el('itemQuantidade').value) || 0,
+      valor_unitario: Number(el('itemValorUnitario').value) || 0
+    });
+    SGMF.sucesso('Item adicionado');
+    limparFormularioItem();
+    renderizarItensNota();
+    carregarNotasFiscais();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+el('notaFinalizar').onclick = async () => {
+  if (!await SGMF.confirmar('Finalizar a nota?',
+      'Cada item dará entrada no estoque e a nota não poderá mais ser alterada.', 'Finalizar')) return;
+  const botao = el('notaFinalizar');
+  botao.disabled = true;
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais_ferramenta/${notaAtual.id}/finalizar`, {});
+    modal('modalItensNota').hide();
+    SGMF.sucesso('Nota finalizada — entrada lançada no estoque');
+    await carregarNotasFiscais();
+    telaFerramentas.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+/* ================================================================= início */
+(async () => {
+  try { await carregarFornecedores(); } catch (e) { /* sem acesso a fornecedores: a nota exigirá escolha */ }
+  try { await carregarMecanicos(); } catch (e) { SGMF.falha(e.message); }
+  carregarEntregas();
+  carregarNotasFiscais();
+})();
+</script>
+{% endblock %}
