@@ -154,6 +154,57 @@ def listar_mecanicos():
     return jsonify([f.to_dict() for f in funcionarios if eh_mecanico(f)])
 
 
+@bp_ferramentas.post("/ferramentas/mecanicos")
+@editar_tela(TELA)
+def cadastrar_mecanico():
+    """Cadastra um mecânico sem sair da tela de Ferramentas.
+
+    Quem tem 'editar' em Ferramentas não precisa de acesso à tela de
+    Funcionários: o registro criado é um Funcionário comum (aparece lá também),
+    mas o cargo é sempre "Mecânico" — assim ele já entra na lista de quem pode
+    receber ferramenta.
+    """
+    dados = request.get_json(silent=True) or {}
+    try:
+        nome = " ".join((dados.get("nome") or "").split())
+        if not nome:
+            raise ErroNegocio("Informe o nome do mecânico.")
+        if len(nome) > 120:
+            raise ErroNegocio("O nome pode ter no máximo 120 caracteres.")
+        matricula = (dados.get("matricula") or "").strip() or None
+        telefone = (dados.get("telefone") or "").strip() or None
+        if matricula and len(matricula) > 30:
+            raise ErroNegocio("A matrícula pode ter no máximo 30 caracteres.")
+        if telefone and len(telefone) > 20:
+            raise ErroNegocio("O telefone pode ter no máximo 20 caracteres.")
+
+        # Evita duplicar a pessoa (ignora acento, maiúscula e espaço extra).
+        chave = _sem_acento(nome)
+        for existente in Funcionario.query.all():
+            if _sem_acento(" ".join((existente.nome or "").split())) != chave:
+                continue
+            if existente.ativo and eh_mecanico(existente):
+                raise ErroNegocio(f"{existente.nome} já está cadastrado como mecânico.")
+            raise ErroNegocio(
+                f"Já existe um funcionário chamado {existente.nome} "
+                f"({existente.cargo or 'sem cargo'}"
+                f"{'' if existente.ativo else ', inativo'}). Ajuste o cargo ou reative "
+                "o cadastro em Cadastros > Funcionários.")
+
+        mecanico = Funcionario(nome=nome, matricula=matricula, telefone=telefone,
+                               setor=(dados.get("setor") or "").strip()[:60] or "Oficina",
+                               cargo="Mecânico", ativo=True)
+        db.session.add(mecanico)
+        db.session.flush()
+        registrar_log("criar", "funcionarios", mecanico.id,
+                      f"Mecânico cadastrado pela tela de Ferramentas: {mecanico.nome}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(mecanico.to_dict()), 201
+
+
 # --------------------------------------------------------------- movimentos
 @bp_ferramentas.get("/ferramentas/movimentos")
 @visualizar_tela(TELA)

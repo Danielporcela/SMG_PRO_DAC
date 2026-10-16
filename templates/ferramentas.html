@@ -21,6 +21,9 @@
         </select>
       </div>
       {% if pode('ferramentas', 'editar') %}
+      <button class="btn btn-contorno btn-sm" id="botaoNovoMecanico">
+        <i class="fa-solid fa-user-plus me-1"></i> Novo mecânico
+      </button>
       <button class="btn btn-primario btn-sm" id="botaoNovaEntrega">
         <i class="fa-solid fa-hand-holding me-1"></i> Entregar ao mecânico
       </button>
@@ -178,9 +181,16 @@
         <div class="row g-3">
           <div class="col-md-12">
             <label class="form-label" for="entregaMecanico">Mecânico <span style="color:var(--alerta)">*</span></label>
-            <select class="form-select" id="entregaMecanico"><option value="">— selecione —</option></select>
+            <div class="input-group">
+              <select class="form-select" id="entregaMecanico"><option value="">— selecione —</option></select>
+              {% if pode('ferramentas', 'editar') %}
+              <button type="button" class="btn btn-contorno" id="entregaNovoMecanico" title="Cadastrar novo mecânico">
+                <i class="fa-solid fa-user-plus"></i>
+              </button>
+              {% endif %}
+            </div>
             <small class="text-muted" id="avisoSemMecanico" style="display:none">
-              Nenhum mecânico encontrado. Cadastre o funcionário em Cadastros &gt; Funcionários com o cargo "Mecânico".
+              Nenhum mecânico encontrado. Use o botão <i class="fa-solid fa-user-plus"></i> para cadastrar o primeiro.
             </small>
           </div>
           <div class="col-md-12">
@@ -209,6 +219,42 @@
       <div class="modal-footer">
         <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primario" id="entregaSalvar">Entregar e dar baixa</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================= modal: cadastro de mecânico -->
+<div class="modal fade" id="modalMecanico" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Novo mecânico</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-12">
+            <label class="form-label" for="mecanicoNome">Nome <span style="color:var(--alerta)">*</span></label>
+            <input class="form-control" id="mecanicoNome" maxlength="120" autocomplete="off">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="mecanicoMatricula">Matrícula</label>
+            <input class="form-control" id="mecanicoMatricula" maxlength="30" autocomplete="off">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="mecanicoTelefone">Telefone</label>
+            <input class="form-control" id="mecanicoTelefone" maxlength="20" autocomplete="off">
+          </div>
+        </div>
+        <div class="alert alert-info mt-3 mb-0 py-2" style="font-size:12.5px">
+          <i class="fa-solid fa-circle-info me-1"></i>
+          O cadastro é salvo com o cargo <strong>Mecânico</strong> e também aparece em Cadastros &gt; Funcionários.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="mecanicoSalvar">Cadastrar mecânico</button>
       </div>
     </div>
   </div>
@@ -425,6 +471,50 @@ function abrirEntrega(ferramentaId = null) {
   modal('modalEntrega').show();
 }
 if (el('botaoNovaEntrega')) el('botaoNovaEntrega').onclick = () => abrirEntrega();
+
+/* --------------------------------------------------- cadastro de mecânico */
+let voltarParaEntrega = false;   // cadastro aberto de dentro do modal de entrega
+
+function abrirNovoMecanico(deEntrega = false) {
+  ['mecanicoNome', 'mecanicoMatricula', 'mecanicoTelefone'].forEach(id => el(id).value = '');
+  voltarParaEntrega = deEntrega === true;
+  if (voltarParaEntrega) {
+    // Bootstrap não empilha modais: fecha a entrega e reabre ao terminar.
+    el('modalEntrega').addEventListener('hidden.bs.modal',
+      () => modal('modalMecanico').show(), { once: true });
+    modal('modalEntrega').hide();
+  } else {
+    modal('modalMecanico').show();
+  }
+}
+if (el('botaoNovoMecanico')) el('botaoNovoMecanico').onclick = () => abrirNovoMecanico(false);
+if (el('entregaNovoMecanico')) el('entregaNovoMecanico').onclick = () => abrirNovoMecanico(true);
+el('modalMecanico').addEventListener('shown.bs.modal', () => el('mecanicoNome').focus());
+el('modalMecanico').addEventListener('hidden.bs.modal', () => {
+  // Cancelou ou salvou: se veio da entrega, volta para ela (mecânico novo já selecionado).
+  if (!voltarParaEntrega) return;
+  voltarParaEntrega = false;
+  modal('modalEntrega').show();
+});
+
+el('mecanicoSalvar').onclick = async () => {
+  const nome = el('mecanicoNome').value.trim();
+  if (!nome) return SGMF.aviso('Informe o nome do mecânico.');
+  const botao = el('mecanicoSalvar');
+  botao.disabled = true;
+  try {
+    const novo = await SGMF.post('/api/ferramentas/mecanicos', {
+      nome,
+      matricula: el('mecanicoMatricula').value.trim(),
+      telefone: el('mecanicoTelefone').value.trim()
+    });
+    await carregarMecanicos();
+    el('entregaMecanico').value = novo.id;   // já fica selecionado para a entrega
+    modal('modalMecanico').hide();
+    SGMF.sucesso('Mecânico cadastrado');
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
 
 el('entregaSalvar').onclick = async () => {
   if (!el('entregaMecanico').value || !el('entregaFerramenta').value)

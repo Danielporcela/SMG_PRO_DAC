@@ -299,3 +299,65 @@ def test_usuario_so_visualiza_nao_da_baixa(logado, cliente, cenario):
         "funcionario_id": c["mecanico"]["id"], "ferramenta_id": c["ferramenta"]["id"],
         "quantidade": 1})
     assert r.status_code == 403
+
+
+# ------------------------------------------------- cadastro de mecânico
+def test_cadastrar_mecanico_pela_tela_de_ferramentas(logado):
+    r = logado.post("/api/ferramentas/mecanicos", json={
+        "nome": "  Roberto   Silva ", "matricula": "M-77", "telefone": "51999990000"})
+    assert r.status_code == 201, r.get_json()
+    novo = r.get_json()
+    assert novo["nome"] == "Roberto Silva"          # espaços extras são limpos
+    assert novo["cargo"] == "Mecânico" and novo["ativo"] is True
+    assert novo["setor"] == "Oficina"
+    # já entra na lista de quem pode receber ferramenta...
+    nomes = [m["nome"] for m in logado.get("/api/ferramentas/mecanicos").get_json()]
+    assert "Roberto Silva" in nomes
+    # ...e também aparece em Funcionários
+    todos = [f["nome"] for f in logado.get("/api/funcionarios").get_json()]
+    assert "Roberto Silva" in todos
+
+
+def test_cadastro_de_mecanico_exige_nome(logado):
+    r = logado.post("/api/ferramentas/mecanicos", json={"nome": "   "})
+    assert r.status_code == 400 and "nome" in r.get_json()["erro"].lower()
+
+
+def test_cadastro_de_mecanico_recusa_duplicado(logado, cenario):
+    # mesmo nome, outra grafia (acento/maiúscula) do mecânico já existente
+    r = logado.post("/api/ferramentas/mecanicos", json={"nome": "carlos mecanico"})
+    assert r.status_code == 400 and "já está cadastrado" in r.get_json()["erro"]
+    # nome de um funcionário que não é mecânico: orienta onde ajustar
+    r = logado.post("/api/ferramentas/mecanicos", json={"nome": "Paulo Motorista"})
+    assert r.status_code == 400 and "Funcionários" in r.get_json()["erro"]
+
+
+def test_mecanico_cadastrado_recebe_ferramenta(logado, cenario):
+    c = cenario
+    _abastecer(logado, c, 3)
+    novo = logado.post("/api/ferramentas/mecanicos", json={"nome": "Marcos Novo"}).get_json()
+    r = logado.post("/api/entregas_ferramenta", json={
+        "funcionario_id": novo["id"], "ferramenta_id": c["ferramenta"]["id"], "quantidade": 1})
+    assert r.status_code == 201, r.get_json()
+    assert _saldo(logado, c["ferramenta"]["id"]) == 2
+
+
+def test_cadastro_de_mecanico_sem_acesso_a_funcionarios(logado, cliente):
+    """Quem edita Ferramentas cadastra mecânico sem ter a tela de Funcionários."""
+    logado.post("/api/usuarios", json={
+        "nome": "Almox", "email": "almox@teste.local", "perfil": "restrito",
+        "senha": "senha123", "permissoes": [{"tela": "ferramentas", "nivel": "editar"}]})
+    logado.post("/api/usuarios", json={
+        "nome": "Leitor", "email": "leitor@teste.local", "perfil": "restrito",
+        "senha": "senha123", "permissoes": [{"tela": "ferramentas", "nivel": "visualizar"}]})
+    logado.get("/logout")
+
+    cliente.post("/login", json={"email": "almox@teste.local", "senha": "senha123"})
+    assert cliente.get("/api/funcionarios").status_code == 403       # sem a tela
+    r = cliente.post("/api/ferramentas/mecanicos", json={"nome": "Mecânico do Almox"})
+    assert r.status_code == 201, r.get_json()
+    cliente.get("/logout")
+
+    cliente.post("/login", json={"email": "leitor@teste.local", "senha": "senha123"})
+    r = cliente.post("/api/ferramentas/mecanicos", json={"nome": "Outro Mecânico"})
+    assert r.status_code == 403                                       # só visualiza
