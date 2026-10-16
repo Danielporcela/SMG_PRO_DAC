@@ -1,7 +1,7 @@
 """Importação de planilhas, anexos e aviso por e-mail."""
 import io
 
-from flask import Blueprint, jsonify, request, send_file, session
+from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
@@ -76,10 +76,21 @@ def conferir_abastecimentos():
 def gravar_abastecimentos():
     dados = request.get_json(silent=True) or {}
     linhas = dados.get("linhas") or []
-    gravadas = importacao.gravar_abastecimentos(linhas)
-    registrar_log("importar", "abastecimentos", 0,
-                  f"{gravadas} abastecimentos por planilha")
-    db.session.commit()
+    try:
+        gravadas = importacao.gravar_abastecimentos(linhas)
+        registrar_log("importar", "abastecimentos", 0,
+                      f"{gravadas} abastecimentos por planilha")
+        db.session.commit()
+    except ErroNegocio:
+        raise
+    except Exception as e:
+        # Sem isto o navegador recebia só "500" sem motivo. Agora o erro real
+        # vai para o log do servidor e a tela mostra o tipo da falha.
+        db.session.rollback()
+        current_app.logger.exception("Falha ao gravar abastecimentos importados")
+        raise ErroNegocio(
+            f"Não foi possível gravar a importação ({e.__class__.__name__}). "
+            "Nada foi gravado; o detalhe está no log do servidor.")
     return jsonify({"ok": True, "gravadas": gravadas})
 
 

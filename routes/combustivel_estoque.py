@@ -2,6 +2,7 @@
 from datetime import date
 
 from flask import Blueprint, jsonify, request, session
+from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from models import AjusteEstoqueCombustivel, NotaFiscalCombustivel
@@ -12,6 +13,20 @@ from services.estoque_combustivel import (ativar_controle, movimentacoes,
                                           resumo_geral)
 
 bp_combustivel_estoque = Blueprint("combustivel_estoque", __name__, url_prefix="/api")
+
+
+def _consultar_com_nova_tentativa(consulta):
+    """Roda uma consulta (GET) e tenta de novo UMA vez se o banco derrubar a conexão.
+
+    No Render o Postgres às vezes fecha a conexão no meio da requisição
+    ("server closed the connection unexpectedly"). A segunda tentativa pega
+    uma conexão nova do pool e quase sempre funciona.
+    """
+    try:
+        return consulta()
+    except OperationalError:
+        db.session.rollback()
+        return consulta()
 
 
 def _data(valor, nome="data", obrigatoria=False):
@@ -79,7 +94,6 @@ def criar_nota():
     nota = NotaFiscalCombustivel()
     try:
         _aplicar(nota, dados)
-        nota.lancado_por = session.get("usuario_nome") or "sistema"
         db.session.add(nota)
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
@@ -219,12 +233,16 @@ def reconciliar_estoque():
 def estoque_resumo():
     try:
         # Consulta: não trava a tela por inconsistência antiga; devolve "alertas".
-        dados = resumo_geral(estrito=False)
+        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False, persistir=False))
         db.session.rollback()  # GET não persiste eventual recálculo de custo.
         return jsonify(dados)
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"erro": "Conexão com o banco indisponível no momento. "
+                                "Atualize a tela em alguns segundos."}), 503
 
 
 @bp_combustivel_estoque.get("/combustivel/movimentacoes")
@@ -233,9 +251,14 @@ def listar_movimentacoes():
     try:
         inicio = _data(request.args.get("inicio"), "data inicial") if request.args.get("inicio") else None
         fim = _data(request.args.get("fim"), "data final") if request.args.get("fim") else None
-        linhas = movimentacoes(inicio, fim, estrito=False)
+        linhas = _consultar_com_nova_tentativa(
+            lambda: movimentacoes(inicio, fim, estrito=False, persistir=False))
         db.session.rollback()
         return jsonify(linhas)
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"erro": "Conexão com o banco indisponível no momento. "
+                                "Atualize a tela em alguns segundos."}), 503

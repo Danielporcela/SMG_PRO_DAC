@@ -29,7 +29,17 @@ class Config:
         _db_url = _db_url.replace("postgres://", "postgresql://", 1)
     SQLALCHEMY_DATABASE_URI = _db_url or "sqlite:///" + os.path.join(BASE_DIR, "database", "sgmf.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+    # pool_pre_ping descarta conexões mortas ANTES de usar; pool_recycle renova
+    # conexões velhas (o Postgres do Render derruba conexões ociosas); os
+    # keepalives evitam que a conexão seja cortada no meio de uma requisição.
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280}
+    if _db_url.startswith("postgresql"):
+        SQLALCHEMY_ENGINE_OPTIONS["connect_args"] = {
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        }
 
     PERMANENT_SESSION_LIFETIME = timedelta(hours=12)
     SESSION_COOKIE_SAMESITE = "Lax"
