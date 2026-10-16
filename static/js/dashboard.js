@@ -64,7 +64,7 @@
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px',
-        nota: `OS + terceiros + lavagem + uniformes + grupos de consumo (${SGMF.moeda(d.gasto_grupos_consumo || 0)})<br>${aderencia} (meta da frota)` }),
+        nota: `Manutenção (OS + terceiros) ${SGMF.moeda(d.gasto_manutencao || 0)} · Lavagem ${SGMF.moeda(d.gasto_lavagem || 0)} · Uniformes ${SGMF.moeda(d.gasto_uniformes || 0)} · Grupos de consumo ${SGMF.moeda(d.gasto_grupos_consumo || 0)}<br>${aderencia} (meta da frota)` }),
     
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',

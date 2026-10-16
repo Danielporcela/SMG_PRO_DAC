@@ -216,8 +216,14 @@ def criar_app(config=Config):
     @app.context_processor
     def datas_padrao():
         data = hoje()
+        # Início do ciclo operacional 20→20 (mesmo critério do painel).
+        if data.day >= 20:
+            inicio_ciclo = data.replace(day=20)
+        else:
+            inicio_ciclo = (data.replace(day=1) - timedelta(days=1)).replace(day=20)
         return {"hoje": data.isoformat(),
                 "primeiro_dia": data.replace(day=1).isoformat(),
+                "inicio_ciclo": inicio_ciclo.isoformat(),
                 "inicio_periodo": (data - timedelta(days=29)).isoformat(),
                 "ano": data.year}
 

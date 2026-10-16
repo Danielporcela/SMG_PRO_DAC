@@ -4,6 +4,13 @@
 {% block descricao %}Baixa de materiais por setor, separada da frota e vinculada ao grupo de custo.{% endblock %}
 
 {% block conteudo %}
+{% if pode('grupos_consumo', 'editar') %}
+<div class="d-flex justify-content-end mb-3">
+  <button type="button" class="btn btn-primario" data-novo-grupo>
+    <i class="fa-solid fa-plus me-1"></i> Novo grupo de consumo
+  </button>
+</div>
+{% endif %}
 <div class="row g-3 mb-3">
   <div class="col-md-4">
     <div class="cartao h-100"><div class="cartao-corpo">
@@ -77,14 +84,18 @@
 </div>
 {% endif %}
 
+<div class="text-muted mb-2" style="font-size:12px">
+  Estes valores são só o consumo dos grupos. O "Gasto total" do painel soma também OS, serviços de terceiros, lavagem e uniformes.
+  O período padrão segue o ciclo do painel (dia 20 até hoje).
+</div>
 <div class="cartao mb-3">
   <div class="cartao-topo flex-wrap gap-2">
     <h3><i class="fa-solid fa-chart-column me-2" style="color:var(--petroleo)"></i>Custos por grupo</h3>
     <div class="d-flex gap-2 ms-auto align-items-end flex-wrap">
-      <div><label class="form-label mb-0" for="grupoInicio">Início</label><input type="date" class="form-control form-control-sm" id="grupoInicio" value="{{ primeiro_dia }}"></div>
+      <div><label class="form-label mb-0" for="grupoInicio">Início</label><input type="date" class="form-control form-control-sm" id="grupoInicio" value="{{ inicio_ciclo }}"></div>
       <div><label class="form-label mb-0" for="grupoFim">Fim</label><input type="date" class="form-control form-control-sm" id="grupoFim" value="{{ hoje }}"></div>
       <button class="btn btn-contorno btn-sm" id="atualizarGrupos"><i class="fa-solid fa-rotate me-1"></i> Atualizar</button>
-      {% if pode('grupos_consumo', 'editar') %}<button class="btn btn-contorno btn-sm" id="novoGrupo"><i class="fa-solid fa-plus me-1"></i> Novo grupo</button>{% endif %}
+      {% if pode('grupos_consumo', 'editar') %}<button class="btn btn-contorno btn-sm" data-novo-grupo><i class="fa-solid fa-plus me-1"></i> Novo grupo</button>{% endif %}
     </div>
   </div>
   <div class="cartao-corpo p-0"><div id="tabelaResumoGrupos"></div></div>
@@ -484,13 +495,13 @@ if (document.getElementById('resultadoPesquisaPecaConsumo')) document.getElement
 document.getElementById('atualizarGrupos').onclick = () => carregarResumoGrupos().catch(e => SGMF.falha(e.message));
 if (document.getElementById('pecaConsumo')) document.getElementById('pecaConsumo').onchange = atualizarSaldoPeca;
 if (document.getElementById('registrarRetirada')) document.getElementById('registrarRetirada').onclick = registrarRetiradaGrupo;
-if (document.getElementById('novoGrupo')) document.getElementById('novoGrupo').onclick = () => {
+document.querySelectorAll('[data-novo-grupo]').forEach(btn => btn.onclick = () => {
   document.getElementById('grupoEdicaoId').value = '';
   document.getElementById('grupoEdicaoNome').value = '';
   document.getElementById('grupoEdicaoDescricao').value = '';
   document.getElementById('grupoEdicaoAtivo').checked = true;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGrupoConsumo')).show();
-};
+});
 if (document.getElementById('salvarGrupoConsumo')) document.getElementById('salvarGrupoConsumo').onclick = salvarGrupo;
 
 (async () => {
