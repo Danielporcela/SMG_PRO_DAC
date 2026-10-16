@@ -302,6 +302,7 @@ function resumoTamanhos(item) {
   }).join(' · ');
 }
 
+let linhasUniformes = [];
 const telaUniformes = SGMF.tela({
   recurso: 'itens_uniforme',
   tela: 'uniformes',
@@ -359,16 +360,26 @@ const telaUniformes = SGMF.tela({
       <div class="medidor"><div class="rotulo">Peças em estoque</div><div class="valor num">${SGMF.numero(totalPecas)}</div></div>
       <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Itens com tamanho a repor</div><div class="valor num">${repor}</div></div>`;
 
-    document.querySelectorAll('[data-mov]').forEach(b => b.onclick = () => {
-      const item = linhas.find(i => i.id == b.dataset.mov);
-      abrirModalMovimento(item);
-    });
-    document.querySelectorAll('[data-tam]').forEach(b => b.onclick = () => {
-      const item = linhas.find(i => i.id == b.dataset.tam);
-      abrirModalTamanhos(item);
-    });
+    // Os botões Movimentar/Tamanhos são tratados por delegação de evento
+    // (ver abaixo): o DataTables recria as linhas ao paginar, ordenar ou
+    // buscar, e um onclick ligado aqui só valeria para a página atual.
+    linhasUniformes = linhas;
     carregarMovimentosUniforme();
     carregarEntregas();
+  }
+});
+
+document.getElementById('areaTabela').addEventListener('click', (e) => {
+  const botaoMov = e.target.closest('[data-mov]');
+  if (botaoMov) {
+    const item = linhasUniformes.find(i => i.id == botaoMov.dataset.mov);
+    if (item) abrirModalMovimento(item).catch(err => SGMF.falha(err.message));
+    return;
+  }
+  const botaoTam = e.target.closest('[data-tam]');
+  if (botaoTam) {
+    const item = linhasUniformes.find(i => i.id == botaoTam.dataset.tam);
+    if (item) abrirModalTamanhos(item).catch(err => SGMF.falha(err.message));
   }
 });
 
