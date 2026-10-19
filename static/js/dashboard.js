@@ -69,9 +69,6 @@
         icone: 'fa-sack-dollar', estilo: 'font-size:19px',
         nota: `Manutenção (OS + terceiros) ${SGMF.moeda(d.gasto_manutencao || 0)} · Lavagem ${SGMF.moeda(d.gasto_lavagem || 0)} · Uniformes ${SGMF.moeda(d.gasto_uniformes || 0)} · Grupos de consumo ${SGMF.moeda(d.gasto_grupos_consumo || 0)} · Ferramentas dos mecânicos ${SGMF.moeda(d.gasto_ferramentas_mecanicos || 0)}<br>${aderencia} (meta da frota)` }),
     
-      medidor('OS com baixa pendente', d.os_estoque_pendentes, {
-        classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
-        nota: d.os_estoque_pendentes ? 'regularização de estoque necessária' : 'todas regularizadas' }),
       medidor('Estoque', SGMF.moeda(d.estoque_valor), {
         classe: d.estoque_critico ? 'atencao' : '', icone: 'fa-boxes-stacked',
         estilo: 'font-size:19px', nota: `${d.estoque_critico} itens a repor` })
@@ -287,8 +284,8 @@
     });
   }
 
-  // Horas trabalhadas por mecânico no período selecionado do painel
-  // (mesmos filtros de data usados nos demais cards e gráficos).
+  // Ranking de mecânicos por quantidade de OS FINALIZADAS no período.
+  // As horas e os custos exibidos são dados informativos, nunca critério de posição.
   async function carregarHorasMecanicos() {
     const dados = await SGMF.get(`/api/painel/horas-mecanicos?${qsPeriodo()}`);
     ultimoHorasMecanicos = dados;
@@ -299,8 +296,8 @@
     if (!dados.length) {
       if (canvasBox) canvasBox.style.display = 'none';
       tabela.innerHTML = `<div class="vazio"><i class="fa-solid fa-user-clock"></i>
-        <strong>Sem OS com mecânico e horário registrados</strong>
-        Informe o mecânico e os horários de início/fim nas ordens de serviço.</div>`;
+        <strong>Sem OS finalizadas com mecânico no período</strong>
+        Finalize uma ordem de serviço e informe o mecânico responsável.</div>`;
       return;
     }
     if (canvasBox) canvasBox.style.display = '';
@@ -310,7 +307,7 @@
       type: 'bar',
       data: {
         labels: top.map(m => m.mecanico),
-        datasets: [{ label: 'Horas trabalhadas', data: top.map(m => m.horas),
+        datasets: [{ label: 'OS finalizadas', data: top.map(m => m.os),
                      backgroundColor: '#0F3D56', borderRadius: 2 }]
       },
       options: {
@@ -318,18 +315,20 @@
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: {
-            label: c => `${top[c.dataIndex].horas_str} · ${top[c.dataIndex].os} OS`
+            label: c => `${top[c.dataIndex].os} OS finalizadas · ${top[c.dataIndex].horas_str} (informativo)`
           } }
         },
-        scales: { x: { ticks: { callback: v => SGMF.numero(v, 1) } }, y: { grid: { display: false } } }
+        scales: { x: { beginAtZero: true, ticks: { precision: 0, stepSize: 1 } },
+                  y: { grid: { display: false } } }
       }
     });
 
     tabela.innerHTML = `<table class="table table-sm mb-0 align-middle" style="font-size:13px">
-        <thead><tr><th class="ps-3">Mecânico</th><th class="text-end">OS</th>
-        <th class="text-end">Horas</th><th class="text-end pe-3">Custo das OS</th></tr></thead>
-        <tbody>${dados.map(m => `<tr>
-          <td class="ps-3">${SGMF.esc(m.mecanico)}</td>
+        <thead><tr><th class="ps-3">Posição</th><th>Mecânico</th><th class="text-end">OS finalizadas</th>
+        <th class="text-end">Horas (informativo)</th><th class="text-end pe-3">Custo das OS</th></tr></thead>
+        <tbody>${dados.map((m, pos) => `<tr>
+          <td class="ps-3 num">${pos + 1}º</td>
+          <td>${SGMF.esc(m.mecanico)}</td>
           <td class="text-end num">${m.os}</td>
           <td class="text-end num">${m.horas_str}</td>
           <td class="text-end num pe-3">${SGMF.moeda(m.custo)}</td>
@@ -606,11 +605,11 @@
       return SGMF.aviso('Não há dados para imprimir neste período.');
     }
     abrirImpressaoRelatorio({
-      titulo: 'Horas trabalhadas por mecânico', canvasId: 'graficoHorasMecanicos',
+      titulo: 'Índice dos mecânicos — OS finalizadas', canvasId: 'graficoHorasMecanicos',
       colunas: [
         { rotulo: 'Mecânico', campo: 'mecanico' },
-        { rotulo: 'OS', classe: 'text-end num', campo: 'os' },
-        { rotulo: 'Horas', classe: 'text-end num', campo: 'horas_str' },
+        { rotulo: 'OS finalizadas', classe: 'text-end num', campo: 'os' },
+        { rotulo: 'Horas (informativo)', classe: 'text-end num', campo: 'horas_str' },
         { rotulo: 'Custo das OS', classe: 'text-end num', render: l => SGMF.moeda(l.custo) }
       ],
       linhas: ultimoHorasMecanicos

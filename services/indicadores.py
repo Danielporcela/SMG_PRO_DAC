@@ -339,41 +339,54 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
 
 
 def horas_por_mecanico(inicio=None, fim=None):
-    """Horas trabalhadas por mecânico no período, a partir das OS com
-    início e fim registrados (usa OrdemServico.duracao_minutos, que já
-    prioriza hora_inicio_servico sobre hora_inicio quando disponível).
+    """Índice de mecânicos: quantidade de OS finalizadas no período.
 
-    Nomes são normalizados (mesma lógica de /mecanicos-os) para que
-    "cleiton", "CLEITON" e "Cleiton" sejam somados como um único mecânico.
+    A data de fechamento define o ciclo do serviço concluído. Para registros
+    legados finalizados sem data de fechamento, usa-se a data de abertura.
+    OS abertas/em execução não entram no ranking. Horas e custos continuam
+    disponíveis apenas para consulta, sem peso na classificação.
+
+    Conserva o nome da função por compatibilidade com a rota de API antiga.
     """
     inicio, fim = periodo_padrao(inicio, fim)
 
+    fechamento_periodo = OrdemServico.data_fechamento.between(inicio, fim)
+    legado_sem_fechamento = (
+        OrdemServico.data_fechamento.is_(None)
+        & OrdemServico.data_abertura.between(inicio, fim)
+    )
     ordens = (OrdemServico.query
               .options(lazyload(OrdemServico.anexos))
-              .filter(OrdemServico.data_abertura.between(inicio, fim),
+              .filter(OrdemServico.status == "Finalizada",
                       OrdemServico.mecanico.isnot(None),
-                      OrdemServico.mecanico != "")
+                      OrdemServico.mecanico != "",
+                      fechamento_periodo | legado_sem_fechamento)
               .all())
 
     agregados = {}
-    for o in ordens:
-        chave = o.mecanico.strip().upper()
+    for ordem in ordens:
+        nome = " ".join((ordem.mecanico or "").split())
+        if not nome:
+            continue
+        chave = nome.casefold()
         registro = agregados.setdefault(chave, {
-            "mecanico": o.mecanico.strip().title(), "os": 0, "minutos": 0, "custo": 0.0,
+            "mecanico": nome.title(), "os": 0, "minutos": 0, "custo": 0.0,
         })
         registro["os"] += 1
-        registro["minutos"] += o.duracao_minutos or 0
-        registro["custo"] += o.custo_total or 0
+        registro["minutos"] += ordem.duracao_minutos or 0
+        registro["custo"] += ordem.custo_total or 0
 
     linhas = [{
-        "mecanico": v["mecanico"],
-        "os": v["os"],
-        "horas": round(v["minutos"] / 60, 2),
-        "horas_str": f"{v['minutos'] // 60}h{v['minutos'] % 60:02d}m",
-        "custo": round(v["custo"], 2),
-    } for v in agregados.values()]
-    linhas.sort(key=lambda x: x["horas"], reverse=True)
+        "mecanico": dados["mecanico"],
+        "os": dados["os"],
+        "horas": round(dados["minutos"] / 60, 2),
+        "horas_str": f"{dados['minutos'] // 60}h{dados['minutos'] % 60:02d}m",
+        "custo": round(dados["custo"], 2),
+    } for dados in agregados.values()]
 
+    # Critério ÚNICO do ranking: quantidade de OS finalizadas, decrescente.
+    # Empate resolvido por nome, independentemente das horas trabalhadas.
+    linhas.sort(key=lambda item: (-item["os"], item["mecanico"].casefold()))
     return linhas
 
 
@@ -819,6 +832,7 @@ def rankings(inicio=None, fim=None):
                                       key=lambda x: x["consumo"], reverse=True)[:10],
         "veiculos_caros": sorted(dados, key=lambda x: x["total"], reverse=True)[:10],
         "maior_tempo_parado": sorted(parados, key=lambda x: x["dias_parado"], reverse=True)[:10],
+        "mecanicos_mais_os": horas_por_mecanico(inicio.isoformat(), fim.isoformat())[:10],
     }
 
 

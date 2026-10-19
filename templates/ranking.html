@@ -48,6 +48,12 @@ async function carregar() {
   const r = await SGMF.get(`/api/painel/rankings?inicio=${i}&fim=${f}`);
 
   document.getElementById('areaRankings').innerHTML = [
+    bloco('tabelaRankingMecanicos', 'Mecânicos · mais OS finalizadas', 'fa-user-gear', r.mecanicos_mais_os || [], [
+      { rotulo: 'Mecânico', render: m => SGMF.esc(m.mecanico) },
+      { rotulo: 'OS finalizadas', classe: 'text-end num', render: m => `<strong>${m.os}</strong>` },
+      { rotulo: 'Horas (informativo)', classe: 'text-end num', render: m => SGMF.esc(m.horas_str) }
+    ], 'Finalize ordens de serviço atribuindo o mecânico responsável.'),
+
     bloco('tabelaMelhorConsumo', 'Motoristas · melhor consumo', 'fa-id-card', r.melhor_consumo, [
       { rotulo: 'Motorista', render: m => SGMF.esc(m.nome) },
       { rotulo: 'Km rodados', classe: 'text-end num', render: m => SGMF.numero(m.km) },
