@@ -14,7 +14,7 @@ import unicodedata
 import math
 from uuid import uuid4
 
-from flask import Blueprint, has_request_context, jsonify, request, session
+from flask import Blueprint, g, has_request_context, jsonify, render_template, request, session
 from sqlalchemy import text
 
 from extensions import db
@@ -603,6 +603,9 @@ def finalizar_nota_ferramenta(nota_id):
 @visualizar_tela(TELA)
 def listar_entregas_ferramenta():
     q = EntregaFerramenta.query
+    # Entregas devolvidas não podem constar como ferramenta ainda em posse.
+    if request.args.get("incluir_devolvidas") != "1":
+        q = q.filter(EntregaFerramenta.data_devolucao.is_(None))
     if request.args.get("funcionario_id"):
         q = q.filter(EntregaFerramenta.funcionario_id == int(request.args["funcionario_id"]))
     if request.args.get("ferramenta_id"):
@@ -615,6 +618,29 @@ def listar_entregas_ferramenta():
         q = q.filter(EntregaFerramenta.data <= fim)
     q = q.order_by(EntregaFerramenta.data.desc(), EntregaFerramenta.id.desc())
     return jsonify([e.to_dict() for e in q.limit(500).all()])
+
+
+@bp_ferramentas.get("/entregas_ferramenta/imprimir/<int:funcionario_id>")
+@visualizar_tela(TELA)
+def imprimir_ferramentas_mecanico(funcionario_id):
+    """Relatório para impressão: somente ferramentas em posse deste mecânico.
+
+    Consulta no servidor (sem limite de 500 linhas da tela), inclusive quando
+    o funcionário está inativo, para possibilitar a conferência patrimonial.
+    """
+    mecanico = db.get_or_404(Funcionario, funcionario_id)
+    entregas = (EntregaFerramenta.query
+                .filter_by(funcionario_id=mecanico.id)
+                .filter(EntregaFerramenta.data_devolucao.is_(None))
+                .order_by(EntregaFerramenta.data, EntregaFerramenta.id)
+                .all())
+    response = render_template(
+        "impressao_ferramentas_mecanico.html", mecanico=mecanico,
+        entregas=entregas, data_impressao=hoje(),
+        qtd_total=sum(e.quantidade or 0 for e in entregas),
+        custo_total=round(sum((e.quantidade or 0) * (e.custo_unitario or 0)
+                              for e in entregas), 2))
+    return response, 200, {"Cache-Control": "no-store"}
 
 
 @bp_ferramentas.post("/entregas_ferramenta")
@@ -671,18 +697,34 @@ def criar_entrega_ferramenta():
 @bp_ferramentas.delete("/entregas_ferramenta/<int:entrega_id>")
 @editar_tela(TELA)
 def cancelar_entrega_ferramenta(entrega_id):
-    """Cancela a entrega (lançamento errado ou devolução) e devolve ao estoque."""
+    """Retira a ferramenta do mecânico e devolve o saldo ao estoque.
+
+    Soft delete: conserva o lançamento original para auditoria e impressão
+    histórica; a ação é protegida pela senha de administrador (app.py).
+    """
     entrega = db.get_or_404(EntregaFerramenta, entrega_id)
     try:
+        # Update condicional impede dupla devolução em solicitações concorrentes.
+        atualizado = db.session.execute(text("""
+            UPDATE entregas_ferramenta
+               SET data_devolucao = :data, devolvido_por = :usuario,
+                   motivo_devolucao = :motivo
+             WHERE id = :id AND data_devolucao IS NULL
+        """), {"id": entrega.id, "data": hoje(),
+               "usuario": session.get("usuario_nome") or "Sistema",
+               "motivo": "Excluída da relação do mecânico; devolvida ao estoque"})
+        if atualizado.rowcount != 1:
+            raise ErroNegocio("Esta ferramenta já foi retirada do mecânico. Não é possível devolver duas vezes.")
         nome = entrega.funcionario.nome if entrega.funcionario else ""
         movimentar_ferramenta(
             entrega.ferramenta_id, "entrada", entrega.quantidade, entrega.custo_unitario,
-            documento=f"Estorno da entrega #{entrega.id}",
-            observacao=f"Cancelamento — ferramenta devolvida por {nome}".strip(" —"),
+            documento=f"Devolução da entrega #{entrega.id}",
+            observacao=f"Ferramenta devolvida por {nome}".strip(),
             entrega_id=entrega.id)
         registrar_log("excluir", "entregas_ferramenta", entrega.id,
-                      f"Estornada: {entrega.ferramenta_id} de {nome}")
-        db.session.delete(entrega)
+                      f"Devolvida ao estoque: ferramenta {entrega.ferramenta_id}; "
+                      f"mecânico {nome}; quantidade {entrega.quantidade}; "
+                      f"autorizado por {getattr(g, 'admin_autorizador_exclusao', 'administrador')}")
         db.session.commit()
     except ErroNegocio as e:
         db.session.rollback()

@@ -451,3 +451,17 @@ def garantir_ferramentas():
                    EntregaFerramenta, MovimentoFerramenta, TransferenciaFerramenta):
         if modelo.__tablename__ not in tabelas:
             modelo.__table__.create(engine, checkfirst=True)
+
+    # Adição incremental, sem recriar a tabela ou perder entregas antigas.
+    # A coluna nula significa que a ferramenta ainda está em posse do mecânico.
+    existentes = {c["name"] for c in inspect(engine).get_columns("entregas_ferramenta")}
+    colunas_devolucao = {
+        "data_devolucao": "DATE",
+        "devolvido_por": "VARCHAR(120)",
+        "motivo_devolucao": "VARCHAR(200)",
+    }
+    with engine.begin() as conn:
+        for nome, tipo in colunas_devolucao.items():
+            if nome not in existentes:
+                conn.execute(text(f'ALTER TABLE "entregas_ferramenta" ADD COLUMN "{nome}" {tipo}'))
+

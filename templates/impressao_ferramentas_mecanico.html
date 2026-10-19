@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ferramentas de {{ mecanico.nome }} | SGMF Pro</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { color:#22303b; font:13px/1.45 Arial,Helvetica,sans-serif; margin:24px auto; max-width:980px; padding:0 22px; }
+    header { border-bottom:3px solid #143e56; margin-bottom:18px; padding-bottom:13px; display:flex; justify-content:space-between; align-items:end; gap:14px; }
+    h1 { margin:0; color:#143e56; font-size:22px; }
+    h2 { margin:0; font-size:16px; }
+    .marca { text-transform:uppercase; font-size:11px; letter-spacing:1px; color:#607687; }
+    .dados { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin:14px 0 22px; }
+    .campo { border:1px solid #d4dce2; border-radius:5px; padding:10px; }
+    .campo strong { display:block; color:#667787; font-size:11px; text-transform:uppercase; }
+    .ficha { font-size:12px; color:#556; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th,td { border:1px solid #cdd7df; padding:9px 8px; vertical-align:top; }
+    th { background:#143e56; color:white; text-align:left; }
+    tbody tr:nth-child(even) { background:#f2f5f7; }
+    .right { text-align:right; white-space:nowrap; }
+    .sumario { margin-top:15px; border-top:2px solid #143e56; padding-top:10px; font-weight:600; }
+    .assinaturas { display:flex; gap:45px; margin-top:85px; }
+    .assinatura { flex:1; border-top:1px solid #333; text-align:center; padding-top:7px; font-size:12px; }
+    footer { font-size:10.5px; margin-top:28px; color:#647887; border-top:1px solid #ddd; padding-top:7px; }
+    .acoes { display:flex; justify-content:flex-end; gap:9px; margin-bottom:10px; }
+    button { background:#143e56; color:white; border:0; border-radius:4px; padding:9px 16px; cursor:pointer; }
+    @page { size:A4 portrait; margin:13mm; }
+    @media print {
+      body { margin:0; max-width:none; padding:0; }
+      .acoes { display:none; }
+      th { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+      tr { break-inside:avoid; }
+      header, .assinaturas { break-inside:avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="acoes"><button type="button" onclick="window.print()">Imprimir</button></div>
+  <header>
+    <div><div class="marca">SGMF Pro · Gestão de Frotas</div>
+      <h1>Relação de ferramentas sob responsabilidade</h1></div>
+    <div class="ficha">Emissão: {{ data_impressao.strftime('%d/%m/%Y') }}</div>
+  </header>
+  <div class="dados">
+    <div class="campo"><strong>Mecânico responsável</strong>
+      <h2>{{ mecanico.nome }}</h2>
+      {% if mecanico.matricula %}<span>Matrícula: {{ mecanico.matricula }}</span>{% endif %}
+    </div>
+    <div class="campo"><strong>Total de registros ativos</strong><h2>{{ entregas|length }}</h2></div>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Data da entrega</th><th>Código</th><th>Ferramenta</th><th>Qtde</th><th>Un.</th><th>Observação</th></tr></thead>
+    <tbody>
+    {% for e in entregas %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ e.data.strftime('%d/%m/%Y') if e.data else '—' }}</td>
+      <td>{{ e.ferramenta.codigo if e.ferramenta else '—' }}</td>
+      <td>{{ e.ferramenta.descricao if e.ferramenta else '—' }}</td>
+      <td class="right">{{ '%g'|format(e.quantidade or 0) }}</td>
+      <td>{{ e.ferramenta.unidade if e.ferramenta else 'UN' }}</td>
+      <td>{{ e.observacao or '—' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="text-align:center;padding:20px">Nenhuma ferramenta em posse deste mecânico na data da emissão.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="sumario">Total de unidades em posse: {{ '%g'|format(qtd_total) }}</div>
+  <div class="assinaturas">
+    <div class="assinatura">{{ mecanico.nome }}<div>Mecânico responsável</div></div>
+    <div class="assinatura">Responsável pelo almoxarifado</div>
+  </div>
+  <footer>Relatório de posição atual. Entregas devolvidas ou excluídas da responsabilidade do mecânico não aparecem nesta relação. O histórico permanece no sistema.</footer>
+  <script>window.addEventListener('load', function () { window.print(); });</script>
+</body>
+</html>

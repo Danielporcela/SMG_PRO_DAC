@@ -39,6 +39,12 @@
           <option value="">Todos os mecânicos</option>
         </select>
       </div>
+      <button type="button" class="btn btn-contorno btn-sm" id="botaoImprimirFerramentas" title="Imprimir relação das ferramentas em posse do mecânico selecionado">
+        <i class="fa-solid fa-print me-1"></i> Imprimir por mecânico
+      </button>
+      <label class="d-flex align-items-center gap-1 mb-1" style="font-size:12px;white-space:nowrap;cursor:pointer">
+        <input type="checkbox" id="exibirEntregasDevolvidas" class="form-check-input mt-0"> Histórico de devolvidas
+      </label>
       {% if pode('ferramentas', 'editar') %}
       <button class="btn btn-contorno btn-sm" id="botaoNovoMecanico">
         <i class="fa-solid fa-user-plus me-1"></i> Novo mecânico
@@ -700,44 +706,74 @@ async function carregarMecanicos() {
   el('avisoSemMecanico').style.display = mecanicos.length ? 'none' : '';
 }
 
+function imprimirPorMecanico(id = null) {
+  const mecanicoId = Number(id || el('filtroMecanico').value);
+  if (!mecanicoId || !Number.isInteger(mecanicoId)) {
+    return SGMF.aviso('Selecione o nome de um mecânico antes de imprimir.');
+  }
+  // Janela aberta diretamente após clique: preserva a sessão e evita bloqueio de pop-ups.
+  const url = `/api/entregas_ferramenta/imprimir/${mecanicoId}`;
+  const janela = window.open(url, '_blank', 'width=1000,height=780');
+  if (!janela) SGMF.aviso('O navegador bloqueou a impressão. Libere pop-ups para o SGMF.');
+}
+el('botaoImprimirFerramentas').onclick = () => imprimirPorMecanico();
+
 async function carregarEntregas() {
   const area = el('areaEntregas');
   const mecanico = el('filtroMecanico').value;
+  const historico = el('exibirEntregasDevolvidas').checked;
+  const query = new URLSearchParams();
+  if (mecanico) query.set('funcionario_id', mecanico);
+  if (historico) query.set('incluir_devolvidas', '1');
   try {
-    const entregas = await SGMF.get('/api/entregas_ferramenta' + (mecanico ? `?funcionario_id=${mecanico}` : ''));
+    const entregas = await SGMF.get('/api/entregas_ferramenta' + (query.size ? '?' + query.toString() : ''));
     if (!entregas.length) {
       area.innerHTML = `<div class="vazio"><i class="fa-solid fa-user-gear"></i>
-        <strong>Nenhuma ferramenta em nome de mecânico</strong>Use "Entregar ao mecânico" para registrar e dar baixa no estoque.</div>`;
+        <strong>Nenhuma ferramenta ${historico ? 'registrada' : 'em nome de mecânico'}</strong>
+        Use "Entregar ao mecânico" para registrar e dar baixa no estoque.</div>`;
       return;
     }
     area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0">
       <thead><tr><th class="ps-3">Data</th><th>Mecânico</th><th>Ferramenta</th>
-      <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Observação</th><th>Lançado por</th>
-      ${PODE_EDITAR ? '<th class="pe-3">Ações</th>' : ''}</tr></thead>
+      <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Situação</th>
+      <th>Observação</th><th>Lançado por</th><th class="pe-3">Ações</th></tr></thead>
       <tbody>${entregas.map(e => `<tr>
         <td class="ps-3 num">${SGMF.data(e.data)}</td>
         <td><strong>${SGMF.esc(e.mecanico_nome) || '—'}</strong></td>
         <td>${SGMF.esc(e.ferramenta_descricao) || '—'}</td>
         <td class="text-end num">${SGMF.numero(e.quantidade, 2)}</td>
         <td class="text-end num">${SGMF.moeda(e.valor_total)}</td>
+        <td class="text-nowrap">${e.data_devolucao
+          ? `<span class="badge bg-secondary">Devolvida ${SGMF.data(e.data_devolucao)}</span>`
+          : '<span class="badge bg-success">Em posse</span>'}</td>
         <td>${SGMF.esc(e.observacao) || '—'}</td>
         <td>${SGMF.esc(e.usuario_nome) || '—'}</td>
-        ${PODE_EDITAR ? `<td class="pe-3 text-nowrap">
-          <button class="btn btn-contorno btn-icone" data-cancelar-entrega="${e.id}"
-                  title="Cancelar / devolver ao estoque"><i class="fa-solid fa-rotate-left"></i></button></td>` : ''}
+        <td class="pe-3 text-nowrap">
+          <button type="button" class="btn btn-contorno btn-icone" data-imprimir-entrega="${e.funcionario_id}"
+                  title="Imprimir ferramentas deste mecânico"><i class="fa-solid fa-print"></i></button>
+          ${PODE_EDITAR && !e.data_devolucao ? `
+          <button type="button" class="btn btn-contorno btn-icone" data-cancelar-entrega="${e.id}"
+                  title="Excluir ferramenta do mecânico e devolver ao estoque">
+            <i class="fa-solid fa-trash-can"></i></button>` : ''}
+        </td>
       </tr>`).join('')}</tbody></table></div>`;
 
+    area.querySelectorAll('[data-imprimir-entrega]').forEach(b => b.onclick = () => {
+      imprimirPorMecanico(b.dataset.imprimirEntrega);
+    });
     area.querySelectorAll('[data-cancelar-entrega]').forEach(b => b.onclick = async () => {
       const e = entregas.find(x => x.id == b.dataset.cancelarEntrega);
-      if (!await SGMF.confirmar('Cancelar esta entrega?',
-          `${e.ferramenta_descricao} (${SGMF.numero(e.quantidade, 2)}) em nome de ${e.mecanico_nome} volta para o estoque.`,
-          'Cancelar entrega')) return;
+      if (!e || !await SGMF.confirmar('Excluir ferramenta da relação do mecânico?',
+          `${e.ferramenta_descricao} (${SGMF.numero(e.quantidade, 2)}) deixará de constar em nome de ${e.mecanico_nome} e voltará ao estoque de ferramentas. A entrega e a devolução permanecerão no histórico.`,
+          'Excluir do mecânico')) return;
+      b.disabled = true;
       try {
         await SGMF.del(`/api/entregas_ferramenta/${e.id}`);
-        SGMF.sucesso('Entrega cancelada e saldo devolvido');
+        SGMF.sucesso('Ferramenta retirada do mecânico e devolvida ao estoque');
         telaFerramentas.carregar();
-        carregarEntregas();
+        await carregarEntregas();
       } catch (err) { SGMF.falha(err.message); }
+      finally { b.disabled = false; }
     });
   } catch (e) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
@@ -745,6 +781,7 @@ async function carregarEntregas() {
   }
 }
 el('filtroMecanico').onchange = carregarEntregas;
+el('exibirEntregasDevolvidas').onchange = carregarEntregas;
 
 function mostrarSaldoEntrega() {
   const f = telaFerramentas.dados().find(x => x.id == el('entregaFerramenta').value);

@@ -2072,6 +2072,10 @@ class EntregaFerramenta(db.Model):
     custo_unitario = db.Column(db.Float, default=0)   # custo médio na data da baixa
     observacao = db.Column(db.String(200))
     usuario_nome = db.Column(db.String(120))
+    # Exclusão lógica: mantém entrega, responsável, quantidade e devolução no histórico.
+    data_devolucao = db.Column(db.Date, nullable=True)
+    devolvido_por = db.Column(db.String(120))
+    motivo_devolucao = db.Column(db.String(200))
     funcionario = db.relationship("Funcionario")
     ferramenta = db.relationship("Ferramenta")
 
@@ -2085,6 +2089,11 @@ class EntregaFerramenta(db.Model):
                 "quantidade": self.quantidade, "custo_unitario": self.custo_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "observacao": self.observacao, "usuario_nome": self.usuario_nome,
+                "situacao": "Devolvida" if self.data_devolucao else "Em posse",
+                "data_devolucao": (self.data_devolucao.isoformat()
+                                   if self.data_devolucao else None),
+                "devolvido_por": self.devolvido_por,
+                "motivo_devolucao": self.motivo_devolucao,
                 "identificacao": f"Entrega #{self.id}"}
 
 
