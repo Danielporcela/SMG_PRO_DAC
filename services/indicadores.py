@@ -7,7 +7,8 @@ from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
-                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme, NotaFiscalCombustivel)
+                    Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme, NotaFiscalCombustivel,
+                    TransferenciaFerramenta)
 from services.auditoria_estoque import contar_os_pendentes
 from services.grupos_consumo import _normalizar, custos_por_grupo
 from services.tempo import hoje as data_de_hoje
@@ -214,6 +215,13 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
     # Consumo interno: usa a MESMA apuração exibida no módulo Grupos de consumo.
     # Os consumos legados são filtrados nessa função, evitando misturar OS de frota.
     gasto_grupos_consumo = round(sum(g["realizado"] for g in custos_por_grupo(inicio, fim)), 2)
+    # Apenas transferências internas de peças para ferramentas. Entregas aos
+    # mecânicos e NFs das ferramentas não devem cobrar a mesma ferramenta de novo.
+    gasto_ferramentas = round(db.session.query(func.coalesce(func.sum(
+        TransferenciaFerramenta.quantidade * TransferenciaFerramenta.custo_unitario), 0))
+        .filter(TransferenciaFerramenta.data.between(inicio, fim)).scalar() or 0, 2)
+    transferencias_ferramentas_qtd = TransferenciaFerramenta.query.filter(
+        TransferenciaFerramenta.data.between(inicio, fim)).count()
     litros = sum(a.litros or 0 for a in abastecimentos)
     km_rodados = sum(a.km_percorridos or 0 for a in abastecimentos)
     # "média da média" da frota: média simples do km/L de cada abastecimento
@@ -283,9 +291,13 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         "gasto_manutencao": gasto_manut,
         "gasto_lavagem": gasto_lavagem,
         "lavagens_qtd": len(lavagens),
-        # Gasto total = Manutenção (OS + serviços terceiros) + Lavagem + Uniformes (NF).
-        # Combustível é acompanhado em bloco próprio e não compõe as despesas gerais.
-        "gasto_total": round(gasto_manut + gasto_lavagem + gasto_uniformes + gasto_grupos_consumo, 2),
+        # Total operacional: transferência de peças para ferramentas é uso
+        # interno, portanto entra UMA vez aqui (não na entrega ao mecânico).
+        # Combustível continua em bloco separado.
+        "gasto_total": round(gasto_manut + gasto_lavagem + gasto_uniformes
+                             + gasto_grupos_consumo + gasto_ferramentas, 2),
+        "gasto_ferramentas_mecanicos": gasto_ferramentas,
+        "transferencias_ferramentas_qtd": transferencias_ferramentas_qtd,
         "gasto_grupos_consumo": gasto_grupos_consumo,
         "gasto_compras": gasto_compras,
         "notas_fiscais_qtd": len(notas_compra),
@@ -294,7 +306,11 @@ def resumo(inicio=None, fim=None, veiculo_id=None):
         # Gasto total "geral" soma compras de peças (Módulo 11) ao gasto da
         # frota. Fica em campo à parte para não mudar o que "Gasto total" e a
         # aderência ao orçamento por veículo sempre significaram no painel.
-        "gasto_total_geral": round(gasto_manut + gasto_lavagem + gasto_compras + gasto_uniformes + gasto_grupos_consumo, 2),
+        # Indicador histórico com compra de peças por NF. A transferência
+        # interna não é somada aqui para evitar contar novamente a mesma peça
+        # após sua aquisição. No cartão "Gasto total", porém, ela é despesa.
+        "gasto_total_geral": round(gasto_manut + gasto_lavagem + gasto_compras
+                                 + gasto_uniformes + gasto_grupos_consumo, 2),
         "km_rodados": round(km_rodados),
         "consumo_medio": round(km_rodados / litros, 2) if litros else 0,
         "consumo_medio_media_da_media": consumo_medio_media_da_media,
@@ -504,6 +520,7 @@ def series_graficos(inicio=None, fim=None):
     compras_mes = [0.0] * len(ciclos)
     uniformes_mes = [0.0] * len(ciclos)
     lavagem_mes = [0.0] * len(ciclos)
+    ferramentas_mes = [0.0] * len(ciclos)
     meta_mes = [0.0] * len(ciclos)
 
     for data_lanc, valor in (db.session.query(Abastecimento.data, Abastecimento.valor_total)
@@ -541,6 +558,12 @@ def series_graficos(inicio=None, fim=None):
         if idx is not None:
             uniformes_mes[idx] += n.valor_total or 0
 
+    for trans in TransferenciaFerramenta.query.filter(
+            TransferenciaFerramenta.data.between(jan_ini, jan_fim)).all():
+        idx = indice_ciclo(trans.data)
+        if idx is not None:
+            ferramentas_mes[idx] += trans.valor_total
+
     metas = _somar_por_mes_orcamento([(a.year, a.month) for a, _ in ciclos])
     for idx, (ini_c, _) in enumerate(ciclos):
         meta_mes[idx] = metas.get((ini_c.year, ini_c.month), 0)
@@ -549,6 +572,7 @@ def series_graficos(inicio=None, fim=None):
     nfs_comb_mes = [round(v, 2) for v in nfs_comb_mes]
     manut_mes = [round(v, 2) for v in manut_mes]
     lavagem_mes = [round(v, 2) for v in lavagem_mes]
+    ferramentas_mes = [round(v, 2) for v in ferramentas_mes]
     compras_mes = [round(v, 2) for v in compras_mes]
     uniformes_mes = [round(v, 2) for v in uniformes_mes]
     meta_mes = [round(v, 2) for v in meta_mes]
@@ -590,7 +614,9 @@ def series_graficos(inicio=None, fim=None):
                 .filter(MovimentoEstoque.tipo == "saida",
                         MovimentoEstoque.ordem_servico_id.is_(None),
                         MovimentoEstoque.grupo_consumo_id.is_(None),
-                        MovimentoEstoque.data.between(inicio, fim)).all()):
+                        MovimentoEstoque.data.between(inicio, fim),
+                        ~MovimentoEstoque.id.in_(db.session.query(
+                            TransferenciaFerramenta.movimento_estoque_id))).all()):
         if not mov.peca:
             continue
         qtd = mov.quantidade or 0
@@ -613,10 +639,11 @@ def series_graficos(inicio=None, fim=None):
     return {
         "meses": meses, "combustivel_mes": comb_mes, "nfs_combustivel_mes": nfs_comb_mes, "manutencao_mes": manut_mes,
         "compras_mes": compras_mes, "uniformes_mes": uniformes_mes, "lavagem_mes": lavagem_mes,
+        "ferramentas_mes": ferramentas_mes,
         "meta_mes": meta_mes,
-        "realizado_mes": [round(m + l, 2) for m, l in zip(manut_mes, lavagem_mes)],
-        "realizado_geral_mes": [round(m + l + p + u, 2)
-                                for m, l, p, u in zip(manut_mes, lavagem_mes, compras_mes, uniformes_mes)],
+        "realizado_mes": [round(m + l + f, 2) for m, l, f in zip(manut_mes, lavagem_mes, ferramentas_mes)],
+        "realizado_geral_mes": [round(m + l + p + u + f, 2)
+                                for m, l, p, u, f in zip(manut_mes, lavagem_mes, compras_mes, uniformes_mes, ferramentas_mes)],
         "por_veiculo": por_veiculo[:10],
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,

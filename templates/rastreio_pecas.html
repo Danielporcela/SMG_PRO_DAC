@@ -54,8 +54,8 @@ const selo = (texto, cor) => (window.SGMF && SGMF.etiqueta) ? SGMF.etiqueta(text
   : `<span class="etiqueta ${cor}">${texto}</span>`;
 const dataFmt = (v) => (window.SGMF && SGMF.data) ? SGMF.data(v) : (v || '—');
 
-const CORES_TIPO = { 'Entrada': 'azul', 'Instalação': 'verde', 'Remoção': 'ambar', 'Descarte': 'vermelha' };
-const CORES_STATUS = { 'Estoque': 'azul', 'Em uso': 'verde', 'Descartado': 'cinza' };
+const CORES_TIPO = { 'Entrada': 'azul', 'Instalação': 'verde', 'Remoção': 'ambar', 'Descarte': 'vermelha', 'Transferência': 'ambar' };
+const CORES_STATUS = { 'Estoque': 'azul', 'Em uso': 'verde', 'Descartado': 'cinza', 'Transferida': 'ambar' };
 
 let cronometro = null;
 
@@ -72,6 +72,7 @@ function montarCard(serial) {
   const situacaoAtual = serial.status === 'Em uso'
     ? `Instalada em <strong>${esc(serial.veiculo_atual_nome || '—')}</strong>` + (serial.ordem_servico_atual_numero ? ` (OS ${esc(serial.ordem_servico_atual_numero)})` : '')
     : serial.status === 'Estoque' ? 'Disponível no estoque, aguardando aplicação'
+    : serial.status === 'Transferida' ? 'Transferida ao estoque de ferramentas dos mecânicos'
     : 'Fora de uso (descartada)';
 
   return `<div class="card-serial">

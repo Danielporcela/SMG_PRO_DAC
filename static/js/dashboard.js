@@ -61,10 +61,13 @@
       medidor('Uniformes (NF)', SGMF.moeda(d.gasto_uniformes), {
         icone: 'fa-shirt', estilo: 'font-size:19px',
         nota: `${d.notas_uniformes_qtd} nota(s) finalizada(s)` }),
+      medidor('Ferramentas dos mecânicos', SGMF.moeda(d.gasto_ferramentas_mecanicos || 0), {
+        icone: 'fa-screwdriver-wrench', estilo: 'font-size:19px',
+        nota: `${d.transferencias_ferramentas_qtd || 0} transferência(s) do estoque de peças · incluído no Gasto total` }),
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
         icone: 'fa-sack-dollar', estilo: 'font-size:19px',
-        nota: `Manutenção (OS + terceiros) ${SGMF.moeda(d.gasto_manutencao || 0)} · Lavagem ${SGMF.moeda(d.gasto_lavagem || 0)} · Uniformes ${SGMF.moeda(d.gasto_uniformes || 0)} · Grupos de consumo ${SGMF.moeda(d.gasto_grupos_consumo || 0)}<br>${aderencia} (meta da frota)` }),
+        nota: `Manutenção (OS + terceiros) ${SGMF.moeda(d.gasto_manutencao || 0)} · Lavagem ${SGMF.moeda(d.gasto_lavagem || 0)} · Uniformes ${SGMF.moeda(d.gasto_uniformes || 0)} · Grupos de consumo ${SGMF.moeda(d.gasto_grupos_consumo || 0)} · Ferramentas dos mecânicos ${SGMF.moeda(d.gasto_ferramentas_mecanicos || 0)}<br>${aderencia} (meta da frota)` }),
     
       medidor('OS com baixa pendente', d.os_estoque_pendentes, {
         classe: d.os_estoque_pendentes ? 'atencao' : 'ok', icone: 'fa-clipboard-check',
@@ -91,6 +94,8 @@
             backgroundColor: '#16795D', stack: 'gasto', borderRadius: 2 },
           { type: 'bar', label: 'Uniformes (NF)', data: g.uniformes_mes,
             backgroundColor: '#8B6F47', stack: 'gasto', borderRadius: 2 },
+          { type: 'bar', label: 'Ferramentas dos mecânicos', data: g.ferramentas_mes,
+            backgroundColor: '#B87728', stack: 'gasto', borderRadius: 2 },
           { type: 'line', label: 'Meta', data: g.meta_mes, borderColor: '#F5A800',
             borderWidth: 2, borderDash: [5, 4], pointRadius: 2, tension: .25, fill: false }
         ]

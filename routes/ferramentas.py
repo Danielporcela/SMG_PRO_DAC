@@ -11,14 +11,18 @@ Toda mudança de saldo passa por `movimentar_ferramenta()` — entrada, saída,
 ajuste e estorno usam a mesma função, então a regra vale em qualquer caminho.
 """
 import unicodedata
+import math
+from uuid import uuid4
 
 from flask import Blueprint, has_request_context, jsonify, request, session
 from sqlalchemy import text
 
 from extensions import db
 from models import (EntregaFerramenta, Ferramenta, Fornecedor, Funcionario,
-                    ItemNotaFiscalFerramenta, MovimentoFerramenta,
-                    NotaFiscalFerramenta, proximo_codigo_ferramenta)
+                    ItemNotaFiscalFerramenta, MovimentoFerramenta, MovimentoEstoque,
+                    NotaFiscalFerramenta, Peca, PecaSerial, MovimentoPecaSerial,
+                    TransferenciaFerramenta, proximo_codigo_ferramenta)
+from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_log,
                            visualizar_tela)
 from services.tempo import hoje, ler_data
@@ -203,6 +207,162 @@ def cadastrar_mecanico():
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     return jsonify(mecanico.to_dict()), 201
+
+
+# -------------------------------- transferência: peças -> ferramentas
+@bp_ferramentas.get("/ferramentas/pecas-disponiveis")
+@visualizar_tela(TELA)
+@visualizar_tela("estoque")
+def listar_pecas_para_ferramenta():
+    """Apenas itens com saldo, exibindo custo atual sem permitir editá-lo."""
+    pecas = (Peca.query.filter(Peca.quantidade > 0)
+             .order_by(Peca.descricao, Peca.codigo).all())
+    return jsonify([{
+        "id": p.id, "codigo": p.codigo, "descricao": p.descricao,
+        "unidade": p.unidade, "quantidade": p.quantidade or 0,
+        "custo_unitario": p.custo_unitario or 0,
+        "identificacao": f"{p.codigo} · {p.descricao}",
+    } for p in pecas])
+
+
+@bp_ferramentas.get("/ferramentas/pecas/<int:peca_id>/seriais")
+@visualizar_tela(TELA)
+@visualizar_tela("estoque")
+def listar_seriais_transferencia(peca_id):
+    """Consulta autorizada aos números de série disponíveis dessa peça."""
+    if not db.session.get(Peca, peca_id):
+        return jsonify({"erro": "Peça não encontrada no estoque."}), 404
+    seriais = (PecaSerial.query.filter_by(peca_id=peca_id, status="Estoque")
+              .order_by(PecaSerial.numero_serie).all())
+    return jsonify({"rastreado": bool(PecaSerial.query.filter_by(peca_id=peca_id).first()),
+                    "seriais": [{"id": s.id, "numero_serie": s.numero_serie} for s in seriais]})
+
+
+@bp_ferramentas.get("/ferramentas/transferencias-pecas")
+@visualizar_tela(TELA)
+def listar_transferencias_de_pecas():
+    q = TransferenciaFerramenta.query
+    inicio = ler_data(request.args.get("inicio"), "início do período")
+    fim = ler_data(request.args.get("fim"), "fim do período")
+    if inicio:
+        q = q.filter(TransferenciaFerramenta.data >= inicio)
+    if fim:
+        q = q.filter(TransferenciaFerramenta.data <= fim)
+    return jsonify([t.to_dict() for t in
+                    q.order_by(TransferenciaFerramenta.id.desc()).limit(100).all()])
+
+
+@bp_ferramentas.post("/ferramentas/inserir-do-estoque")
+@editar_tela(TELA)
+@editar_tela("estoque")
+def inserir_ferramenta_do_estoque():
+    """Baixa em peças e entra em ferramentas na MESMA transação.
+
+    Na primeira transferência da peça, cria seu cadastro como ferramenta; nas
+    posteriores reaproveita o vínculo pelo histórico, sem mesclar descrições
+    iguais de produtos diferentes. Os custos ficam congelados por operação.
+    """
+    dados = request.get_json(silent=True) or {}
+    try:
+        peca = db.session.get(Peca, int(dados.get("peca_id") or 0))
+        if not peca:
+            raise ErroNegocio("Selecione um produto cadastrado no estoque de peças.")
+        quantidade = float(dados.get("quantidade") or 0)
+        if not math.isfinite(quantidade) or quantidade <= 0:
+            raise ErroNegocio("A quantidade deve ser maior que zero e válida.")
+        if quantidade > float(peca.quantidade or 0):
+            raise ErroNegocio(f"Estoque insuficiente de {peca.codigo}: "
+                              f"disponível {(peca.quantidade or 0):g} {peca.unidade or 'UN'}.")
+        custo = float(peca.custo_unitario or 0)
+        if not math.isfinite(custo) or custo < 0:
+            raise ErroNegocio("O custo cadastrado da peça é inválido.")
+        observacao = (dados.get("observacao") or "").strip()[:200] or None
+        # Algumas peças ainda são rastreadas individualmente: dar baixa
+        # apenas na quantidade deixaria os seriais disponíveis para outra OS.
+        # Exige escolher as unidades específicas para preservar o histórico.
+        seriais_escolhidos = dados.get("seriais_ids") or []
+        if not isinstance(seriais_escolhidos, list):
+            raise ErroNegocio("Informe as identificações das unidades em uma lista.")
+        rastreado = PecaSerial.query.filter_by(peca_id=peca.id).first() is not None
+        seriais = []
+        if rastreado:
+            if not quantidade.is_integer():
+                raise ErroNegocio("Produtos com rastreio individual exigem quantidade inteira.")
+            if len(seriais_escolhidos) != int(quantidade):
+                raise ErroNegocio("Selecione exatamente uma identificação por unidade transferida.")
+            try:
+                ids = [int(v) for v in seriais_escolhidos]
+            except (ValueError, TypeError):
+                raise ErroNegocio("Identificação de peça inválida.")
+            if len(set(ids)) != len(ids):
+                raise ErroNegocio("Não é permitido escolher a mesma unidade duas vezes.")
+            seriais = (PecaSerial.query.filter(
+                PecaSerial.id.in_(ids), PecaSerial.peca_id == peca.id,
+                PecaSerial.status == "Estoque").with_for_update().all())
+            if len(seriais) != len(ids):
+                raise ErroNegocio("Uma ou mais unidades selecionadas já saíram do estoque.")
+        elif seriais_escolhidos:
+            raise ErroNegocio("Este produto não possui unidades com rastreio individual.")
+        anterior = (TransferenciaFerramenta.query
+                    .filter_by(peca_id=peca.id)
+                    .order_by(TransferenciaFerramenta.id.desc()).first())
+        ferramenta = db.session.get(Ferramenta, anterior.ferramenta_id) if anterior else None
+        if ferramenta and (not ferramenta.ativo or ferramenta.unidade != peca.unidade):
+            raise ErroNegocio("A ferramenta vinculada está inativa ou tem unidade diferente. "
+                              "Verifique seu cadastro antes da transferência.")
+        if not ferramenta:
+            ferramenta = Ferramenta(
+                codigo=proximo_codigo_ferramenta(), descricao=peca.descricao,
+                unidade=peca.unidade or "UN", quantidade=0,
+                custo_unitario=0, ativo=True, localizacao=peca.localizacao)
+            db.session.add(ferramenta)
+            db.session.flush()
+
+        data_movimento = hoje()
+        # Operação condicional: quantidade insuficiente não gera lançamento.
+        # O helper registra o movimento de peças e usa o custo médio de hoje.
+        # Não use uma retirada de "grupo de consumo": seria dupla despesa.
+        # Primeiro a baixa e seu movimento; depois o vínculo contábil.
+        # A FK do movimento nunca recebe um ID fictício (PostgreSQL exige
+        # integridade referencial mesmo durante o INSERT).
+        documento_temporario = f"FERR-PEND-{uuid4().hex[:24]}"
+        movimentar_estoque(
+            peca.id, "saida", quantidade, custo, documento=documento_temporario,
+            observacao="Transferência ao estoque de ferramentas dos mecânicos")
+        db.session.flush()
+        movimento = MovimentoEstoque.query.filter_by(documento=documento_temporario).first()
+        if not movimento:
+            raise ErroNegocio("Não foi possível registrar o histórico da baixa da peça.")
+        transferencia = TransferenciaFerramenta(
+            data=data_movimento, peca_id=peca.id, ferramenta_id=ferramenta.id,
+            quantidade=quantidade, custo_unitario=custo,
+            movimento_estoque_id=movimento.id,
+            observacao=observacao, usuario_nome=session.get("usuario_nome") or "Sistema")
+        db.session.add(transferencia)
+        db.session.flush()
+        documento = f"FERR-MEC-{transferencia.id}"
+        movimento.documento = documento
+        for serial in seriais:
+            serial.status = "Transferida"
+            serial.veiculo_atual_id = None
+            serial.ordem_servico_atual_id = None
+            db.session.add(MovimentoPecaSerial(
+                peca_serial_id=serial.id, tipo="Transferência",
+                observacao=f"Transferida às ferramentas dos mecânicos ({documento})",
+                usuario=session.get("usuario_nome") or "Sistema", data=data_movimento))
+        movimentar_ferramenta(
+            ferramenta.id, "entrada", quantidade, custo, documento=documento,
+            observacao=f"Transferência do estoque de peças: {peca.codigo}",
+            data=data_movimento)
+        registrar_log("criar", "transferencias_ferramentas_pecas", transferencia.id,
+                      f"{peca.codigo} -> {ferramenta.codigo}; {quantidade:g} x R$ {custo:.2f}")
+        db.session.commit()
+        return jsonify({"ok": True, "transferencia": transferencia.to_dict(),
+                        "ferramenta": ferramenta.to_dict(),
+                        "peca": peca.to_dict()}), 201
+    except (ErroNegocio, ValueError, TypeError, OverflowError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
 
 
 # --------------------------------------------------------------- movimentos

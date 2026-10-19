@@ -439,7 +439,7 @@ def garantir_ferramentas():
     faltam, sem tocar em nenhum dado existente.
     """
     from models import (EntregaFerramenta, Ferramenta, ItemNotaFiscalFerramenta,
-                        MovimentoFerramenta, NotaFiscalFerramenta)
+                        MovimentoFerramenta, NotaFiscalFerramenta, TransferenciaFerramenta)
 
     engine = db.engine
     tabelas = set(inspect(engine).get_table_names())
@@ -448,6 +448,6 @@ def garantir_ferramentas():
         return
     # A ordem respeita as dependências entre as tabelas.
     for modelo in (Ferramenta, NotaFiscalFerramenta, ItemNotaFiscalFerramenta,
-                   EntregaFerramenta, MovimentoFerramenta):
+                   EntregaFerramenta, MovimentoFerramenta, TransferenciaFerramenta):
         if modelo.__tablename__ not in tabelas:
             modelo.__table__.create(engine, checkfirst=True)

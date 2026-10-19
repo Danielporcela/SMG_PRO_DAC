@@ -1,0 +1,70 @@
+SGMF PRO DAC - INTEGRACAO FERRAMENTAS + ESTOQUE DE PECAS + DASHBOARD
+Data: 19/10/2026
+
+ATENCAO - BACKUP E IMPLANTACAO
+1) Faca backup do repositorio Git e do banco PostgreSQL de producao no Render.
+2) Extraia este ZIP na RAIZ de seu projeto SGMF_Pro_DAC, preservando as pastas.
+   Os arquivos incluidos devem SUBSTITUIR os arquivos homonimos antigos.
+3) Nao substitua nem apague seu banco de dados, .env, diretorio database, backups ou configuracoes do Render.
+4) Depois de copiar os arquivos, na pasta do projeto execute:
+      git status
+      git add models.py routes/ferramentas.py services/compatibilidade_banco.py services/indicadores.py templates/ferramentas.html templates/rastreio_pecas.html static/js/dashboard.js tests/test_transferencia_ferramenta_pecas.py
+      git commit -m "Integrar ferramentas ao estoque de pecas e dashboard"
+      git push origin main
+   Se seu Git estiver em conflito de merge/rebase, RESOLVA antes do push;
+   nao use push --force para contornar conflitos.
+5) Ao iniciar o SGMF, garantir_ferramentas() criara AUTOMATICAMENTE somente a nova
+   tabela transferencias_ferramentas_pecas no PostgreSQL ja existente. Nao faz
+   DROP, ALTER nem zera os dados antigos. O usuario do banco precisa de CREATE TABLE.
+6) Verifique o deploy do Render e teste com produto de pouco valor primeiro.
+
+COMO UTILIZAR
+A) Ferramentas mecanicos > Inserir ferramenta > selecione o produto no estoque de pecas.
+B) Informe a quantidade e, quando o produto tiver rastreio individual,
+   selecione os numeros de serie correspondentes.
+C) Confirme. A mesma transacao:
+   - reduz a quantidade de pecas;
+   - registra saida no historico do estoque de pecas;
+   - marca os numeros de serie selecionados como 'Transferida';
+   - cria/reutiliza a ferramenta vinculada ao produto e registra sua entrada;
+   - registra o custo da transferencia, calculado pelo custo unitario atual.
+D) Para atribuir a ferramenta a alguem, use o botao 'Entregar ao mecanico'
+   ja existente; essa entrega baixa SOMENTE o estoque de ferramentas e NAO
+   contabiliza o custo uma segunda vez.
+E) No Dashboard, o card 'Ferramentas dos mecanicos' exibe o custo das transferencias
+   no periodo selecionado. O card 'Gasto total' tambem inclui o mesmo custo.
+   O grafico por ciclo operacional inclui uma serie de ferramentas.
+
+REGRAS IMPORTANTES
+- A baixa exige permissao de edicao nos modulos Ferramentas e Estoque.
+- Quantidades maiores que o saldo atual sao recusadas e revertidas integralmente.
+- Para itens com numeros de serie, selecione exatamente as unidades que serao retiradas.
+- Cada transferencia preserva documento FERR-MEC-ID e custo unitario historico.
+- O top 15 de pecas nao classifica uma transferencia como consumo de peca de OS.
+- O card de ferramentas contabiliza exclusivamente transferencias ORIGINADAS no
+  estoque de pecas. Compras feitas diretamente por NFs de ferramentas continuam
+  com as regras originais e nao entram nesse card.
+- O campo interno gasto_total_geral, que ja inclui NFs de compra de pecas,
+  nao soma essa transferencia para evitar dupla classificacao contábil da mesma compra.
+- Combustivel e custo/km seguem as regras originais do painel, sem alteracao.
+- Nenhuma transferencia anterior e contabilizada retroativamente.
+
+ARQUIVOS ALTERADOS
+models.py
+routes/ferramentas.py
+services/compatibilidade_banco.py
+services/indicadores.py
+templates/ferramentas.html
+templates/rastreio_pecas.html
+static/js/dashboard.js
+tests/test_transferencia_ferramenta_pecas.py (novo)
+
+TESTES
+Nova bateria de integracao executada: 11 testes aprovados.
+Modulo Ferramentas original: 28 testes aprovados anteriormente.
+Verificacoes de sintaxe Python e JavaScript executadas.
+Suite COMPLETA do projeto nao foi concluida neste ambiente;
+alguns testes legados de painel usam fixture de peca sem numeros de serie,
+o que causa falha na criacao de dados de teste, antes da logica do painel.
+
+Esta entrega NAO altera o banco de producao, o GitHub ou o Render diretamente.

@@ -6,6 +6,25 @@
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoFerramentas"></div>
+<div class="cartao mb-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-screwdriver-wrench me-2" style="color:var(--petroleo)"></i>Inserir ferramenta do estoque de peças</h3>
+    {% if pode('ferramentas', 'editar') and pode('estoque', 'editar') %}
+    <button type="button" class="btn btn-primario btn-sm ms-auto" id="botaoInserirFerramentaPeca">
+      <i class="fa-solid fa-plus me-1"></i> Inserir ferramenta
+    </button>
+    {% endif %}
+  </div>
+  <div class="cartao-corpo">
+    <p class="text-muted mb-3" style="font-size:12.5px">
+      Transfere produtos cadastrados no estoque de peças para o estoque de ferramentas.
+      A baixa da peça e a entrada da ferramenta são automáticas. O custo é apurado
+      na data da transferência e aparece no Dashboard, inclusive no Gasto total do período.
+      A entrega posterior ao mecânico não duplica o custo.
+    </p>
+    <div id="listaTransferenciasPecas"><div class="text-muted" style="font-size:12.5px">Carregando transferências…</div></div>
+  </div>
+</div>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -72,6 +91,61 @@
     <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Últimas movimentações</h3>
   </div>
   <div class="cartao-corpo p-0"><div id="listaMovimentos"></div></div>
+</div>
+
+<!-- ======================================= modal: inserir do estoque -->
+<div class="modal fade" id="modalTransferirPeca" tabindex="-1" aria-labelledby="tituloTransferirPeca">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display" id="tituloTransferirPeca">Inserir ferramenta do estoque de peças</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label" for="transferirBuscaPeca">Pesquisar produto do estoque</label>
+            <input type="search" id="transferirBuscaPeca" class="form-control"
+                   autocomplete="off" placeholder="Código, nome ou descrição da peça">
+            <select id="transferirPeca" class="form-select mt-2" aria-label="Produto do estoque de peças">
+              <option value="">— selecione o produto —</option>
+            </select>
+          </div>
+          <div class="col-12" id="transferirGrupoSeriais" style="display:none">
+            <label class="form-label" for="transferirSeriais">Unidades com número de série (identificação individual)</label>
+            <select class="form-select" id="transferirSeriais" multiple size="5"></select>
+            <small class="text-muted">Segure Ctrl para selecionar várias unidades.
+              Selecione a mesma quantidade informada abaixo. Os números escolhidos serão marcados
+              como transferidos no rastreio de peças.</small>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="transferirQuantidade">Quantidade</label>
+            <input type="number" min="0.000001" step="any" id="transferirQuantidade" value="1" class="form-control">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Saldo e custo do estoque de peças</label>
+            <div id="transferirDetalhesPeca" class="form-control bg-light" style="min-height:38px;height:auto">Selecione um produto.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="transferirObservacao">Observação (opcional)</label>
+            <input id="transferirObservacao" class="form-control" maxlength="200"
+                   placeholder="Ex.: ferramentas disponibilizadas para a oficina">
+          </div>
+        </div>
+        <div class="alert alert-info mt-3 mb-0" style="font-size:12.5px">
+          Ao confirmar, o estoque de peças é reduzido e o de ferramentas aumenta pelo mesmo saldo.
+          <strong>O gasto é registrado uma única vez</strong>, pelo custo médio atual do produto,
+          na data de hoje. Depois use "Entregar ao mecânico" para atribuí-la.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primario" id="transferirSalvar">
+          <i class="fa-solid fa-check me-1"></i> Confirmar transferência e baixa
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ======================================================== modal: nota -->
@@ -379,6 +453,120 @@ const telaFerramentas = SGMF.tela({
 });
 
 const ferramentasAtivas = () => telaFerramentas.dados().filter(f => f.ativo);
+
+/* ======================== transferência de peça -> estoque de ferramentas */
+let pecasParaTransferencia = [];
+let pecaTransferenciaRastreada = false;
+function pecasFiltradasTransferencia() {
+  const termo = normalizarBusca(el('transferirBuscaPeca').value);
+  return pecasParaTransferencia.filter(p => normalizarBusca(
+    `${p.codigo} ${p.descricao}`).includes(termo));
+}
+function atualizarOpcoesTransferencia() {
+  const valorAnterior = el('transferirPeca').value;
+  const filtradas = pecasFiltradasTransferencia();
+  el('transferirPeca').innerHTML = '<option value="">— selecione um produto —</option>' +
+    filtradas.map(p => `<option value="${p.id}">${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)}
+      (saldo ${SGMF.numero(p.quantidade, 2)} ${SGMF.esc(p.unidade || '')})</option>`).join('');
+  if (filtradas.some(p => String(p.id) === valorAnterior)) el('transferirPeca').value = valorAnterior;
+  if (el('transferirPeca').value !== valorAnterior) carregarSeriaisParaTransferir();
+  else atualizarCustoTransferencia();
+}
+function atualizarCustoTransferencia() {
+  const p = pecasParaTransferencia.find(x => String(x.id) === el('transferirPeca').value);
+  const quantidade = Number(el('transferirQuantidade').value);
+  el('transferirDetalhesPeca').textContent = p
+    ? `Disponível: ${SGMF.numero(p.quantidade, 2)} ${p.unidade || ''} · ` +
+      `Custo unitário: ${SGMF.moeda(p.custo_unitario)} · ` +
+      `Total: ${SGMF.moeda(quantidade * p.custo_unitario)}`
+    : 'Selecione um produto.';
+}
+el('transferirBuscaPeca').addEventListener('input', atualizarOpcoesTransferencia);
+async function carregarSeriaisParaTransferir() {
+  const id = el('transferirPeca').value;
+  pecaTransferenciaRastreada = false;
+  el('transferirGrupoSeriais').style.display = 'none';
+  el('transferirSeriais').innerHTML = '';
+  if (!id) return atualizarCustoTransferencia();
+  try {
+    const dados = await SGMF.get(`/api/ferramentas/pecas/${id}/seriais`);
+    if (el('transferirPeca').value !== id) return; // ignora resposta antiga
+    pecaTransferenciaRastreada = dados.rastreado;
+    if (dados.rastreado) {
+      el('transferirGrupoSeriais').style.display = '';
+      el('transferirSeriais').innerHTML = dados.seriais.map(x =>
+        `<option value="${x.id}">${SGMF.esc(x.numero_serie)}</option>`).join('');
+    }
+  } catch (e) { SGMF.falha(e.message); }
+  atualizarCustoTransferencia();
+}
+el('transferirPeca').addEventListener('change', carregarSeriaisParaTransferir);
+el('transferirQuantidade').addEventListener('input', atualizarCustoTransferencia);
+
+async function abrirInsercaoPeca() {
+  try {
+    pecasParaTransferencia = await SGMF.get('/api/ferramentas/pecas-disponiveis');
+    if (!pecasParaTransferencia.length) return SGMF.aviso('Nenhum produto com saldo disponível no estoque de peças.');
+    el('transferirBuscaPeca').value = '';
+    el('transferirQuantidade').value = 1;
+    el('transferirObservacao').value = '';
+    atualizarOpcoesTransferencia();
+    pecaTransferenciaRastreada = false;
+    el('transferirGrupoSeriais').style.display = 'none';
+    el('transferirSeriais').innerHTML = '';
+    modal('modalTransferirPeca').show();
+  } catch (e) { SGMF.falha(e.message); }
+}
+if (el('botaoInserirFerramentaPeca')) el('botaoInserirFerramentaPeca').onclick = abrirInsercaoPeca;
+
+el('transferirSalvar').onclick = async () => {
+  const p = pecasParaTransferencia.find(x => String(x.id) === el('transferirPeca').value);
+  const quantidade = Number(el('transferirQuantidade').value);
+  if (!p) return SGMF.aviso('Selecione um produto do estoque de peças.');
+  if (!Number.isFinite(quantidade) || quantidade <= 0)
+    return SGMF.aviso('Informe uma quantidade válida e maior que zero.');
+  if (quantidade > p.quantidade)
+    return SGMF.aviso('Quantidade maior que o saldo disponível.');
+  const seriais_ids = Array.from(el('transferirSeriais').selectedOptions)
+    .map(o => Number(o.value));
+  if (pecaTransferenciaRastreada && (!Number.isInteger(quantidade) || seriais_ids.length !== quantidade))
+    return SGMF.aviso('Selecione uma identificação para cada unidade transferida.');
+  const botao = el('transferirSalvar');
+  botao.disabled = true;
+  try {
+    await SGMF.post('/api/ferramentas/inserir-do-estoque', {
+      peca_id: p.id, quantidade, seriais_ids,
+      observacao: el('transferirObservacao').value.trim()
+    });
+    modal('modalTransferirPeca').hide();
+    SGMF.sucesso('Ferramenta inserida; estoque de peças baixado e custo registrado no período');
+    await telaFerramentas.carregar();
+    carregarTransferenciasPecas();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+async function carregarTransferenciasPecas() {
+  const area = el('listaTransferenciasPecas');
+  try {
+    const linhas = await SGMF.get('/api/ferramentas/transferencias-pecas');
+    if (!linhas.length) {
+      area.innerHTML = '<div class="text-muted" style="font-size:12.5px">Nenhuma transferência de peças para ferramentas registrada.</div>';
+      return;
+    }
+    area.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0" style="font-size:12.5px">
+      <thead><tr><th>Data</th><th>Produto baixado (peças)</th><th>Ferramenta criada/abastecida</th>
+      <th class="text-end">Qtde</th><th class="text-end">Custo unit.</th><th class="text-end">Custo total</th><th>Responsável</th></tr></thead>
+      <tbody>${linhas.slice(0, 20).map(t => `<tr>
+        <td class="num">${SGMF.data(t.data)}</td>
+        <td>${SGMF.esc(t.peca_descricao)}</td><td>${SGMF.esc(t.ferramenta_descricao)}</td>
+        <td class="text-end num">${SGMF.numero(t.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(t.custo_unitario)}</td>
+        <td class="text-end num"><strong>${SGMF.moeda(t.valor_total)}</strong></td>
+        <td>${SGMF.esc(t.usuario_nome || 'Sistema')}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  } catch (e) { area.innerHTML = `<div class="text-danger">${SGMF.esc(e.message)}</div>`; }
+}
 
 /* ============================================ ajuste de saldo (inventário) */
 el('ajusteSalvar').onclick = async () => {
@@ -779,6 +967,7 @@ el('notaFinalizar').onclick = async () => {
   try { await carregarMecanicos(); } catch (e) { SGMF.falha(e.message); }
   carregarEntregas();
   carregarNotasFiscais();
+  carregarTransferenciasPecas();
 })();
 </script>
 {% endblock %}

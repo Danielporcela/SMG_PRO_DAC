@@ -555,7 +555,7 @@ class PecaSerial(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False)
     numero_serie = db.Column(db.String(60), unique=True, nullable=False, index=True)
-    status = db.Column(db.String(20), default="Estoque")  # Estoque | Em uso | Descartado
+    status = db.Column(db.String(20), default="Estoque")  # Estoque | Em uso | Descartado | Transferida
     veiculo_atual_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"))
     ordem_servico_atual_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"))
     data_entrada = db.Column(db.Date, default=_hoje)
@@ -2086,3 +2086,43 @@ class EntregaFerramenta(db.Model):
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "observacao": self.observacao, "usuario_nome": self.usuario_nome,
                 "identificacao": f"Entrega #{self.id}"}
+
+
+class TransferenciaFerramenta(db.Model):
+    """Retirada de uma peça para o estoque de ferramentas dos mecânicos.
+
+    O valor é reconhecido UMA vez na transferência. Entregar a ferramenta
+    posteriormente ao mecânico não registra nova despesa no Dashboard.
+    """
+    __tablename__ = "transferencias_ferramentas_pecas"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, nullable=False, default=_hoje, index=True)
+    peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False, index=True)
+    ferramenta_id = db.Column(db.Integer, db.ForeignKey("ferramentas.id"), nullable=False, index=True)
+    movimento_estoque_id = db.Column(db.Integer, db.ForeignKey("movimentos_estoque.id"),
+                                    nullable=False, unique=True)
+    quantidade = db.Column(db.Float, nullable=False)
+    custo_unitario = db.Column(db.Float, nullable=False)
+    observacao = db.Column(db.String(200))
+    usuario_nome = db.Column(db.String(120))
+    peca = db.relationship("Peca")
+    ferramenta = db.relationship("Ferramenta")
+    movimento_estoque = db.relationship("MovimentoEstoque")
+
+    @property
+    def valor_total(self):
+        return round(self.quantidade * self.custo_unitario, 2)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "data": self.data.isoformat(),
+            "peca_id": self.peca_id,
+            "peca_descricao": f"{self.peca.codigo} · {self.peca.descricao}" if self.peca else None,
+            "ferramenta_id": self.ferramenta_id,
+            "ferramenta_descricao": (f"{self.ferramenta.codigo} · {self.ferramenta.descricao}"
+                                      if self.ferramenta else None),
+            "movimento_estoque_id": self.movimento_estoque_id,
+            "quantidade": self.quantidade, "custo_unitario": self.custo_unitario,
+            "valor_total": self.valor_total, "observacao": self.observacao,
+            "usuario_nome": self.usuario_nome,
+        }
