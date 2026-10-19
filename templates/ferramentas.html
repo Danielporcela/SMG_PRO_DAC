@@ -104,9 +104,23 @@
       <div class="modal-body">
         <div class="row g-3">
           <div class="col-12">
-            <label class="form-label" for="transferirBuscaPeca">Pesquisar produto do estoque</label>
+            <label class="form-label" for="transferirCodigoPeca">Código da ferramenta no estoque de peças</label>
+            <div class="input-group">
+              <input type="search" id="transferirCodigoPeca" class="form-control"
+                     autocomplete="off" maxlength="40" placeholder="Digite o código cadastrado no estoque"
+                     aria-describedby="transferirStatusCodigo">
+              <button type="button" class="btn btn-contorno" id="transferirBuscarCodigo">
+                <i class="fa-solid fa-magnifying-glass me-1"></i> Buscar
+              </button>
+            </div>
+            <small id="transferirStatusCodigo" class="d-block mt-1 text-muted" role="status" aria-live="polite">
+              Informe o código: a descrição, o saldo e o custo serão preenchidos automaticamente.
+            </small>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="transferirBuscaPeca">Ou pesquisar pela descrição</label>
             <input type="search" id="transferirBuscaPeca" class="form-control"
-                   autocomplete="off" placeholder="Código, nome ou descrição da peça">
+                   autocomplete="off" placeholder="Nome ou descrição da peça">
             <select id="transferirPeca" class="form-select mt-2" aria-label="Produto do estoque de peças">
               <option value="">— selecione o produto —</option>
             </select>
@@ -457,6 +471,14 @@ const ferramentasAtivas = () => telaFerramentas.dados().filter(f => f.ativo);
 /* ======================== transferência de peça -> estoque de ferramentas */
 let pecasParaTransferencia = [];
 let pecaTransferenciaRastreada = false;
+let buscaCodigoTransferenciaSeq = 0;
+let buscaCodigoTransferenciaTimer = null;
+
+function mostrarStatusCodigoTransferencia(mensagem, estilo = 'muted') {
+  const campo = el('transferirStatusCodigo');
+  campo.textContent = mensagem;
+  campo.className = `d-block mt-1 small text-${estilo}`;
+}
 function pecasFiltradasTransferencia() {
   const termo = normalizarBusca(el('transferirBuscaPeca').value);
   return pecasParaTransferencia.filter(p => normalizarBusca(
@@ -479,9 +501,80 @@ function atualizarCustoTransferencia() {
     ? `Disponível: ${SGMF.numero(p.quantidade, 2)} ${p.unidade || ''} · ` +
       `Custo unitário: ${SGMF.moeda(p.custo_unitario)} · ` +
       `Total: ${SGMF.moeda(quantidade * p.custo_unitario)}`
-    : 'Selecione um produto.';
+    : 'Informe o código ou selecione um produto.';
 }
-el('transferirBuscaPeca').addEventListener('input', atualizarOpcoesTransferencia);
+function cancelarBuscaCodigoTransferencia() {
+  ++buscaCodigoTransferenciaSeq;
+  clearTimeout(buscaCodigoTransferenciaTimer);
+}
+function selecionarPecaPorCodigoTransferencia(p) {
+  const posicao = pecasParaTransferencia.findIndex(x => String(x.id) === String(p.id));
+  if (posicao >= 0) pecasParaTransferencia[posicao] = p;
+  else pecasParaTransferencia.push(p);
+  // A pesquisa antiga por descrição pode esconder o produto recém-localizado.
+  el('transferirBuscaPeca').value = '';
+  atualizarOpcoesTransferencia();
+  el('transferirPeca').value = String(p.id);
+  el('transferirCodigoPeca').value = p.codigo;
+  carregarSeriaisParaTransferir();
+  mostrarStatusCodigoTransferencia(
+    `${p.codigo} · ${p.descricao} — ${SGMF.numero(p.quantidade, 2)} ${p.unidade || 'UN'} disponíveis.`,
+    p.quantidade > 0 ? 'success' : 'danger');
+}
+async function consultarCodigoPecaTransferencia() {
+  const codigo = el('transferirCodigoPeca').value.trim();
+  cancelarBuscaCodigoTransferencia();
+  const versao = buscaCodigoTransferenciaSeq;
+  if (!codigo) {
+    mostrarStatusCodigoTransferencia('Informe o código cadastrado no estoque de peças.');
+    return;
+  }
+  el('transferirPeca').value = '';
+  carregarSeriaisParaTransferir();
+  mostrarStatusCodigoTransferencia('Consultando o estoque de peças…');
+  try {
+    const resposta = await SGMF.get(`/api/ferramentas/pecas/consultar-codigo?codigo=${encodeURIComponent(codigo)}`);
+    // Ignora respostas antigas se a pessoa continuar digitando ou fechar o modal.
+    if (versao !== buscaCodigoTransferenciaSeq ||
+        normalizarBusca(el('transferirCodigoPeca').value) !== normalizarBusca(codigo)) return;
+    if (!resposta.encontrado) {
+      mostrarStatusCodigoTransferencia('Código não encontrado no estoque de peças.', 'danger');
+      return;
+    }
+    selecionarPecaPorCodigoTransferencia(resposta.peca);
+  } catch (e) {
+    if (versao === buscaCodigoTransferenciaSeq)
+      mostrarStatusCodigoTransferencia(`Falha ao consultar estoque: ${e.message}`, 'danger');
+  }
+}
+el('transferirCodigoPeca').addEventListener('input', () => {
+  cancelarBuscaCodigoTransferencia();
+  el('transferirPeca').value = '';
+  carregarSeriaisParaTransferir();
+  const codigo = el('transferirCodigoPeca').value.trim();
+  if (!codigo) {
+    mostrarStatusCodigoTransferencia('Informe o código cadastrado no estoque de peças.');
+    return;
+  }
+  mostrarStatusCodigoTransferencia('Consultando o código…');
+  buscaCodigoTransferenciaTimer = setTimeout(consultarCodigoPecaTransferencia, 350);
+});
+el('transferirCodigoPeca').addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    consultarCodigoPecaTransferencia();
+  }
+});
+el('transferirBuscarCodigo').addEventListener('click', consultarCodigoPecaTransferencia);
+el('modalTransferirPeca').addEventListener('shown.bs.modal', () => {
+  el('transferirCodigoPeca').focus();
+});
+el('transferirBuscaPeca').addEventListener('input', () => {
+  cancelarBuscaCodigoTransferencia();
+  el('transferirCodigoPeca').value = '';
+  mostrarStatusCodigoTransferencia('Selecione o produto na lista ou informe o código acima.');
+  atualizarOpcoesTransferencia();
+});
 async function carregarSeriaisParaTransferir() {
   const id = el('transferirPeca').value;
   pecaTransferenciaRastreada = false;
@@ -500,14 +593,28 @@ async function carregarSeriaisParaTransferir() {
   } catch (e) { SGMF.falha(e.message); }
   atualizarCustoTransferencia();
 }
-el('transferirPeca').addEventListener('change', carregarSeriaisParaTransferir);
+el('transferirPeca').addEventListener('change', () => {
+  cancelarBuscaCodigoTransferencia();
+  const p = pecasParaTransferencia.find(x => String(x.id) === el('transferirPeca').value);
+  el('transferirCodigoPeca').value = p ? p.codigo : '';
+  if (p) mostrarStatusCodigoTransferencia(`${p.codigo} · ${p.descricao} selecionado.`, p.quantidade > 0 ? 'success' : 'danger');
+  else mostrarStatusCodigoTransferencia('Informe o código ou selecione um produto.');
+  carregarSeriaisParaTransferir();
+});
 el('transferirQuantidade').addEventListener('input', atualizarCustoTransferencia);
+el('modalTransferirPeca').addEventListener('hidden.bs.modal', cancelarBuscaCodigoTransferencia);
 
 async function abrirInsercaoPeca() {
   try {
     pecasParaTransferencia = await SGMF.get('/api/ferramentas/pecas-disponiveis');
-    if (!pecasParaTransferencia.length) return SGMF.aviso('Nenhum produto com saldo disponível no estoque de peças.');
+    // Mantenha a pesquisa por código disponível mesmo quando não houver
+    // nenhum produto com saldo positivo (a consulta explica o saldo zero).
+    cancelarBuscaCodigoTransferencia();
+    el('transferirCodigoPeca').value = '';
     el('transferirBuscaPeca').value = '';
+    mostrarStatusCodigoTransferencia(pecasParaTransferencia.length
+      ? 'Informe o código: descrição, saldo e custo serão preenchidos automaticamente.'
+      : 'Não há produtos com saldo positivo. Consulte um código para verificar seu cadastro.');
     el('transferirQuantidade').value = 1;
     el('transferirObservacao').value = '';
     atualizarOpcoesTransferencia();

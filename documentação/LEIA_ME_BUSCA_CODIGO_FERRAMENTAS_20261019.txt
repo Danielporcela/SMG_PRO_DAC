@@ -1,0 +1,78 @@
+SGMF PRO DAC — FERRAMENTAS: BUSCA AUTOMÁTICA PELO CÓDIGO DO ESTOQUE
+Versão consolidada — 19/10/2026
+
+NOVO FUNCIONAMENTO
+1. Acesse Ferramentas mecânicos > Inserir ferramenta.
+2. Digite o CÓDIGO exato do produto que está cadastrado no Estoque de peças.
+3. A consulta acontece automaticamente ao terminar de digitar (aprox. 350 ms);
+   também é possível usar Enter ou o botão Buscar.
+4. O sistema seleciona a peça correta e apresenta descrição, quantidade em
+   estoque e custo unitário, calculando o custo total pela quantidade escolhida.
+5. Se houver rastreio por números de série, selecione as unidades correspondentes.
+6. Clique em Confirmar para transferir. SOMENTE na confirmação ocorre a baixa
+   de peças, a entrada no estoque de ferramentas e o registro do custo.
+7. O custo da transferência é incluído no Dashboard e no Gasto total do período,
+   sem novo lançamento quando ocorrer a entrega ao mecânico.
+
+VALIDAÇÕES
+- A pesquisa por código ignora diferenças de maiúsculas/minúsculas e espaços
+  nas extremidades, mas exige correspondência exata de código.
+- Código não cadastrado -> mensagem "Código não encontrado".
+- Código cadastrado com saldo zero -> exibe os dados e indica indisponibilidade;
+  a transferência é recusada enquanto não houver saldo.
+- Sem permissão de visualização de Ferramentas e Estoque -> acesso à busca negado.
+- Sem permissão de edição em AMBOS os módulos -> transferência negada.
+- A quantidade é validada novamente no servidor quando o usuário confirma.
+- A consulta não modifica cadastros, saldos ou custos.
+
+INSTALAÇÃO NO PROJETO ORIGINAL
+1. Faça backup do código e do PostgreSQL no Render antes de publicar.
+2. Extraia o ZIP NA RAIZ do projeto SGMF_Pro_DAC, mantendo a estrutura das
+   pastas e substituindo os arquivos correspondentes.
+3. Este ZIP é CONSOLIDADO: inclui a integração Ferramentas/Estoque/Dashboard
+   entregue anteriormente E esta nova busca por código. Não precisa instalar
+   o ZIP anterior antes.
+4. Não substitua dados, arquivo .env, credenciais, backups ou banco.
+5. Se usar Git, na pasta do projeto:
+
+   git status
+   git add models.py routes/ferramentas.py services/compatibilidade_banco.py services/indicadores.py templates/ferramentas.html templates/rastreio_pecas.html static/js/dashboard.js tests/test_transferencia_ferramenta_pecas.py
+   git commit -m "Consultar ferramenta por codigo e integrar ao estoque e dashboard"
+   git push origin main
+
+   Em caso de conflito Git/rebase, resolva antes do push. Nao use push --force.
+6. Aguarde a publicacao do Render e atualize o navegador com Ctrl+F5.
+7. Teste com um item de baixo valor e confira o saldo e o Dashboard.
+
+BANCO DE DADOS
+- A rotina existente garantir_ferramentas() cria a tabela
+  transferencias_ferramentas_pecas automaticamente, quando não existir.
+- O PostgreSQL de produção deve permitir a criação da tabela na implantação.
+- Não há comando para zerar, apagar ou migrar dados antigos.
+
+CONTABILIDADE
+- O card "Ferramentas dos mecânicos" considera as transferências de peças
+  para ferramentas no período selecionado.
+- O card "Gasto total" inclui o custo da transferência neste período.
+- Compras por notas fiscais diretamente no módulo Ferramentas mantêm as regras
+  já existentes; não entram nesse card de transferências.
+- A transferência entre estoques não aumenta o indicador "Gasto total geral"
+  de NFs já contabilizadas para evitar a duplicação da compra.
+- Entregas posteriores ao mecânico não lançam um segundo custo.
+
+TESTES LOCAIS
+- 16 testes de transferência, busca por código e segurança: APROVADOS.
+- 28 testes existentes do módulo Ferramentas: APROVADOS.
+- Sintaxe do Python e JS: APROVADA.
+- O ambiente de produção Render/PostgreSQL não foi modificado nem testado.
+
+ARQUIVOS NO PACOTE
+models.py
+routes/ferramentas.py
+services/compatibilidade_banco.py
+services/indicadores.py
+templates/ferramentas.html
+templates/rastreio_pecas.html
+static/js/dashboard.js
+tests/test_transferencia_ferramenta_pecas.py
+LEIA_ME_BUSCA_CODIGO_FERRAMENTAS_20261019.txt

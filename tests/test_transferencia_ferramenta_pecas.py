@@ -167,3 +167,62 @@ def test_modal_de_transferencia_disponivel_na_tela(logado):
     assert 'id="transferirSeriais"' in html
     assert 'id="transferirSalvar"' in html
     assert "gasto" in html.lower()
+
+
+def test_codigo_consulta_peca_sem_alterar_saldo(logado):
+    p = _produto(logado, codigo="TOOL-ABC-95", preco=48.30, quantidade=5)
+    for consulta in (p["codigo"], p["codigo"].lower(), f"  {p['codigo']}  "):
+        r = logado.get('/api/ferramentas/pecas/consultar-codigo', query_string={"codigo": consulta})
+        assert r.status_code == 200
+        dados = r.get_json()
+        assert dados["encontrado"] is True
+        assert dados["peca"]["id"] == p["id"]
+        assert dados["peca"]["descricao"] == p["descricao"]
+        assert dados["peca"]["custo_unitario"] == 48.30
+        assert dados["peca"]["quantidade"] == 5
+        assert dados["peca"]["disponivel"] is True
+    assert logado.get(f"/api/pecas/{p['id']}").get_json()["quantidade"] == 5
+
+
+def test_consulta_codigo_sem_correspondencia_nao_seleciona_produto(logado):
+    p = _produto(logado, codigo="FERR-015")
+    r = logado.get('/api/ferramentas/pecas/consultar-codigo',
+                   query_string={"codigo": p["codigo"][:-1]})
+    assert r.status_code == 200
+    assert r.get_json()["encontrado"] is False
+    assert logado.get('/api/ferramentas/pecas/consultar-codigo').status_code == 400
+    assert logado.get('/api/ferramentas/pecas/consultar-codigo?codigo=' + 'x'*41).status_code == 400
+
+
+def test_consulta_codigo_com_saldo_zero_indica_bloqueio(logado):
+    p = _produto(logado, codigo="TOOL-ZERO", quantidade=0)
+    r = logado.get('/api/ferramentas/pecas/consultar-codigo', query_string={"codigo": p["codigo"]})
+    assert r.status_code == 200
+    assert r.get_json()["peca"]["id"] == p["id"]
+    assert r.get_json()["peca"]["disponivel"] is False
+    assert r.get_json()["peca"]["quantidade"] == 0
+    saida = logado.post('/api/ferramentas/inserir-do-estoque', json={"peca_id": p["id"], "quantidade": 1})
+    assert saida.status_code == 400
+    assert "insuficiente" in saida.get_json()["erro"].lower()
+
+
+def test_tela_tem_busca_automatica_por_codigo(logado):
+    html = logado.get('/ferramentas').get_data(as_text=True)
+    assert 'id="transferirCodigoPeca"' in html
+    assert 'id="transferirBuscarCodigo"' in html
+    assert 'consultar-codigo?codigo=${encodeURIComponent(codigo)}' in html
+    assert 'consultarCodigoPecaTransferencia' in html
+    assert "if (!pecasParaTransferencia.length) return" not in html
+    assert "el('transferirCodigoPeca').focus();" in html
+
+
+def test_consulta_por_codigo_sem_permissao_estoque(logado, cliente):
+    r = logado.post('/api/usuarios', json={
+        "nome": "Somente ferramentas", "email": "codigo@teste.local",
+        "senha": "senha123", "perfil": "restrito", "permissoes": [
+            {"tela": "ferramentas", "nivel": "editar"}]})
+    assert r.status_code == 201
+    logado.get('/logout')
+    assert cliente.post('/login', json={
+        "email": "codigo@teste.local", "senha": "senha123"}).status_code == 200
+    assert cliente.get('/api/ferramentas/pecas/consultar-codigo?codigo=FERR-001').status_code == 403

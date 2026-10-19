@@ -225,6 +225,32 @@ def listar_pecas_para_ferramenta():
     } for p in pecas])
 
 
+@bp_ferramentas.get("/ferramentas/pecas/consultar-codigo")
+@visualizar_tela(TELA)
+@visualizar_tela("estoque")
+def consultar_peca_por_codigo_ferramenta():
+    """Consulta exata por código, sem fazer baixa ou criar cadastro.
+
+    Devolve também saldo zero, para explicar por que a transferência não pode
+    ser realizada. A gravação continuará validando saldo e permissões de novo.
+    """
+    codigo = (request.args.get("codigo") or "").strip()
+    if not codigo or len(codigo) > 40:
+        return jsonify({"erro": "Informe um código de peça válido (até 40 caracteres)."}), 400
+    peca = (Peca.query.filter(
+        db.func.upper(db.func.trim(Peca.codigo)) == codigo.upper()
+    ).first())
+    if not peca:
+        return jsonify({"encontrado": False, "mensagem": "Código não encontrado no estoque de peças."})
+    return jsonify({"encontrado": True, "peca": {
+        "id": peca.id, "codigo": peca.codigo, "descricao": peca.descricao,
+        "unidade": peca.unidade, "quantidade": peca.quantidade or 0,
+        "custo_unitario": peca.custo_unitario or 0,
+        "identificacao": f"{peca.codigo} · {peca.descricao}",
+        "disponivel": (peca.quantidade or 0) > 0,
+    }})
+
+
 @bp_ferramentas.get("/ferramentas/pecas/<int:peca_id>/seriais")
 @visualizar_tela(TELA)
 @visualizar_tela("estoque")
