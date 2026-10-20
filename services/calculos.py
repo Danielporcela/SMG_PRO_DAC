@@ -223,10 +223,16 @@ def movimentar_estoque(peca_id, tipo, quantidade, custo_unitario=0, os_id=None,
 
     db.session.refresh(peca)
 
+    # Armazena o número visível da OS, não apenas o ID interno da tabela.
+    # Esse retrato permite identificar a aplicação da peça no histórico
+    # mesmo se a OS for excluída futuramente.
+    ordem = db.session.get(OrdemServico, os_id) if os_id else None
     db.session.add(MovimentoEstoque(
         peca_id=peca.id, tipo=tipo, quantidade=quantidade,
         custo_unitario=float(custo_unitario or peca.custo_unitario or 0),
-        ordem_servico_id=os_id, documento=documento, observacao=observacao,
+        ordem_servico_id=os_id,
+        ordem_servico_numero=ordem.numero if ordem else None,
+        documento=documento, observacao=observacao,
         usuario_id=usuario_id, usuario_nome=usuario_nome,
         grupo_consumo_id=grupo_consumo_id))
     return peca
@@ -256,10 +262,13 @@ def desvincular_movimentos(os_id):
     deixam de apontar para uma ordem que não existe mais.
     """
     db.session.flush()
+    ordem = db.session.get(OrdemServico, os_id)
+    atualizacoes = {"ordem_servico_id": None, "observacao": "OS excluída"}
+    if ordem and ordem.numero:
+        atualizacoes["ordem_servico_numero"] = ordem.numero
     (MovimentoEstoque.query
      .filter_by(ordem_servico_id=os_id)
-     .update({"ordem_servico_id": None, "observacao": "OS excluída"},
-             synchronize_session=False))
+     .update(atualizacoes, synchronize_session=False))
     (MovimentoPecaSerial.query
      .filter_by(ordem_servico_id=os_id)
      .update({"ordem_servico_id": None, "observacao": "OS excluída"},

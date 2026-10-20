@@ -523,12 +523,15 @@ class MovimentoEstoque(db.Model):
     custo_unitario = db.Column(db.Float, default=0)
     documento = db.Column(db.String(60))
     ordem_servico_id = db.Column(db.Integer, db.ForeignKey("ordens_servico.id"))
+    # Número público da OS preservado no movimento, mesmo se a OS for excluída.
+    ordem_servico_numero = db.Column(db.String(20))
     observacao = db.Column(db.String(200))
     usuario_id = db.Column(db.Integer)
     usuario_nome = db.Column(db.String(120))
     grupo_consumo_id = db.Column(db.Integer, db.ForeignKey("grupos_consumo.id"), index=True)
     peca = db.relationship("Peca")
     grupo_consumo = db.relationship("GrupoConsumo")
+    ordem_servico = db.relationship("OrdemServico", lazy="selectin")
 
     def to_dict(self):
         return {"id": self.id, "data": self.data.isoformat() if self.data else None,
@@ -538,6 +541,9 @@ class MovimentoEstoque(db.Model):
                 "custo_unitario": self.custo_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
                 "documento": self.documento, "ordem_servico_id": self.ordem_servico_id,
+                "ordem_servico_numero": (self.ordem_servico.numero
+                                         if self.ordem_servico and self.ordem_servico.numero
+                                         else self.ordem_servico_numero),
                 "observacao": self.observacao, "usuario_id": self.usuario_id,
                 "usuario_nome": self.usuario_nome,
                 "grupo_consumo_id": self.grupo_consumo_id,

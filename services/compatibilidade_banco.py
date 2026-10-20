@@ -326,6 +326,44 @@ def garantir_usuario_movimentos_estoque():
 
 
 
+def garantir_numero_os_movimentos_estoque():
+    """Salva o número real das OS no histórico, inclusive nas baixas antigas.
+
+    Não apaga nem modifica quantidades, custos ou movimentos. Compatível com
+    SQLite e PostgreSQL; pode ser executada novamente sem duplicar registros.
+    """
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    if not {"movimentos_estoque", "ordens_servico"}.issubset(tabelas):
+        return  # Banco novo: db.create_all() criará a coluna.
+
+    with engine.begin() as conn:
+        # A leitura da estrutura e o ALTER usam a mesma conexão para evitar
+        # metadados desatualizados de outra conexão, sobretudo no SQLite.
+        existentes = {col["name"] for col in inspect(conn).get_columns("movimentos_estoque")}
+        if "ordem_servico_numero" not in existentes:
+            conn.execute(text(
+                'ALTER TABLE "movimentos_estoque" ADD COLUMN "ordem_servico_numero" VARCHAR(20)'))
+
+        # Recupera o número público dos movimentos que ainda estão associados
+        # a uma OS existente. Se o vínculo foi apagado no passado, não há como
+        # recuperar o número com segurança: deixa em branco, sem inventar.
+        conn.execute(text('''
+            UPDATE movimentos_estoque
+               SET ordem_servico_numero = (
+                   SELECT os.numero FROM ordens_servico AS os
+                    WHERE os.id = movimentos_estoque.ordem_servico_id
+               )
+             WHERE ordem_servico_id IS NOT NULL
+               AND (ordem_servico_numero IS NULL OR TRIM(ordem_servico_numero) = '')
+               AND EXISTS (
+                   SELECT 1 FROM ordens_servico AS os
+                    WHERE os.id = movimentos_estoque.ordem_servico_id
+                      AND os.numero IS NOT NULL
+               )
+        '''))
+
+
 def garantir_ultimo_acesso_usuario():
     """Adiciona a coluna de presença (última requisição autenticada).
 
