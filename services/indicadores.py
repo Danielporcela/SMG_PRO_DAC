@@ -658,6 +658,8 @@ def series_graficos(inicio=None, fim=None):
         "realizado_geral_mes": [round(m + l + p + u + f, 2)
                                 for m, l, p, u, f in zip(manut_mes, lavagem_mes, compras_mes, uniformes_mes, ferramentas_mes)],
         "por_veiculo": por_veiculo[:10],
+        # frota inteira (sem corte) para relatórios e impressões
+        "por_veiculo_completo": por_veiculo,
         "grupos": {"labels": list(grupos.keys()), "valores": list(grupos.values())},
         "tipos_manutencao": tipos,
         "top_pecas": top_pecas,

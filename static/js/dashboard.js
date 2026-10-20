@@ -510,7 +510,7 @@
           render: l => l.consumo_media_da_media ? SGMF.numero(l.consumo_media_da_media, 2) : '—' },
         { rotulo: 'Total', classe: 'text-end num', render: l => SGMF.moeda(l.total) }
       ],
-      linhas: g.por_veiculo
+      linhas: g.por_veiculo_completo || g.por_veiculo
     });
   }
 

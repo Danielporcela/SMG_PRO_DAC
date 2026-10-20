@@ -242,7 +242,7 @@ def montar_dados(relatorio):
                            destino, m.documento or "—"])
 
     elif relatorio == "custos":
-        dados = indicadores.series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo"]
+        dados = indicadores.series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo_completo"]
         cab = ["Veículo", "Placa", "Km rodados", "Combustível R$", "Manutenção R$",
                "Total R$", "Custo/km R$", "Km/L", "Orçamento R$"]
         linhas = [[d["veiculo"], d["placa"], d["km"], d["combustivel"], d["manutencao"],
