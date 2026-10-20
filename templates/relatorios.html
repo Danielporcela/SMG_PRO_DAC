@@ -71,6 +71,8 @@
 {% block scripts %}
 <script>
 const RELATORIOS = [
+  { id: 'gasto_geral', nome: 'Gasto total geral', icone: 'fa-coins', destaque: true,
+    texto: 'Mesmo valor do cartão Gasto total geral do painel: manutenção, terceiros, lavagem, compras de peças (NF), uniformes e grupos de consumo. Sem combustível e sem somar transferências internas de ferramentas novamente.' },
   { id: 'gasto_total', nome: 'Gasto total', icone: 'fa-sack-dollar', destaque: true,
     texto: 'Mesmo cálculo do card do painel: manutenção (OS + terceiros), lavagem, uniformes, grupos de consumo e ferramentas dos mecânicos, com meta, aderência e o detalhamento dos lançamentos do período.' },
   { id: 'abastecimentos', nome: 'Abastecimentos', icone: 'fa-gas-pump',
@@ -127,14 +129,14 @@ function validarFiltroEstoque(relatorio) {
 }
 
 function urlRelatorio(relatorio, formato) {
-  const nome = relatorio === 'gasto_total' ? 'gasto-total' : relatorio;
+  const nome = ({ gasto_total: 'gasto-total', gasto_geral: 'gasto-geral' })[relatorio] || relatorio;
   return `/relatorios/${nome}.${formato}?${parametros()}`;
 }
 
 function baixar(relatorio, formato) {
   if (!validarFiltroEstoque(relatorio)) return;
   // PDF do Gasto total abre inline: o visualizador do navegador permite ler, imprimir e salvar.
-  if (relatorio === 'gasto_total' && formato === 'pdf') return window.open(urlRelatorio(relatorio, formato), '_blank');
+  if (['gasto_total', 'gasto_geral'].includes(relatorio) && formato === 'pdf') return window.open(urlRelatorio(relatorio, formato), '_blank');
   window.location = urlRelatorio(relatorio, formato);
 }
 
@@ -164,7 +166,7 @@ document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
             <i class="fa-solid fa-file-pdf me-1"></i> PDF</button>
           <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','xlsx')">
             <i class="fa-solid fa-file-excel me-1"></i> Excel</button>
-          ${r.id === 'gasto_total' ? '' : `<button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
+          ${['gasto_total', 'gasto_geral'].includes(r.id) ? '' : `<button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
             <i class="fa-solid fa-file-csv me-1"></i> CSV</button>`}
           <button class="btn btn-contorno btn-sm" onclick="imprimir('${r.id}')" title="Abrir e imprimir">
             <i class="fa-solid fa-print me-1"></i> Imprimir</button>

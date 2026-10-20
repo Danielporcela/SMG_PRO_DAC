@@ -62,6 +62,7 @@ def montar(inicio, fim):
         "resumo": resumo,
         "gasto_manutencao": _r(r["gasto_manutencao"]),   # OS + terceiros
         "gasto_total": _r(total),
+        "gasto_total_geral": _r(r["gasto_total_geral"]),
         "meta": _r(meta),
         "base_meta": base_meta,
         "aderencia": r["aderencia_orcamento"] if meta else None,

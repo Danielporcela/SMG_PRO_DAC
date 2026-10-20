@@ -242,7 +242,7 @@ def montar_dados(relatorio):
                            destino, m.documento or "—"])
 
     elif relatorio == "custos":
-        dados = indicadores.series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo_completo"]
+        dados = indicadores.series_graficos(inicio.isoformat(), fim.isoformat())["por_veiculo"]
         cab = ["Veículo", "Placa", "Km rodados", "Combustível R$", "Manutenção R$",
                "Total R$", "Custo/km R$", "Km/L", "Orçamento R$"]
         linhas = [[d["veiculo"], d["placa"], d["km"], d["combustivel"], d["manutencao"],
@@ -1106,3 +1106,231 @@ def gasto_total_excel():
     return send_file(saida, as_attachment=True,
                      download_name=f"sgmf_gasto_total_{hoje():%Y%m%d}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# ─────────────────────── Relatório: Gasto total geral ───────────────────
+# Não confundir com 'Gasto total': usa exatamente o indicador
+# gasto_total_geral do painel (sem combustível e sem transferências de
+# ferramentas). As seções de detalhes são compartilhadas com o relatório
+# Gasto total para não haver duas apurações divergentes.
+def _dados_gasto_geral():
+    from services import gasto_total
+    from services.indicadores import _notas_finalizadas
+
+    inicio, fim = _periodo()
+    dados = gasto_total.montar(inicio, fim)
+    dados_por_categoria = {item["categoria"]: dict(item) for item in dados["resumo"]}
+    categorias = [
+        dados_por_categoria["Manutenção (OS)"],
+        dados_por_categoria["Serviços de terceiros"],
+        dados_por_categoria["Lavagem"],
+        {"categoria": "Compras de peças (NF)", "valor": dados["compras_nf"],
+         "qtd": 0, "unidade": "nota(s) finalizada(s)"},
+        dados_por_categoria["Uniformes (NF)"],
+        dados_por_categoria["Grupos de consumo"],
+    ]
+    notas = sorted(_notas_finalizadas(inicio, fim), key=lambda n: (n.data_entrada, n.id))
+    categorias[3]["qtd"] = len(notas)
+    dados["det_compras"] = [
+        ["NF " + str(n.numero) + ("/" + str(n.serie) if n.serie else ""),
+         n.data_entrada.strftime("%d/%m/%Y") if n.data_entrada else "—",
+         n.fornecedor.nome if n.fornecedor else "—", len(n.itens), round(n.valor_total, 2)]
+        for n in notas
+    ]
+    total = dados["gasto_total_geral"]
+    for item in categorias:
+        item["percentual"] = round(item["valor"] / total * 100, 1) if total else 0
+    dados["resumo_geral"] = categorias
+    secoes = [
+        sec for sec in gasto_total.SECOES if sec[0] not in ("det_grupos", "det_ferramentas")
+    ]
+    secoes.append(("det_compras", "Compras de peças — NF finalizadas",
+                   ["NF", "Entrada", "Fornecedor", "Itens", "Total R$"], [4]))
+    secoes.append(next(sec for sec in gasto_total.SECOES if sec[0] == "det_grupos"))
+    return dados, secoes
+
+
+@bp_relatorios.get("/gasto-geral.pdf")
+@visualizar_tela("relatorios")
+def gasto_geral_pdf():
+    from reportlab.lib.styles import ParagraphStyle
+    from xml.sax.saxutils import escape
+
+    d, secoes = _dados_gasto_geral()
+    saida = io.BytesIO()
+    pagina = landscape(A4)
+    doc = SimpleDocTemplate(saida, pagesize=pagina, leftMargin=12*mm,
+                            rightMargin=12*mm, topMargin=12*mm, bottomMargin=15*mm,
+                            title="SGMF Pro - Gasto total geral")
+    estilos = getSampleStyleSheet()
+    cel = ParagraphStyle("cel-geral", parent=estilos["Normal"], fontSize=7, leading=9)
+    cab = ParagraphStyle("cab-geral", parent=cel, fontName="Helvetica-Bold",
+                         textColor=colors.white)
+    tot = ParagraphStyle("tot-geral", parent=cel, fontName="Helvetica-Bold")
+    titulo_secao = ParagraphStyle("sec-geral", parent=estilos["Heading3"],
+                                  textColor=colors.HexColor("#0F3D56"), spaceBefore=12, spaceAfter=5)
+    petroleo = colors.HexColor("#0F3D56")
+    largura = pagina[0] - 24*mm
+
+    def tab(titulos, linhas, monetarias, total_linha=None, larguras=None):
+        def p(v, st=cel):
+            return Paragraph(escape(str(v)), st)
+        registros = [[p(c, cab) for c in titulos]]
+        for linha in linhas:
+            registros.append([p(_brl(v) if j in monetarias else v) for j, v in enumerate(linha)])
+        if total_linha is not None:
+            registros.append([p(_brl(v) if j in monetarias and v != "" else v, tot)
+                              for j, v in enumerate(total_linha)])
+        if larguras is None:
+            pesos = [max(len(str(titulos[i])),
+                         max((min(len(str(l[i])), 35) for l in linhas), default=8), 8)
+                     for i in range(len(titulos))]
+            larguras = [largura*w/sum(pesos) for w in pesos]
+        t = Table(registros, colWidths=larguras, repeatRows=1, hAlign="LEFT")
+        estilo = [("BACKGROUND", (0,0),(-1,0),petroleo),
+                  ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#F2F5F7")]),
+                  ("GRID",(0,0),(-1,-1),0.25,colors.HexColor("#CCD5DB")),
+                  ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                  ("TOPPADDING",(0,0),(-1,-1),3),
+                  ("BOTTOMPADDING",(0,0),(-1,-1),3)]
+        if total_linha is not None:
+            estilo += [("BACKGROUND",(0,-1),(-1,-1),colors.HexColor("#DCE6EC")),
+                       ("LINEABOVE",(0,-1),(-1,-1),0.8,petroleo)]
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    historia = [
+        Paragraph("<b>SGMF Pro</b> · Relatório de Gasto total geral", estilos["Title"]),
+        Paragraph(f"Período: {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y} · "
+                  f"Emissão: {agora():%d/%m/%Y %H:%M}", estilos["Normal"]),
+        Spacer(1,8), Paragraph("Resumo por categoria", titulo_secao),
+    ]
+    resumo = [[x["categoria"], f"{x['qtd']} {x['unidade']}", x["valor"],
+               f"{x['percentual']:.1f}%".replace(".",",")] for x in d["resumo_geral"]]
+    historia.append(tab(["Categoria","Lançamentos","Valor R$","% do total"], resumo, {2},
+                        ["GASTO TOTAL GERAL","", d["gasto_total_geral"],
+                         "100,0%" if d["gasto_total_geral"] else "—"],
+                        [largura*k for k in (0.40,0.25,0.20,0.15)]))
+    historia.append(Spacer(1,7))
+    historia.append(Paragraph(
+        "<b>Critério:</b> corresponde ao cartão Gasto total geral do Dashboard. "
+        "Combustível não faz parte deste indicador. Transferências internas de "
+        "ferramentas não são somadas novamente, evitando duplicidade com compras.",
+        estilos["Normal"]))
+    for chave, nome, titulos, monetarias in secoes:
+        historia.append(Paragraph(nome, titulo_secao))
+        linhas = d[chave]
+        if not linhas:
+            historia.append(Paragraph("Nenhum lançamento no período.", estilos["Italic"]))
+            continue
+        monetarias = set(monetarias)
+        ultima = [""]*len(titulos)
+        ultima[0] = "TOTAL"
+        if chave == "det_grupos":
+            for col in (1,2,3,4,5):
+                ultima[col] = round(sum(float(l[col] or 0) for l in linhas),2)
+            monetarias = {3,4,5}
+        else:
+            ultimo_col = max(monetarias)
+            ultima[ultimo_col] = round(sum(float(l[ultimo_col] or 0) for l in linhas),2)
+        historia.append(tab(titulos, linhas, monetarias, ultima))
+
+    def rodape(canvas, pagina_doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica",7)
+        canvas.setFillColor(colors.HexColor("#5F7080"))
+        canvas.drawString(12*mm,7*mm,"SGMF Pro · Sistema de Gestão de Manutenção de Frotas")
+        canvas.drawRightString(pagina[0]-12*mm,7*mm,f"Página {pagina_doc.page}")
+        canvas.restoreState()
+
+    doc.build(historia,onFirstPage=rodape,onLaterPages=rodape)
+    saida.seek(0)
+    return send_file(saida, mimetype="application/pdf", as_attachment=False,
+                     download_name=f"sgmf_gasto_geral_{hoje():%Y%m%d}.pdf")
+
+
+@bp_relatorios.get("/gasto-geral.xlsx")
+@visualizar_tela("relatorios")
+def gasto_geral_excel():
+    from openpyxl.utils import get_column_letter
+
+    d, secoes = _dados_gasto_geral()
+    livro = Workbook()
+    fundo = PatternFill("solid",fgColor="0F3D56")
+    total_fundo = PatternFill("solid",fgColor="DCE6EC")
+    moeda = '"R$" #,##0.00'
+
+    def cabecalho(folha, linha, titulos):
+        for i, texto in enumerate(titulos,1):
+            celula = folha.cell(row=linha,column=i,value=texto)
+            celula.font = Font(bold=True,color="FFFFFF")
+            celula.fill = fundo
+            celula.alignment = Alignment(wrap_text=True)
+
+    def ajustar(folha):
+        for coluna in folha.columns:
+            tamanho = max((len(str(c.value)) for c in coluna if c.value is not None),default=10)
+            folha.column_dimensions[get_column_letter(coluna[0].column)].width=min(max(tamanho+2,13),52)
+        folha.freeze_panes = "A5"
+        folha.page_setup.orientation = "landscape"
+        folha.page_setup.fitToWidth = 1
+        folha.page_setup.fitToHeight = 0
+        folha.sheet_properties.pageSetUpPr.fitToPage = True
+
+    resumo = livro.active
+    resumo.title = "Resumo geral"
+    resumo["A1"] = "SGMF Pro · Gasto total geral"
+    resumo["A1"].font = Font(bold=True,size=14,color="0F3D56")
+    resumo["A2"] = f"Período: {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y}"
+    cabecalho(resumo,4,["Categoria","Lançamentos","Valor R$","% do total"])
+    for i, item in enumerate(d["resumo_geral"],5):
+        resumo.cell(row=i,column=1,value=item["categoria"])
+        resumo.cell(row=i,column=2,value=f"{item['qtd']} {item['unidade']}")
+        resumo.cell(row=i,column=3,value=item["valor"]).number_format=moeda
+        resumo.cell(row=i,column=4,value=item["percentual"]/100).number_format="0.0%"
+    total_r = 5 + len(d["resumo_geral"])
+    resumo.cell(row=total_r,column=1,value="GASTO TOTAL GERAL")
+    resumo.cell(row=total_r,column=3,value=d["gasto_total_geral"]).number_format=moeda
+    resumo.cell(row=total_r,column=4,value=1.0 if d["gasto_total_geral"] else 0).number_format="0.0%"
+    for col in range(1,5):
+        resumo.cell(row=total_r,column=col).fill=total_fundo
+        resumo.cell(row=total_r,column=col).font=Font(bold=True)
+    resumo.cell(row=total_r+2,column=1,value="Mesmo total do cartão Gasto total geral do Dashboard.")
+    resumo.cell(row=total_r+3,column=1,value="Combustível e transferências internas de ferramentas não são somados neste indicador.")
+    ajustar(resumo)
+
+    nomes_aba={"det_os":"Manutenção OS","det_terceiros":"Terceiros",
+               "det_lavagem":"Lavagem","det_uniformes":"Uniformes",
+               "det_compras":"Compras de peças","det_grupos":"Grupos de consumo"}
+    for chave, titulo, titulos, monetarias in secoes:
+        folha=livro.create_sheet(nomes_aba[chave])
+        folha["A1"] = titulo
+        folha["A1"].font = Font(bold=True,size=13,color="0F3D56")
+        folha["A2"] = f"Período: {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y}"
+        cabecalho(folha,4,titulos)
+        linhas=d[chave]
+        for i,linha in enumerate(linhas,5):
+            for j,valor in enumerate(linha,1):
+                c=folha.cell(row=i,column=j,value=valor)
+                if j-1 in monetarias or (chave=="det_grupos" and j-1 in (3,4,5)):
+                    c.number_format=moeda
+        if linhas:
+            indice=5+len(linhas)
+            folha.cell(row=indice,column=1,value="TOTAL")
+            for col in ([2,3,4,5,6] if chave=="det_grupos" else [max(monetarias)+1]):
+                letra=get_column_letter(col)
+                folha.cell(row=indice,column=col,value=f"=SUM({letra}5:{letra}{indice-1})")
+                if chave != "det_grupos" or col >=4:
+                    folha.cell(row=indice,column=col).number_format=moeda
+            for col in range(1,len(titulos)+1):
+                c=folha.cell(row=indice,column=col)
+                c.fill=total_fundo
+                c.font=Font(bold=True)
+        else:
+            folha["A5"]="Nenhum lançamento no período."
+        ajustar(folha)
+    saida=io.BytesIO()
+    livro.save(saida)
+    saida.seek(0)
+    return send_file(saida,mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True,download_name=f"sgmf_gasto_geral_{hoje():%Y%m%d}.xlsx")
