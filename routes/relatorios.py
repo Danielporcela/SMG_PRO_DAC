@@ -849,3 +849,260 @@ def backup():
     resposta.headers["Content-Disposition"] = \
         f"attachment; filename=sgmf_backup_{hoje():%Y%m%d}.json"
     return resposta
+
+
+# ───────────────────────── Relatório: Gasto total ─────────────────────────
+def _brl(valor):
+    """Formata em reais no padrão brasileiro: R$ 19.290,16."""
+    texto = f"{float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {texto}"
+
+
+def _dados_gasto_total():
+    from services import gasto_total
+    inicio, fim = _periodo()
+    return gasto_total.montar(inicio, fim), gasto_total.SECOES
+
+
+@bp_relatorios.get("/gasto-total.pdf")
+@visualizar_tela("relatorios")
+def gasto_total_pdf():
+    from reportlab.lib.styles import ParagraphStyle
+    from xml.sax.saxutils import escape as _esc
+
+    d, secoes = _dados_gasto_total()
+    saida = io.BytesIO()
+    pagina = landscape(A4)
+    doc = SimpleDocTemplate(saida, pagesize=pagina, leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=14 * mm,
+                            title="SGMF Pro - Gasto total")
+    estilos = getSampleStyleSheet()
+    st_cel = ParagraphStyle("cel", parent=estilos["Normal"], fontSize=7.5, leading=9)
+    st_dir = ParagraphStyle("dir", parent=st_cel, alignment=2)
+    st_cab = ParagraphStyle("cab", parent=st_cel, fontName="Helvetica-Bold",
+                            textColor=colors.white)
+    st_tot = ParagraphStyle("tot", parent=st_cel, fontName="Helvetica-Bold")
+    st_tot_dir = ParagraphStyle("totd", parent=st_tot, alignment=2)
+    st_secao = ParagraphStyle("secao", parent=estilos["Heading3"], textColor=colors.HexColor("#0F3D56"),
+                              spaceBefore=10, spaceAfter=4)
+    petroleo, zebra, grade = colors.HexColor("#0F3D56"), colors.HexColor("#F2F5F7"), colors.HexColor("#C9D2DA")
+    largura_util = pagina[0] - 24 * mm
+
+    def cel(v, estilo=st_cel):
+        return Paragraph(_esc(str(v)), estilo)
+
+    def tabela(cab, linhas, monetarias, total_linha=None, larguras=None):
+        cab_cels = [cel(c, st_cab) for c in cab]
+        corpo = []
+        for l in linhas:
+            corpo.append([cel(_brl(v) if i in monetarias else v, st_dir if i in monetarias else st_cel)
+                          for i, v in enumerate(l)])
+        if total_linha is not None:
+            corpo.append([cel(_brl(v) if i in monetarias and v != "" else v,
+                              st_tot_dir if i in monetarias else st_tot)
+                          for i, v in enumerate(total_linha)])
+        if larguras is None:
+            pesos = [max([len(str(cab[i]))] + [min(len(str(l[i])), 38) for l in linhas] + [8])
+                     for i in range(len(cab))]
+            larguras = [largura_util * p / sum(pesos) for p in pesos]
+        t = Table([cab_cels] + corpo, colWidths=larguras, repeatRows=1)
+        estilo = [
+            ("BACKGROUND", (0, 0), (-1, 0), petroleo),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.25, grade),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, zebra]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        if total_linha is not None:
+            estilo += [("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#DCE6EC")),
+                       ("LINEABOVE", (0, -1), (-1, -1), 0.8, petroleo)]
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    el = [
+        Paragraph("<b>SGMF Pro</b> · Relatório de Gasto total", estilos["Title"]),
+        Paragraph(f"Período de {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y} — emitido em "
+                  f"{agora():%d/%m/%Y às %H:%M}", estilos["Normal"]),
+        Spacer(1, 8),
+        Paragraph("Resumo por categoria", st_secao),
+    ]
+    linhas_resumo = [[x["categoria"], f"{x['qtd']} {x['unidade']}", x["valor"],
+                      f"{x['percentual']:.1f}%".replace(".", ",")] for x in d["resumo"]]
+    el.append(tabela(["Categoria", "Lançamentos", "Valor R$", "% do total"], linhas_resumo, {2},
+                     total_linha=["GASTO TOTAL", "", d["gasto_total"], "100,0%" if d["gasto_total"] else "—"],
+                     larguras=[largura_util * p for p in (0.40, 0.25, 0.20, 0.15)]))
+    el.append(Spacer(1, 6))
+    el.append(Paragraph(
+        f"Manutenção (OS + terceiros): <b>{_brl(d['gasto_manutencao'])}</b> · "
+        f"Combustível e compras de peças (NF) não compõem o Gasto total e não estão incluídos "
+        f"neste relatório.", estilos["Normal"]))
+    el.append(Spacer(1, 4))
+    if d["meta"]:
+        el.append(Paragraph(
+            f"Meta da frota: <b>{_brl(d['meta'])}</b> · Realizado (manutenção + lavagem + uniformes): "
+            f"<b>{_brl(d['base_meta'])}</b> · Aderência: <b>"
+            f"{str(d['aderencia']).replace('.', ',')}%</b> · Saldo: <b>{_brl(d['saldo_meta'])}</b>",
+            estilos["Normal"]))
+    else:
+        el.append(Paragraph("Sem meta cadastrada (meta da frota) para o período.", estilos["Normal"]))
+
+    for chave, titulo, cab, monetarias in secoes:
+        linhas = d[chave]
+        el.append(Paragraph(titulo, st_secao))
+        if not linhas:
+            el.append(Paragraph("Nenhum lançamento no período.", estilos["Italic"]))
+            continue
+        total = None
+        if chave not in ("det_grupos",):
+            col = max(monetarias)
+            total = [""] * len(cab)
+            total[0] = "TOTAL"
+            total[col] = round(sum(l[col] for l in linhas), 2)
+        else:
+            total = ["TOTAL", sum(l[1] for l in linhas), round(sum(l[2] for l in linhas), 2),
+                     round(sum(l[3] for l in linhas), 2), round(sum(l[4] for l in linhas), 2),
+                     round(sum(l[5] for l in linhas), 2), ""]
+            monetarias = [3, 4, 5]
+        el.append(tabela(cab, linhas, set(monetarias), total_linha=total))
+
+    def rodape(canvas, doc_):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#5F7080"))
+        canvas.drawString(12 * mm, 7 * mm, "SGMF Pro · Sistema de Gestão de Manutenção de Frotas")
+        canvas.drawRightString(pagina[0] - 12 * mm, 7 * mm, f"Página {doc_.page}")
+        canvas.restoreState()
+
+    doc.build(el, onFirstPage=rodape, onLaterPages=rodape)
+    saida.seek(0)
+    return send_file(saida, as_attachment=False, mimetype="application/pdf",
+                     download_name=f"sgmf_gasto_total_{hoje():%Y%m%d}.pdf")
+
+
+@bp_relatorios.get("/gasto-total.xlsx")
+@visualizar_tela("relatorios")
+def gasto_total_excel():
+    from openpyxl.utils import get_column_letter
+
+    d, secoes = _dados_gasto_total()
+    wb = Workbook()
+    moeda = '"R$" #,##0.00'
+    fundo = PatternFill("solid", fgColor="0F3D56")
+    fundo_total = PatternFill("solid", fgColor="DCE6EC")
+    fino = Side(style="thin", color="C9D2DA")
+    borda = Border(left=fino, right=fino, top=fino, bottom=fino)
+
+    def cabecalho(ws, linha, titulos):
+        for i, t in enumerate(titulos, 1):
+            c = ws.cell(row=linha, column=i, value=t)
+            c.font, c.fill, c.border = Font(bold=True, color="FFFFFF"), fundo, borda
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    def ajustar(ws, minimo=11, maximo=44):
+        for col in ws.columns:
+            larg = max((len(str(c.value)) for c in col if c.value is not None
+                        and not str(c.value).startswith("=")), default=10)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = min(max(larg + 2, minimo), maximo)
+
+    # ── Aba Resumo ──────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Resumo"
+    ws["A1"] = "SGMF Pro · Relatório de Gasto total"
+    ws["A1"].font = Font(bold=True, size=14, color="0F3D56")
+    ws["A2"] = (f"Período: {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y} · "
+                f"emitido em {agora():%d/%m/%Y %H:%M}")
+    ws["A2"].font = Font(size=9, color="666666")
+    cabecalho(ws, 4, ["Categoria", "Lançamentos", "Valor R$", "% do total"])
+    primeira = 5
+    for i, x in enumerate(d["resumo"]):
+        r = primeira + i
+        ws.cell(row=r, column=1, value=x["categoria"])
+        ws.cell(row=r, column=2, value=f"{x['qtd']} {x['unidade']}")
+        ws.cell(row=r, column=3, value=x["valor"]).number_format = moeda
+    ultima = primeira + len(d["resumo"]) - 1
+    total_r = ultima + 1
+    for r in range(primeira, ultima + 1):   # % calculado por fórmula
+        c = ws.cell(row=r, column=4, value=f"=IF($C${total_r}=0,0,C{r}/$C${total_r})")
+        c.number_format = "0.0%"
+    ws.cell(row=total_r, column=1, value="GASTO TOTAL")
+    ws.cell(row=total_r, column=3, value=f"=SUM(C{primeira}:C{ultima})").number_format = moeda
+    ws.cell(row=total_r, column=4, value=f"=SUM(D{primeira}:D{ultima})").number_format = "0.0%"
+    for col in range(1, 5):
+        c = ws.cell(row=total_r, column=col)
+        c.font, c.fill = Font(bold=True), fundo_total
+    for r in range(primeira, total_r + 1):
+        for col in range(1, 5):
+            ws.cell(row=r, column=col).border = borda
+
+    r = total_r + 2
+    ws.cell(row=r, column=1, value="Manutenção (OS + terceiros)")
+    ws.cell(row=r, column=3, value=d["gasto_manutencao"]).number_format = moeda
+    r += 2
+    ws.cell(row=r, column=1, value="Meta da frota").font = Font(bold=True)
+    if d["meta"]:
+        ws.cell(row=r + 1, column=1, value="Meta do período")
+        ws.cell(row=r + 1, column=3, value=d["meta"]).number_format = moeda
+        ws.cell(row=r + 2, column=1, value="Realizado (manutenção + lavagem + uniformes)")
+        ws.cell(row=r + 2, column=3, value=d["base_meta"]).number_format = moeda
+        ws.cell(row=r + 3, column=1, value="Aderência à meta")
+        ws.cell(row=r + 3, column=3, value=f"=IF(C{r+1}=0,0,C{r+2}/C{r+1})").number_format = "0.0%"
+        ws.cell(row=r + 4, column=1, value="Saldo da meta")
+        ws.cell(row=r + 4, column=3, value=f"=C{r+1}-C{r+2}").number_format = moeda
+    else:
+        ws.cell(row=r + 1, column=1, value="Sem meta cadastrada (meta da frota) para o período.")
+    ws.cell(row=r + 6, column=1,
+            value="Combustível e compras de peças (NF) não compõem o Gasto total.").font = Font(
+        italic=True, size=9, color="666666")
+    ajustar(ws, minimo=14, maximo=52)
+
+    # ── Uma aba por categoria ───────────────────────────────────────────
+    nomes_aba = {"det_os": "Manutenção OS", "det_terceiros": "Terceiros", "det_lavagem": "Lavagem",
+                 "det_uniformes": "Uniformes", "det_grupos": "Grupos de consumo",
+                 "det_ferramentas": "Ferramentas"}
+    for chave, titulo, cab, monetarias in secoes:
+        wsd = wb.create_sheet(nomes_aba[chave])
+        wsd["A1"] = titulo
+        wsd["A1"].font = Font(bold=True, size=13, color="0F3D56")
+        wsd["A2"] = f"Período: {d['inicio']:%d/%m/%Y} a {d['fim']:%d/%m/%Y}"
+        wsd["A2"].font = Font(size=9, color="666666")
+        cabecalho(wsd, 4, cab)
+        linhas = d[chave]
+        for i, l in enumerate(linhas):
+            for j, v in enumerate(l, 1):
+                c = wsd.cell(row=5 + i, column=j, value=v)
+                c.border = borda
+                if (j - 1) in monetarias or (chave == "det_grupos" and j - 1 in (3, 4, 5)):
+                    c.number_format = moeda
+        if linhas:
+            t = 5 + len(linhas)
+            wsd.cell(row=t, column=1, value="TOTAL")
+            cols_soma = [4, 5, 6] if chave == "det_grupos" else [max(monetarias) + 1]
+            if chave == "det_grupos":
+                cols_soma = [2, 3, 4, 5, 6]
+            for col in cols_soma:
+                L = get_column_letter(col)
+                c = wsd.cell(row=t, column=col, value=f"=SUM({L}5:{L}{t-1})")
+                if col >= 4 or chave != "det_grupos":
+                    c.number_format = moeda
+            for col in range(1, len(cab) + 1):
+                c = wsd.cell(row=t, column=col)
+                c.font, c.fill, c.border = Font(bold=True), fundo_total, borda
+            wsd.auto_filter.ref = f"A4:{get_column_letter(len(cab))}{t-1}"
+        else:
+            wsd.cell(row=5, column=1, value="Nenhum lançamento no período.").font = Font(italic=True)
+        wsd.freeze_panes = "A5"
+        ajustar(wsd)
+
+    for aba in wb.worksheets:   # pronto para imprimir em paisagem, 1 página de largura
+        aba.page_setup.orientation = "landscape"
+        aba.page_setup.fitToWidth = 1
+        aba.page_setup.fitToHeight = 0
+        aba.sheet_properties.pageSetUpPr.fitToPage = True
+        aba.print_options.horizontalCentered = True
+
+    saida = io.BytesIO()
+    wb.save(saida)
+    saida.seek(0)
+    return send_file(saida, as_attachment=True,
+                     download_name=f"sgmf_gasto_total_{hoje():%Y%m%d}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

@@ -71,6 +71,8 @@
 {% block scripts %}
 <script>
 const RELATORIOS = [
+  { id: 'gasto_total', nome: 'Gasto total', icone: 'fa-sack-dollar', destaque: true,
+    texto: 'Mesmo cálculo do card do painel: manutenção (OS + terceiros), lavagem, uniformes, grupos de consumo e ferramentas dos mecânicos, com meta, aderência e o detalhamento dos lançamentos do período.' },
   { id: 'abastecimentos', nome: 'Abastecimentos', icone: 'fa-gas-pump',
     texto: 'Cada abastecimento com km rodados, km/L e custo por km.' },
   { id: 'manutencoes', nome: 'Ordens de serviço', icone: 'fa-screwdriver-wrench',
@@ -124,15 +126,22 @@ function validarFiltroEstoque(relatorio) {
   return true;
 }
 
+function urlRelatorio(relatorio, formato) {
+  const nome = relatorio === 'gasto_total' ? 'gasto-total' : relatorio;
+  return `/relatorios/${nome}.${formato}?${parametros()}`;
+}
+
 function baixar(relatorio, formato) {
   if (!validarFiltroEstoque(relatorio)) return;
-  window.location = `/relatorios/${relatorio}.${formato}?${parametros()}`;
+  // PDF do Gasto total abre inline: o visualizador do navegador permite ler, imprimir e salvar.
+  if (relatorio === 'gasto_total' && formato === 'pdf') return window.open(urlRelatorio(relatorio, formato), '_blank');
+  window.location = urlRelatorio(relatorio, formato);
 }
 
 /* Abre o PDF do relatório já formatado em uma nova aba e inicia a impressão. */
 function imprimir(relatorio) {
   if (!validarFiltroEstoque(relatorio)) return;
-  const janela = window.open(`/relatorios/${relatorio}.pdf?${parametros()}`, '_blank');
+  const janela = window.open(urlRelatorio(relatorio, 'pdf'), '_blank');
   if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela de impressão. Libere pop-ups para este site.');
   const tentarImprimir = setInterval(() => {
     try {
@@ -146,7 +155,7 @@ function imprimir(relatorio) {
 
 document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
   <div class="col-lg-4 col-md-6">
-    <div class="cartao h-100">
+    <div class="cartao h-100" ${r.destaque ? 'style="border-left:3px solid var(--alerta)"' : ''}>
       <div class="cartao-corpo">
         <h3 style="font-size:16px"><i class="fa-solid ${r.icone} me-2" style="color:var(--petroleo)"></i>${r.nome}</h3>
         <p class="mt-2 mb-3" style="font-size:13px;color:var(--texto-suave)">${r.texto}</p>
@@ -155,8 +164,8 @@ document.getElementById('cartoesRelatorios').innerHTML = RELATORIOS.map(r => `
             <i class="fa-solid fa-file-pdf me-1"></i> PDF</button>
           <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','xlsx')">
             <i class="fa-solid fa-file-excel me-1"></i> Excel</button>
-          <button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
-            <i class="fa-solid fa-file-csv me-1"></i> CSV</button>
+          ${r.id === 'gasto_total' ? '' : `<button class="btn btn-contorno btn-sm" onclick="baixar('${r.id}','csv')">
+            <i class="fa-solid fa-file-csv me-1"></i> CSV</button>`}
           <button class="btn btn-contorno btn-sm" onclick="imprimir('${r.id}')" title="Abrir e imprimir">
             <i class="fa-solid fa-print me-1"></i> Imprimir</button>
         </div>

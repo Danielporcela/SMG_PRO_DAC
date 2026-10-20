@@ -14,8 +14,29 @@
       <div class="rotulo">${opcoes.icone ? `<i class="fa-solid ${opcoes.icone}"></i>` : ''}${rotulo}</div>
       <div class="valor num" style="${opcoes.estilo || ''}">${valor}</div>
       ${opcoes.nota ? `<div class="nota">${opcoes.nota}</div>` : ''}
+      ${opcoes.rodape ? `<div class="d-flex gap-1 flex-wrap mt-2">${opcoes.rodape}</div>` : ''}
     </div>`;
   }
+
+  /* Botões do relatório "Gasto total" — usam o período selecionado no painel. */
+  function botoesGastoTotal() {
+    const q = `inicio=${inicio()}&fim=${fim()}`;
+    return `<a class="btn btn-primario btn-sm" href="/relatorios/gasto-total.pdf?${q}" target="_blank" rel="noopener">
+        <i class="fa-solid fa-file-pdf me-1"></i> PDF</a>
+      <a class="btn btn-contorno btn-sm" href="/relatorios/gasto-total.xlsx?${q}">
+        <i class="fa-solid fa-file-excel me-1"></i> Excel</a>
+      <button type="button" class="btn btn-contorno btn-sm" onclick="SGMFImprimirGastoTotal()">
+        <i class="fa-solid fa-print me-1"></i> Imprimir</button>`;
+  }
+
+  window.SGMFImprimirGastoTotal = function () {
+    const janela = window.open(`/relatorios/gasto-total.pdf?inicio=${inicio()}&fim=${fim()}`, '_blank');
+    if (!janela) return SGMF.aviso('Seu navegador bloqueou a janela. Libere pop-ups para este site.');
+    const t = setInterval(() => {
+      try { if (janela.closed) return clearInterval(t); janela.focus(); janela.print(); clearInterval(t); }
+      catch (e) { /* PDF ainda carregando */ }
+    }, 600);
+  };
 
   async function carregarIndicadores() {
     const d = await SGMF.get(`/api/painel/resumo?${qsPeriodo()}`);
@@ -66,7 +87,7 @@
         nota: `${d.transferencias_ferramentas_qtd || 0} transferência(s) do estoque de peças · incluído no Gasto total` }),
       medidor('Gasto total', SGMF.moeda(d.gasto_total), {
         classe: d.orcamento_mes && d.aderencia_orcamento > 100 ? 'critico' : '',
-        icone: 'fa-sack-dollar', estilo: 'font-size:19px',
+        icone: 'fa-sack-dollar', estilo: 'font-size:19px', rodape: botoesGastoTotal(),
         nota: `Manutenção (OS + terceiros) ${SGMF.moeda(d.gasto_manutencao || 0)} · Lavagem ${SGMF.moeda(d.gasto_lavagem || 0)} · Uniformes ${SGMF.moeda(d.gasto_uniformes || 0)} · Grupos de consumo ${SGMF.moeda(d.gasto_grupos_consumo || 0)} · Ferramentas dos mecânicos ${SGMF.moeda(d.gasto_ferramentas_mecanicos || 0)}<br>${aderencia} (meta da frota)` }),
     
       medidor('Estoque', SGMF.moeda(d.estoque_valor), {
