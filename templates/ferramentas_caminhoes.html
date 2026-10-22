@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+{% block titulo %}Ferramentas dos caminhões{% endblock %}
+{% block cabecalho %}Ferramentas dos caminhões{% endblock %}
+{% block descricao %}Lance as ferramentas usadas em cada veículo da frota — a baixa é feita direto no estoque de peças.{% endblock %}
+
+{% block conteudo %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Custo no período</div>
+      <div class="display mt-1" id="totalValor">R$ 0,00</div>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Ferramentas lançadas (unidades)</div>
+      <div class="display mt-1" id="totalQuantidade">0</div>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="cartao h-100"><div class="cartao-corpo">
+      <div class="text-muted" style="font-size:12px">Lançamentos</div>
+      <div class="display mt-1" id="totalLancamentos">0</div>
+    </div></div>
+  </div>
+</div>
+
+{% if pode('ferramentas_caminhoes', 'editar') %}
+<div class="cartao mb-3">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-trowel me-2" style="color:var(--hi-vis)"></i>Novo lançamento</h3></div>
+  <div class="cartao-corpo">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="fcVeiculo">Caminhão / veículo</label>
+        <select class="form-select" id="fcVeiculo"><option value="">Selecione</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="fcData">Data</label>
+        <input type="date" class="form-control" id="fcData" value="{{ hoje }}" max="{{ hoje }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="fcResponsavel">Responsável <span class="text-muted">(opcional)</span></label>
+        <input class="form-control" id="fcResponsavel" maxlength="80" placeholder="Quem levou / usou">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="fcObservacao">Observação <span class="text-muted">(opcional)</span></label>
+        <input class="form-control" id="fcObservacao" maxlength="120" placeholder="Ex.: rota, equipe, motivo">
+      </div>
+    </div>
+
+    <hr class="my-3">
+
+    <div class="row g-2 align-items-end">
+      <div class="col-md-7">
+        <label class="form-label" for="fcBusca">Buscar ferramenta no estoque de peças</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+          <input type="search" class="form-control" id="fcBusca" autocomplete="off"
+                 placeholder="Digite o nome ou o código — ex.: pá, enxada, rastelo, garfo">
+        </div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="fcGrupo">Grupo do estoque</label>
+        <select class="form-select" id="fcGrupo"><option value="">Todos os grupos</option></select>
+      </div>
+    </div>
+
+    <div id="fcResultados" class="mt-2"></div>
+
+    <div class="mt-3">
+      <div class="fw-semibold mb-1" style="font-size:13px">Ferramentas deste lançamento</div>
+      <div id="fcCarrinho"></div>
+    </div>
+
+    <div class="d-flex justify-content-end mt-3">
+      <button class="btn btn-primario" id="fcLancar" disabled>
+        <i class="fa-solid fa-arrow-down me-1"></i> Lançar e dar baixa no estoque
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="cartao mb-3">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-chart-column me-2" style="color:var(--petroleo)"></i>Custo por caminhão</h3>
+    <div class="d-flex gap-2 ms-auto align-items-end flex-wrap">
+      <div><label class="form-label mb-0" for="fcInicio">Início</label>
+        <input type="date" class="form-control form-control-sm" id="fcInicio" value="{{ primeiro_dia }}"></div>
+      <div><label class="form-label mb-0" for="fcFim">Fim</label>
+        <input type="date" class="form-control form-control-sm" id="fcFim" value="{{ hoje }}"></div>
+      <div><label class="form-label mb-0" for="fcFiltroVeiculo">Veículo</label>
+        <select class="form-select form-select-sm" id="fcFiltroVeiculo" style="min-width:170px">
+          <option value="">Todos</option></select></div>
+      <label class="d-flex align-items-center gap-1 mb-1" style="font-size:12px;white-space:nowrap;cursor:pointer">
+        <input type="checkbox" id="fcMostrarCancelados" class="form-check-input mt-0"> Mostrar cancelados
+      </label>
+      <button class="btn btn-contorno btn-sm" id="fcAtualizar"><i class="fa-solid fa-rotate me-1"></i> Atualizar</button>
+    </div>
+  </div>
+  <div class="cartao-corpo p-0"><div id="fcResumo"></div></div>
+</div>
+
+<div class="cartao">
+  <div class="cartao-topo"><h3><i class="fa-solid fa-clock-rotate-left me-2" style="color:var(--petroleo)"></i>Histórico de lançamentos</h3></div>
+  <div class="cartao-corpo p-0"><div id="fcHistorico"></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const PODE_EDITAR = {{ 'true' if pode('ferramentas_caminhoes', 'editar') else 'false' }};
+  const BASE = '/api/ferramentas-caminhoes';
+  const $ = (id) => document.getElementById(id);
+
+  let veiculos = [];
+  let resultados = [];     // peças da última busca
+  let carrinho = [];       // [{ peca, quantidade }]
+  let timerBusca = null;
+  let buscaSeq = 0;        // descarta respostas antigas quando o usuário digita rápido
+  let enviando = false;
+
+  const qtd = (v) => SGMF.numero(v, 2);
+
+  /* ------------------------------------------------------------ cadastros */
+  async function carregarVeiculos() {
+    veiculos = await SGMF.get(BASE + '/veiculos');
+    const opcoes = veiculos.map(v =>
+      `<option value="${v.id}">${SGMF.esc(v.rotulo)}${v.tipo ? ' — ' + SGMF.esc(v.tipo) : ''}</option>`).join('');
+    if ($('fcVeiculo')) $('fcVeiculo').innerHTML = '<option value="">Selecione</option>' + opcoes;
+    $('fcFiltroVeiculo').innerHTML = '<option value="">Todos</option>' + opcoes;
+  }
+
+  /* --------------------------------------------------------------- busca */
+  function mensagemBusca(html) {
+    $('fcResultados').innerHTML = `<div class="text-muted py-2" style="font-size:12.5px">${html}</div>`;
+  }
+
+  async function buscar() {
+    if (!PODE_EDITAR) return;
+    const termo = $('fcBusca').value.trim();
+    const grupo = $('fcGrupo').value;
+    if (!termo && !grupo) {
+      mensagemBusca('Digite o nome da ferramenta ou escolha um grupo para ver a lista.');
+      return;
+    }
+    const minha = ++buscaSeq;
+    mensagemBusca('<i class="fa-solid fa-spinner fa-spin me-1"></i> Buscando…');
+    try {
+      const dados = await SGMF.get(BASE + '/pecas?' + new URLSearchParams({ q: termo, grupo }));
+      if (minha !== buscaSeq) return;
+      resultados = dados.pecas;
+      desenharResultados(dados);
+    } catch (e) {
+      if (minha === buscaSeq) mensagemBusca(`<span class="text-danger">${SGMF.esc(e.message)}</span>`);
+    }
+  }
+
+  function desenharResultados(dados) {
+    if (!resultados.length) {
+      mensagemBusca('Nenhuma peça encontrada. Confira o nome ou o código.');
+      return;
+    }
+    const linhas = resultados.map(p => {
+      const semSaldo = !(p.quantidade > 0);
+      return `<tr>
+        <td class="num"><strong>${SGMF.esc(p.codigo)}</strong></td>
+        <td>${SGMF.esc(p.descricao)}${p.grupo ? `<br><small class="text-muted">${SGMF.esc(p.grupo)}</small>` : ''}</td>
+        <td class="text-end num">${semSaldo
+          ? SGMF.etiqueta('Sem saldo', 'vermelha')
+          : `${qtd(p.quantidade)} ${SGMF.esc(p.unidade || '')}`}</td>
+        <td class="text-end">${SGMF.moeda(p.custo_unitario)}</td>
+        <td class="text-end"><button type="button" class="btn btn-primario btn-sm" data-add="${p.id}" ${semSaldo ? 'disabled' : ''}>
+          <i class="fa-solid fa-plus me-1"></i> Adicionar</button></td>
+      </tr>`;
+    }).join('');
+    $('fcResultados').innerHTML = `
+      <div class="d-flex justify-content-between mb-1" style="font-size:12px">
+        <strong>${dados.total} ${dados.total === 1 ? 'peça encontrada' : 'peças encontradas'}</strong>
+        ${dados.total > resultados.length ? `<span class="text-muted">Mostrando ${resultados.length}. Digite mais para refinar.</span>` : ''}
+      </div>
+      <div class="table-responsive border rounded" style="max-height:280px;overflow:auto">
+        <table class="table table-hover table-sm align-middle mb-0">
+          <thead><tr><th>Código</th><th>Peça</th><th class="text-end">Saldo</th><th class="text-end">Custo unit.</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>`;
+  }
+
+  /* ----------------------------------------------------- itens do lançamento */
+  function adicionar(id) {
+    const peca = resultados.find(p => p.id === id);
+    if (!peca) return;
+    const existente = carrinho.find(i => i.peca.id === id);
+    if (existente) existente.quantidade += 1;
+    else carrinho.push({ peca, quantidade: 1 });
+    desenharCarrinho();
+  }
+
+  function desenharCarrinho() {
+    if (!carrinho.length) {
+      $('fcCarrinho').innerHTML = '<div class="text-muted" style="font-size:12.5px">Nenhuma ferramenta adicionada ainda.</div>';
+      $('fcLancar').disabled = true;
+      return;
+    }
+    const linhas = carrinho.map((item, idx) => `<tr>
+      <td class="num"><strong>${SGMF.esc(item.peca.codigo)}</strong></td>
+      <td>${SGMF.esc(item.peca.descricao)}</td>
+      <td class="text-end num">${qtd(item.peca.quantidade)} ${SGMF.esc(item.peca.unidade || '')}</td>
+      <td style="width:130px"><input type="number" min="0" step="any" class="form-control form-control-sm text-end"
+            data-qtd="${idx}" value="${item.quantidade}" aria-label="Quantidade de ${SGMF.esc(item.peca.descricao)}"></td>
+      <td class="text-end" data-sub="${idx}"></td>
+      <td class="text-end"><button type="button" class="btn btn-contorno btn-sm" data-rem="${idx}" title="Remover"><i class="fa-solid fa-xmark"></i></button></td>
+    </tr>`).join('');
+    $('fcCarrinho').innerHTML = `
+      <div class="table-responsive border rounded">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Código</th><th>Ferramenta</th><th class="text-end">Saldo</th><th>Quantidade</th><th class="text-end">Custo</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+          <tfoot><tr><td colspan="4" class="text-end fw-semibold">Total do lançamento</td>
+            <td class="text-end fw-semibold" id="fcTotalCarrinho"></td><td></td></tr></tfoot>
+        </table>
+      </div>`;
+    atualizarSubtotais();
+  }
+
+  // Atualiza só os valores — sem redesenhar a tabela, para o campo não perder o foco.
+  function atualizarSubtotais() {
+    let total = 0, valido = carrinho.length > 0;
+    carrinho.forEach((item, idx) => {
+      const sub = (item.quantidade > 0 ? item.quantidade : 0) * (item.peca.custo_unitario || 0);
+      total += sub;
+      const el = document.querySelector(`[data-sub="${idx}"]`);
+      const excede = item.quantidade > item.peca.quantidade;
+      if (el) el.innerHTML = excede
+        ? `<span class="text-danger" title="Maior que o saldo">${SGMF.moeda(sub)} <i class="fa-solid fa-triangle-exclamation"></i></span>`
+        : SGMF.moeda(sub);
+      if (!(item.quantidade > 0) || excede) valido = false;
+    });
+    const t = $('fcTotalCarrinho');
+    if (t) t.textContent = SGMF.moeda(total);
+    $('fcLancar').disabled = !valido || enviando;
+  }
+
+  /* ------------------------------------------------------------- lançar */
+  async function lancar() {
+    const veiculoId = Number($('fcVeiculo').value);
+    if (!veiculoId) return SGMF.aviso('Selecione o caminhão que usou as ferramentas.');
+    if (!carrinho.length) return SGMF.aviso('Adicione ao menos uma ferramenta.');
+    const veiculo = veiculos.find(v => v.id === veiculoId);
+    const resumo = carrinho.map(i => `${qtd(i.quantidade)} ${i.peca.unidade || ''} de ${i.peca.descricao}`).join('; ');
+    const ok = await SGMF.confirmar('Confirmar lançamento',
+      `Dar baixa no estoque de peças e lançar em ${veiculo ? veiculo.rotulo : 'o veículo'}: ${resumo}?`,
+      'Lançar e dar baixa');
+    if (!ok) return;
+    enviando = true; $('fcLancar').disabled = true;
+    try {
+      await SGMF.post(BASE, {
+        veiculo_id: veiculoId, data: $('fcData').value,
+        responsavel: $('fcResponsavel').value, observacao: $('fcObservacao').value,
+        itens: carrinho.map(i => ({ peca_id: i.peca.id, quantidade: i.quantidade }))
+      });
+      SGMF.sucesso('Ferramentas lançadas e estoque baixado.');
+      carrinho = [];
+      $('fcResponsavel').value = ''; $('fcObservacao').value = '';
+      desenharCarrinho();
+      await Promise.all([buscar(), carregarLista()]);
+    } catch (e) {
+      SGMF.falha(e.message);
+    } finally {
+      enviando = false; atualizarSubtotais();
+    }
+  }
+
+  /* ----------------------------------------------------- resumo e histórico */
+  function filtros() {
+    const p = new URLSearchParams();
+    if ($('fcInicio').value) p.set('inicio', $('fcInicio').value);
+    if ($('fcFim').value) p.set('fim', $('fcFim').value);
+    if ($('fcFiltroVeiculo').value) p.set('veiculo_id', $('fcFiltroVeiculo').value);
+    return p;
+  }
+
+  async function carregarLista() {
+    const p = filtros();
+    const ph = new URLSearchParams(p);
+    if ($('fcMostrarCancelados').checked) ph.set('incluir_cancelados', '1');
+    const pr = new URLSearchParams(p); pr.delete('veiculo_id');
+    const [resumo, historico] = await Promise.all([
+      SGMF.get(BASE + '/resumo?' + pr.toString()),
+      SGMF.get(BASE + '?' + ph.toString())
+    ]);
+
+    $('totalValor').textContent = SGMF.moeda(resumo.total_valor);
+    $('totalQuantidade').textContent = qtd(resumo.total_quantidade);
+    $('totalLancamentos').textContent = SGMF.numero(resumo.total_lancamentos);
+
+    const linhasResumo = resumo.veiculos.map(r => `<tr>
+      <td><strong>${SGMF.esc(r.veiculo_nome)}</strong></td>
+      <td class="text-end">${SGMF.numero(r.lancamentos)}</td>
+      <td class="text-end">${qtd(r.quantidade)}</td>
+      <td class="text-end"><strong>${SGMF.moeda(r.valor_total)}</strong></td></tr>`).join('');
+    $('fcResumo').innerHTML = `<div class="table-responsive"><table class="table table-hover mb-0">
+      <thead><tr><th>Veículo</th><th class="text-end">Lançamentos</th><th class="text-end">Unidades</th><th class="text-end">Custo</th></tr></thead>
+      <tbody>${linhasResumo || '<tr><td colspan="4" class="text-center py-4">Nenhum lançamento no período.</td></tr>'}</tbody></table></div>`;
+
+    const linhasHist = historico.map(u => {
+      const cancelado = u.situacao === 'Cancelado';
+      const estilo = cancelado ? ' style="opacity:.6"' : '';
+      return `<tr${estilo}>
+        <td>${SGMF.data(u.data)}</td>
+        <td><strong>${SGMF.esc(u.veiculo_nome || '—')}</strong></td>
+        <td>${SGMF.esc(u.peca_codigo || '')} · ${SGMF.esc(u.peca_descricao || '')}</td>
+        <td class="text-end">${qtd(u.quantidade)} ${SGMF.esc(u.unidade || '')}</td>
+        <td class="text-end">${SGMF.moeda(u.valor_total)}</td>
+        <td>${SGMF.esc(u.responsavel || '—')}${u.observacao ? `<br><small class="text-muted">${SGMF.esc(u.observacao)}</small>` : ''}</td>
+        <td>${SGMF.esc(u.usuario_nome || '')}<br><small class="text-muted">${SGMF.esc(u.documento)}</small></td>
+        <td>${cancelado
+          ? SGMF.etiqueta('Cancelado', 'cinza') + `<br><small class="text-muted">${SGMF.data(u.data_cancelamento)} · ${SGMF.esc(u.cancelado_por || '')}</small>`
+          : SGMF.etiqueta('Lançado', 'verde')}</td>
+        ${PODE_EDITAR ? `<td class="text-end">${cancelado ? '' :
+          `<button class="btn btn-contorno btn-sm" data-cancelar="${u.id}" title="Cancelar e devolver ao estoque"><i class="fa-solid fa-rotate-left"></i></button>`}</td>` : ''}
+      </tr>`;
+    }).join('');
+    $('fcHistorico').innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+      <thead><tr><th>Data</th><th>Veículo</th><th>Ferramenta</th><th class="text-end">Qtd.</th><th class="text-end">Custo</th>
+        <th>Responsável</th><th>Lançado por</th><th>Situação</th>${PODE_EDITAR ? '<th></th>' : ''}</tr></thead>
+      <tbody>${linhasHist || `<tr><td colspan="${PODE_EDITAR ? 9 : 8}" class="text-center py-4">Nenhum lançamento encontrado.</td></tr>`}</tbody></table></div>`;
+  }
+
+  async function cancelar(id) {
+    const ok = await SGMF.confirmar('Cancelar lançamento',
+      'A quantidade volta para o estoque de peças e o lançamento fica marcado como cancelado.', 'Cancelar lançamento');
+    if (!ok) return;
+    try {
+      await SGMF.del(`${BASE}/${id}`);   // pede a senha de administrador
+      SGMF.sucesso('Lançamento cancelado e saldo devolvido ao estoque.');
+      await Promise.all([carregarLista(), buscar()]);
+    } catch (e) { SGMF.falha(e.message); }
+  }
+
+  /* -------------------------------------------------------------- eventos */
+  document.addEventListener('click', (e) => {
+    const add = e.target.closest('[data-add]');
+    if (add) return adicionar(Number(add.dataset.add));
+    const rem = e.target.closest('[data-rem]');
+    if (rem) { carrinho.splice(Number(rem.dataset.rem), 1); return desenharCarrinho(); }
+    const can = e.target.closest('[data-cancelar]');
+    if (can) return cancelar(Number(can.dataset.cancelar));
+  });
+  document.addEventListener('input', (e) => {
+    const campo = e.target.closest('[data-qtd]');
+    if (!campo) return;
+    const item = carrinho[Number(campo.dataset.qtd)];
+    if (item) { item.quantidade = Number(String(campo.value).replace(',', '.')) || 0; atualizarSubtotais(); }
+  });
+
+  if (PODE_EDITAR) {
+    $('fcBusca').addEventListener('input', () => { clearTimeout(timerBusca); timerBusca = setTimeout(buscar, 250); });
+    $('fcGrupo').addEventListener('change', buscar);
+    $('fcLancar').addEventListener('click', lancar);
+    desenharCarrinho();
+    mensagemBusca('Digite o nome da ferramenta ou escolha um grupo para ver a lista.');
+  }
+  $('fcAtualizar').addEventListener('click', () => carregarLista().catch(e => SGMF.falha(e.message)));
+  ['fcInicio', 'fcFim', 'fcFiltroVeiculo', 'fcMostrarCancelados'].forEach(id =>
+    $(id).addEventListener('change', () => carregarLista().catch(e => SGMF.falha(e.message))));
+
+  (async () => {
+    try {
+      await carregarVeiculos();
+      if (PODE_EDITAR) {
+        const grupos = await SGMF.get(BASE + '/grupos');
+        $('fcGrupo').innerHTML = '<option value="">Todos os grupos</option>' +
+          grupos.map(g => `<option value="${SGMF.esc(g)}">${SGMF.esc(g)}</option>`).join('');
+      }
+      await carregarLista();
+    } catch (e) { SGMF.falha(e.message); }
+  })();
+})();
+</script>
+{% endblock %}

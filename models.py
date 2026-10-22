@@ -35,6 +35,7 @@ TELAS_SISTEMA = [
     ("combustivel", "Abastecimentos", "Operação"),
     ("pneus", "Pneus", "Operação"),
     ("grupos_consumo", "Grupos de consumo", "Operação"),
+    ("ferramentas_caminhoes", "Ferramentas dos caminhões", "Operação"),
     ("veiculos", "Veículos", "Cadastros"),
     ("motoristas", "Motoristas", "Cadastros"),
     ("fornecedores", "Oficinas e postos", "Cadastros"),
@@ -80,6 +81,7 @@ CARGOS_SUGERIDOS = {
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
             "grupos": "editar", "grupos_consumo": "editar",
             "ferramentas": "editar", "funcionarios": "visualizar",
+            "ferramentas_caminhoes": "editar",
         },
     },
     # Quem aprova e efetiva a compra. 'compras' em nível 'editar' é o que
@@ -2140,4 +2142,62 @@ class TransferenciaFerramenta(db.Model):
             "quantidade": self.quantidade, "custo_unitario": self.custo_unitario,
             "valor_total": self.valor_total, "observacao": self.observacao,
             "usuario_nome": self.usuario_nome,
+        }
+
+
+class UsoFerramentaVeiculo(db.Model):
+    """Ferramenta (pá, enxada, rastelo, garfo...) usada em um veículo da frota.
+
+    As ferramentas continuam cadastradas no ESTOQUE DE PEÇAS: cada lançamento
+    dá baixa direto lá (MovimentoEstoque de saída) e guarda o custo médio da
+    data. Cancelar o lançamento devolve a quantidade ao estoque, sem apagar o
+    registro original (exclusão lógica, para auditoria).
+    """
+    __tablename__ = "uso_ferramentas_veiculo"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, nullable=False, default=_hoje, index=True)
+    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False, index=True)
+    peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False, index=True)
+    movimento_estoque_id = db.Column(db.Integer, db.ForeignKey("movimentos_estoque.id"),
+                                     nullable=False, unique=True)
+    quantidade = db.Column(db.Float, nullable=False)
+    custo_unitario = db.Column(db.Float, nullable=False, default=0)
+    responsavel = db.Column(db.String(80))     # quem levou/usou (texto livre)
+    observacao = db.Column(db.String(200))
+    usuario_nome = db.Column(db.String(120))
+    # Exclusão lógica: o lançamento fica no histórico e o saldo volta ao estoque.
+    data_cancelamento = db.Column(db.Date)
+    cancelado_por = db.Column(db.String(120))
+    motivo_cancelamento = db.Column(db.String(200))
+    veiculo = db.relationship("Veiculo")
+    peca = db.relationship("Peca")
+    movimento_estoque = db.relationship("MovimentoEstoque")
+
+    @property
+    def valor_total(self):
+        return round((self.quantidade or 0) * (self.custo_unitario or 0), 2)
+
+    @property
+    def cancelado(self):
+        return self.data_cancelamento is not None
+
+    def to_dict(self):
+        return {
+            "id": self.id, "data": self.data.isoformat() if self.data else None,
+            "veiculo_id": self.veiculo_id,
+            "veiculo_nome": self.veiculo.rotulo if self.veiculo else None,
+            "peca_id": self.peca_id,
+            "peca_codigo": self.peca.codigo if self.peca else None,
+            "peca_descricao": self.peca.descricao if self.peca else None,
+            "unidade": self.peca.unidade if self.peca else None,
+            "movimento_estoque_id": self.movimento_estoque_id,
+            "quantidade": self.quantidade, "custo_unitario": self.custo_unitario,
+            "valor_total": self.valor_total, "responsavel": self.responsavel,
+            "observacao": self.observacao, "usuario_nome": self.usuario_nome,
+            "documento": f"FERR-VEIC-{self.id}",
+            "situacao": "Cancelado" if self.cancelado else "Lançado",
+            "data_cancelamento": (self.data_cancelamento.isoformat()
+                                  if self.data_cancelamento else None),
+            "cancelado_por": self.cancelado_por,
+            "motivo_cancelamento": self.motivo_cancelamento,
         }

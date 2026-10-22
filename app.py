@@ -72,6 +72,7 @@ def criar_app(config=Config):
     from routes.correcao_os import bp_correcao_os
     from routes.uniformes import bp_uniformes
     from routes.ferramentas import bp_ferramentas
+    from routes.ferramentas_caminhoes import bp_ferramentas_caminhoes
     from routes.rastreio_pecas import bp_rastreio_pecas
 
     app.register_blueprint(bp_auth)
@@ -87,6 +88,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_correcao_os)
     app.register_blueprint(bp_uniformes)
     app.register_blueprint(bp_ferramentas)
+    app.register_blueprint(bp_ferramentas_caminhoes)
     app.register_blueprint(bp_busca_pecas)
     app.register_blueprint(bp_compras)
     app.register_blueprint(bp_combustivel_estoque)
@@ -111,6 +113,7 @@ def criar_app(config=Config):
                                                      garantir_numero_os_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
+                                                     garantir_ferramentas_veiculo,
                                                      garantir_campos_ordens_servico)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
@@ -127,6 +130,7 @@ def criar_app(config=Config):
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
         garantir_ferramentas()
+        garantir_ferramentas_veiculo()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço

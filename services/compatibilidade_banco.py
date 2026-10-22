@@ -503,3 +503,19 @@ def garantir_ferramentas():
             if nome not in existentes:
                 conn.execute(text(f'ALTER TABLE "entregas_ferramenta" ADD COLUMN "{nome}" {tipo}'))
 
+
+def garantir_ferramentas_veiculo():
+    """Cria a tabela de ferramentas usadas nos veículos em bancos já existentes.
+
+    Só cria o que falta (CREATE TABLE); nunca altera nem apaga dados. Banco
+    novo: db.create_all() cria tudo em preparar_banco().
+    """
+    from models import UsoFerramentaVeiculo
+
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    # As FKs apontam para veículos, peças e movimentos de estoque.
+    if not {"veiculos", "pecas", "movimentos_estoque"} <= tabelas:
+        return
+    if UsoFerramentaVeiculo.__tablename__ not in tabelas:
+        UsoFerramentaVeiculo.__table__.create(engine, checkfirst=True)

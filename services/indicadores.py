@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload, lazyload, selectinload
 from extensions import db
 from models import (Abastecimento, ItemOS, Lavagem, MovimentoEstoque, NotaFiscal, OrdemServico,
                     Orcamento, Peca, Pneu, ServicoTerceiro, Veiculo, NotaFiscalUniforme, NotaFiscalCombustivel,
-                    TransferenciaFerramenta)
+                    TransferenciaFerramenta, UsoFerramentaVeiculo)
 from services.auditoria_estoque import contar_os_pendentes
 from services.grupos_consumo import _normalizar, custos_por_grupo
 from services.tempo import hoje as data_de_hoje
@@ -629,7 +629,11 @@ def series_graficos(inicio=None, fim=None):
                         MovimentoEstoque.grupo_consumo_id.is_(None),
                         MovimentoEstoque.data.between(inicio, fim),
                         ~MovimentoEstoque.id.in_(db.session.query(
-                            TransferenciaFerramenta.movimento_estoque_id))).all()):
+                            TransferenciaFerramenta.movimento_estoque_id)),
+                        # Ferramentas lançadas nos caminhões (pá, enxada...) têm
+                        # tela e histórico próprios: não são peça consumida.
+                        ~MovimentoEstoque.id.in_(db.session.query(
+                            UsoFerramentaVeiculo.movimento_estoque_id))).all()):
         if not mov.peca:
             continue
         qtd = mov.quantidade or 0
