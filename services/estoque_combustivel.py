@@ -82,7 +82,8 @@ def _eventos(combustivel):
     return cfg, eventos
 
 
-def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, persistir=True):
+def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, persistir=True,
+                                   permitir_negativo=False):
     """Reprocessa o kardex cronologicamente e atualiza o custo médio das saídas.
 
     estrito=True  (padrão): saldo insuficiente levanta ErroNegocio. É o que
@@ -91,6 +92,10 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
                   levanta erro; registra o problema em "alertas" e segue, para
                   uma inconsistência antiga não travar a tela inteira.
     persistir=True (padrão): atualiza custo/km dos abastecimentos (gravações).
+    permitir_negativo=True: usado na IMPORTAÇÃO de abastecimentos. Não bloqueia
+                  por falta de saldo: o abastecimento é gravado e DESCONTADO do
+                  estoque, que pode ficar negativo até a NF de entrada ser
+                  lançada (o kardex recalcula tudo cronologicamente).
     persistir=False: só calcula o kardex para exibir. Pula o recálculo por
                   abastecimento (1 consulta + 1 UPDATE para cada linha), que
                   nas telas de consulta era descartado pelo rollback.
@@ -135,11 +140,18 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
                 if validar:
                     raise ErroNegocio(f"Informe o valor da NF {obj.numero_nf}.")
                 continue
-            saldo_litros += litros
-            saldo_valor += total
+            if saldo_litros < -EPS:
+                # Havia saída sem NF (saldo negativo): a entrada cobre a dívida em
+                # litros ao custo da própria NF e o saldo passa a ter só o excedente.
+                unit_nf = total / litros
+                saldo_litros += litros
+                saldo_valor = max(saldo_litros, 0.0) * unit_nf
+            else:
+                saldo_litros += litros
+                saldo_valor += total
             litros_comprados += litros
             valor_comprado += total
-            custo_medio = saldo_valor / saldo_litros if saldo_litros else 0
+            custo_medio = saldo_valor / saldo_litros if saldo_litros > EPS else total / litros
             ultimo_custo = custo_medio
             movimentos.append({
                 "data": data_mov.isoformat(), "tipo": "Entrada NF",
@@ -249,21 +261,25 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
                     f"Estoque insuficiente de {combustivel} em {data_mov.strftime('%d/%m/%Y')}. "
                     f"Frota {frota}: solicitado {litros:.2f} L, disponível {max(saldo_litros, 0):.2f} L "
                     f"(faltam {faltam:.2f} L). Lance uma NF de entrada antes do abastecimento.")
-                if estrito:
+                if estrito and not permitir_negativo:
                     raise ErroNegocio(aviso)
+                if permitir_negativo:
+                    aviso = (f"Estoque de {combustivel} ficou negativo em {data_mov.strftime('%d/%m/%Y')} "
+                             f"(Frota {frota}: faltam {faltam:.2f} L). Lance a NF de entrada para regularizar.")
                 alertas.append(aviso)
-            # Sem saldo (só no modo não estrito): valoriza pelo último custo médio conhecido.
+            # Sem saldo: valoriza pelo último custo médio conhecido.
             custo_medio = saldo_valor / saldo_litros if saldo_litros > EPS else ultimo_custo
             custo_saida = litros * custo_medio
             if persistir:
                 obj.valor_litro = round(custo_medio, 4)
                 obj.valor_total = round(custo_saida, 2)
                 recalcular_abastecimento(obj)
-            if sem_saldo:
+            if sem_saldo and not permitir_negativo:
                 # Não deixa o saldo ficar negativo: o que faltou fica sinalizado no alerta.
                 saldo_litros = 0.0
                 saldo_valor = 0.0
             else:
+                # Desconta o abastecimento por inteiro (saldo pode ficar negativo).
                 saldo_litros -= litros
                 saldo_valor -= custo_saida
             if abs(saldo_litros) < EPS:
@@ -278,7 +294,7 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
                 "litros": round(litros, 3), "entrada": 0, "saida": round(litros, 3),
                 "valor_unitario": round(custo_medio, 4), "valor": round(custo_saida, 2),
                 "saldo_litros": round(saldo_litros, 3), "saldo_valor": round(saldo_valor, 2),
-                "custo_medio": round((saldo_valor / saldo_litros) if saldo_litros else 0, 4),
+                "custo_medio": round((saldo_valor / saldo_litros) if saldo_litros > EPS else ultimo_custo, 4),
                 "alerta": aviso,
             })
 

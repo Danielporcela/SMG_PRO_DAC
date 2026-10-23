@@ -97,7 +97,7 @@ def criar_nota():
         db.session.add(nota)
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
-        recalcular_estoque_combustivel(nota.combustivel)
+        recalcular_estoque_combustivel(nota.combustivel, permitir_negativo=True)
         registrar_log("criar", "notas_combustivel", nota.id, f"NF {nota.numero_nf}")
         db.session.commit()
         return jsonify(nota.to_dict()), 201
@@ -118,9 +118,9 @@ def editar_nota(nota_id):
         _aplicar(nota, request.get_json(silent=True) or {})
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
-        recalcular_estoque_combustivel(nota.combustivel)
+        recalcular_estoque_combustivel(nota.combustivel, permitir_negativo=True)
         if antigo != nota.combustivel:
-            recalcular_estoque_combustivel(antigo)
+            recalcular_estoque_combustivel(antigo, permitir_negativo=True)
         registrar_log("editar", "notas_combustivel", nota.id, f"NF {nota.numero_nf}")
         db.session.commit()
         return jsonify(nota.to_dict())

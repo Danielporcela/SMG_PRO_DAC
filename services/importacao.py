@@ -701,11 +701,11 @@ def gravar_abastecimentos(linhas):
                     recalcular_abastecimento(obj)
 
             # Baixa automática do estoque. Se o controle já estiver ativo por NF,
-            # a importação inteira é atômica: saldo insuficiente cancela tudo.
+            # a importação desconta do estoque mesmo sem saldo (fica negativo até a NF).
             from services.estoque_combustivel import recalcular_estoque_combustivel
             combustiveis_afetados = {obj.combustivel for obj in criados}
             for combustivel in combustiveis_afetados:
-                recalcular_estoque_combustivel(combustivel)
+                recalcular_estoque_combustivel(combustivel, permitir_negativo=True)
 
         # O consumo diário soma km_percorridos no banco: precisa dos valores já gravados.
         db.session.flush()
@@ -849,7 +849,7 @@ def importar_abastecimentos_workbook(workbook):
                     recalcular_abastecimento(obj)
             from services.estoque_combustivel import recalcular_estoque_combustivel
             for combustivel in combustiveis_afetados:
-                recalcular_estoque_combustivel(combustivel)
+                recalcular_estoque_combustivel(combustivel, permitir_negativo=True)
             db.session.flush()
 
         resumo = {"importados": importados, "duplicados": duplicados, "ignorados": ignorados, "erros": erros}
