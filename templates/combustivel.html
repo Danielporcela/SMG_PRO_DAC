@@ -310,8 +310,8 @@ async function carregarControleCombustivel(manual = false) {
       document.getElementById('resumoEstoqueCombustivel').innerHTML = [
         `<div class="medidor"><div class="rotulo">Saldo físico</div><div class="valor num">${SGMF.numero(resumo.litros_estoque, 1)} <small>L</small></div></div>`,
         `<div class="medidor"><div class="rotulo">Valor do estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(resumo.valor_estoque)}</div><div class="nota">controle separado</div></div>`,
-        `<div class="medidor ok"><div class="rotulo">Entradas por NF</div><div class="valor num">${SGMF.numero(resumo.litros_comprados, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_comprado)}</div></div>`,
-        `<div class="medidor atencao"><div class="rotulo">Baixas por abastecimento</div><div class="valor num">${SGMF.numero(resumo.litros_consumidos, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_consumido)}</div></div>`
+        `<div class="medidor ok"><div class="rotulo">Entradas por NF</div><div class="valor num">${SGMF.numero(resumo.litros_comprados, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_comprado)}${resumo.periodo ? ' · ciclo ' + SGMF.data(resumo.periodo.inicio) + ' → ' + SGMF.data(resumo.periodo.fim_exclusivo) : ''}</div></div>`,
+        `<div class="medidor atencao"><div class="rotulo">Baixas por abastecimento</div><div class="valor num">${SGMF.numero(resumo.litros_consumidos, 1)} <small>L</small></div><div class="nota">${SGMF.moeda(resumo.valor_consumido)}${resumo.periodo ? ' · ciclo ' + SGMF.data(resumo.periodo.inicio) + ' → ' + SGMF.data(resumo.periodo.fim_exclusivo) : ''}</div></div>`
       ].join('');
 
       document.getElementById('estoquePorCombustivel').innerHTML = resumo.itens && resumo.itens.length ? `

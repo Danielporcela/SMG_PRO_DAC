@@ -83,7 +83,7 @@ def _eventos(combustivel):
 
 
 def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, persistir=True,
-                                   permitir_negativo=False):
+                                   permitir_negativo=False, periodo=None):
     """Reprocessa o kardex cronologicamente e atualiza o custo médio das saídas.
 
     estrito=True  (padrão): saldo insuficiente levanta ErroNegocio. É o que
@@ -96,6 +96,9 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
                   por falta de saldo: o abastecimento é gravado e DESCONTADO do
                   estoque, que pode ficar negativo até a NF de entrada ser
                   lançada (o kardex recalcula tudo cronologicamente).
+    periodo=(inicio, fim_exclusivo): restringe APENAS os totais de comprado e
+                  consumido a esse intervalo (ciclo 20→20). O saldo e o valor do
+                  estoque continuam sendo a posição acumulada atual.
     persistir=False: só calcula o kardex para exibir. Pula o recálculo por
                   abastecimento (1 consulta + 1 UPDATE para cada linha), que
                   nas telas de consulta era descartado pelo rollback.
@@ -120,6 +123,12 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
     ultimo_custo = 0.0
 
     from services.calculos import recalcular_abastecimento
+
+    def _no_periodo(d):
+        if not periodo:
+            return True
+        ini, fim_ex = periodo
+        return (ini is None or d >= ini) and (fim_ex is None or d < fim_ex)
 
     for data_mov, _prioridade, _id, tipo, obj in eventos:
         if tipo == "entrada":
@@ -149,8 +158,9 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
             else:
                 saldo_litros += litros
                 saldo_valor += total
-            litros_comprados += litros
-            valor_comprado += total
+            if _no_periodo(data_mov):
+                litros_comprados += litros
+                valor_comprado += total
             custo_medio = saldo_valor / saldo_litros if saldo_litros > EPS else total / litros
             ultimo_custo = custo_medio
             movimentos.append({
@@ -285,8 +295,9 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
             if abs(saldo_litros) < EPS:
                 saldo_litros = 0.0
                 saldo_valor = 0.0
-            litros_consumidos += litros
-            valor_consumido += custo_saida
+            if _no_periodo(data_mov):
+                litros_consumidos += litros
+                valor_consumido += custo_saida
             movimentos.append({
                 "data": data_mov.isoformat(), "tipo": "Saída abastecimento",
                 "documento": f"Frota {obj.veiculo.prefixo if obj.veiculo else obj.veiculo_id}",
@@ -311,10 +322,19 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
         "valor_consumido": round(valor_consumido, 2),
         "movimentacoes": movimentos,
         "alertas": alertas,
+        "periodo": _periodo_dict(periodo),
     }
 
 
-def recalcular_todos_combustiveis(estrito=True, persistir=True, permitir_negativo=False):
+def _periodo_dict(periodo):
+    if not periodo:
+        return None
+    ini, fim_ex = periodo
+    return {"inicio": ini.isoformat() if ini else None,
+            "fim_exclusivo": fim_ex.isoformat() if fim_ex else None}
+
+
+def recalcular_todos_combustiveis(estrito=True, persistir=True, permitir_negativo=False, periodo=None):
     resultados = []
     # Em consulta (persistir=False) nada deve ser gravado: no_autoflush impede
     # que alterações em memória virem UPDATEs durante o cálculo.
@@ -323,14 +343,14 @@ def recalcular_todos_combustiveis(estrito=True, persistir=True, permitir_negativ
         for cfg in ControleEstoqueCombustivel.query.order_by(ControleEstoqueCombustivel.combustivel).all():
             resultados.append(recalcular_estoque_combustivel(
                 cfg.combustivel, estrito=estrito, persistir=persistir,
-                permitir_negativo=permitir_negativo))
+                permitir_negativo=permitir_negativo, periodo=periodo))
     if persistir:
         db.session.flush()
     return resultados
 
 
-def resumo_geral(estrito=True, persistir=True, permitir_negativo=False):
-    itens = recalcular_todos_combustiveis(estrito, persistir, permitir_negativo)
+def resumo_geral(estrito=True, persistir=True, permitir_negativo=False, periodo=None):
+    itens = recalcular_todos_combustiveis(estrito, persistir, permitir_negativo, periodo)
     return {
         "itens": itens,
         "alertas": [a for x in itens for a in x.get("alertas", [])],
@@ -340,6 +360,7 @@ def resumo_geral(estrito=True, persistir=True, permitir_negativo=False):
         "valor_comprado": round(sum(x["valor_comprado"] for x in itens), 2),
         "litros_consumidos": round(sum(x["litros_consumidos"] for x in itens), 3),
         "valor_consumido": round(sum(x["valor_consumido"] for x in itens), 2),
+        "periodo": _periodo_dict(periodo),
     }
 
 

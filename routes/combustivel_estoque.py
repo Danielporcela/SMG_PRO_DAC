@@ -228,12 +228,38 @@ def reconciliar_estoque():
         return jsonify({"erro": f"Não foi possível reconciliar o estoque ({e.__class__.__name__})."}), 400
 
 
+def _periodo_ciclo(inicio_txt, fim_txt):
+    """Período dos totais de entradas/consumo: ciclo 20→20 (fim exclusivo).
+
+    Sem parâmetros usa o ciclo operacional atual (ex.: 20/10 → 20/11).
+    Se o intervalo informado for exatamente um ciclo 20→20, o dia 20 final
+    pertence ao ciclo seguinte (mesma regra do restante do sistema).
+    """
+    from datetime import timedelta
+    from services.indicadores import ciclo_operacional
+    try:
+        ini = date.fromisoformat(inicio_txt) if inicio_txt else None
+        fim = date.fromisoformat(fim_txt) if fim_txt else None
+    except ValueError:
+        ini = fim = None
+    if not ini and not fim:
+        return ciclo_operacional()
+    if ini and fim:
+        proximo = ciclo_operacional(ini)[1] if ini.day == 20 else None
+        if proximo == fim:
+            return ini, fim
+        return ini, fim + timedelta(days=1)
+    return ini, (fim + timedelta(days=1) if fim else None)
+
+
 @bp_combustivel_estoque.get("/combustivel/estoque-resumo")
 @visualizar_tela("combustivel")
 def estoque_resumo():
     try:
         # Consulta: não trava a tela por inconsistência antiga; devolve "alertas".
-        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False, persistir=False, permitir_negativo=True))
+        periodo = _periodo_ciclo(request.args.get("inicio"), request.args.get("fim"))
+        dados = _consultar_com_nova_tentativa(
+            lambda: resumo_geral(estrito=False, persistir=False, permitir_negativo=True, periodo=periodo))
         db.session.rollback()  # GET não persiste eventual recálculo de custo.
         return jsonify(dados)
     except ErroNegocio as e:

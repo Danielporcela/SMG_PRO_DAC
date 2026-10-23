@@ -736,7 +736,7 @@
     const area = document.getElementById('estoqueCombustivelDashboard');
     if (!area) return;
     try {
-      const d = await SGMF.get('/api/combustivel/estoque-resumo');
+      const d = await SGMF.get(`/api/combustivel/estoque-resumo?inicio=${inicio()}&fim=${fim()}`);
       if (!d.itens || !d.itens.length) {
         area.innerHTML = `<div class="text-muted" style="font-size:12.5px">
           Estoque de combustível ainda não ativado. Lance uma NF/entrada na aba Combustível.</div>`;
@@ -749,10 +749,10 @@
           icone: 'fa-coins', estilo: 'font-size:19px', nota: 'controle separado das despesas gerais' }),
         medidor('Entradas por NF', SGMF.moeda(d.valor_comprado), {
           icone: 'fa-file-invoice-dollar', estilo: 'font-size:19px',
-          nota: `${SGMF.numero(d.litros_comprados, 1)} L registrados` }),
+          nota: `${SGMF.numero(d.litros_comprados, 1)} L · ${SGMF.data(inicio())} a ${SGMF.data(fim())}` }),
         medidor('Consumido da reserva', SGMF.moeda(d.valor_consumido), {
           icone: 'fa-gas-pump', estilo: 'font-size:19px',
-          nota: `${SGMF.numero(d.litros_consumidos, 1)} L baixados` })
+          nota: `${SGMF.numero(d.litros_consumidos, 1)} L · ${SGMF.data(inicio())} a ${SGMF.data(fim())}` })
       ].join('');
     } catch (e) {
       // A falha do módulo novo nunca bloqueia o Dashboard antigo.
