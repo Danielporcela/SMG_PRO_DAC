@@ -169,7 +169,7 @@ def ajustar_estoque():
         if len(motivo) < 5:
             raise ErroNegocio("Informe o motivo do ajuste (mínimo de 5 caracteres).")
 
-        atual = recalcular_estoque_combustivel(combustivel, estrito=True)
+        atual = recalcular_estoque_combustivel(combustivel, estrito=True, permitir_negativo=True)
         if not atual.get("ativo"):
             raise ErroNegocio("O controle deste combustível ainda não foi ativado. Lance uma NF primeiro.")
 
@@ -184,7 +184,7 @@ def ajustar_estoque():
             motivo=motivo, usuario=session.get("usuario_nome", "sistema"))
         db.session.add(ajuste)
         db.session.flush()
-        novo = recalcular_estoque_combustivel(combustivel, estrito=True)
+        novo = recalcular_estoque_combustivel(combustivel, estrito=True, permitir_negativo=True)
         delta = round(float(ajuste.litros or 0), 3)
         if abs(delta) < 0.001:
             db.session.rollback()
@@ -215,11 +215,11 @@ def ajustar_estoque():
 def reconciliar_estoque():
     """Reprocessa NFs e abastecimentos já existentes sem apagar histórico."""
     try:
-        resultados = recalcular_todos_combustiveis()
+        resultados = recalcular_todos_combustiveis(permitir_negativo=True)
         registrar_log("reconciliar", "estoque_combustivel", None,
                       f"{len(resultados)} combustível(is) recalculado(s)")
         db.session.commit()
-        return jsonify({"ok": True, "itens": resultados, "resumo": resumo_geral()})
+        return jsonify({"ok": True, "itens": resultados, "resumo": resumo_geral(permitir_negativo=True)})
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
@@ -233,7 +233,7 @@ def reconciliar_estoque():
 def estoque_resumo():
     try:
         # Consulta: não trava a tela por inconsistência antiga; devolve "alertas".
-        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False, persistir=False))
+        dados = _consultar_com_nova_tentativa(lambda: resumo_geral(estrito=False, persistir=False, permitir_negativo=True))
         db.session.rollback()  # GET não persiste eventual recálculo de custo.
         return jsonify(dados)
     except ErroNegocio as e:
@@ -252,7 +252,7 @@ def listar_movimentacoes():
         inicio = _data(request.args.get("inicio"), "data inicial") if request.args.get("inicio") else None
         fim = _data(request.args.get("fim"), "data final") if request.args.get("fim") else None
         linhas = _consultar_com_nova_tentativa(
-            lambda: movimentacoes(inicio, fim, estrito=False, persistir=False))
+            lambda: movimentacoes(inicio, fim, estrito=False, persistir=False, permitir_negativo=True))
         db.session.rollback()
         return jsonify(linhas)
     except ErroNegocio as e:

@@ -314,7 +314,7 @@ def recalcular_estoque_combustivel(combustivel, validar=True, estrito=True, pers
     }
 
 
-def recalcular_todos_combustiveis(estrito=True, persistir=True):
+def recalcular_todos_combustiveis(estrito=True, persistir=True, permitir_negativo=False):
     resultados = []
     # Em consulta (persistir=False) nada deve ser gravado: no_autoflush impede
     # que alterações em memória virem UPDATEs durante o cálculo.
@@ -322,14 +322,15 @@ def recalcular_todos_combustiveis(estrito=True, persistir=True):
     with contexto:
         for cfg in ControleEstoqueCombustivel.query.order_by(ControleEstoqueCombustivel.combustivel).all():
             resultados.append(recalcular_estoque_combustivel(
-                cfg.combustivel, estrito=estrito, persistir=persistir))
+                cfg.combustivel, estrito=estrito, persistir=persistir,
+                permitir_negativo=permitir_negativo))
     if persistir:
         db.session.flush()
     return resultados
 
 
-def resumo_geral(estrito=True, persistir=True):
-    itens = recalcular_todos_combustiveis(estrito, persistir)
+def resumo_geral(estrito=True, persistir=True, permitir_negativo=False):
+    itens = recalcular_todos_combustiveis(estrito, persistir, permitir_negativo)
     return {
         "itens": itens,
         "alertas": [a for x in itens for a in x.get("alertas", [])],
@@ -342,9 +343,9 @@ def resumo_geral(estrito=True, persistir=True):
     }
 
 
-def movimentacoes(inicio=None, fim=None, estrito=True, persistir=True):
+def movimentacoes(inicio=None, fim=None, estrito=True, persistir=True, permitir_negativo=False):
     linhas = []
-    for item in recalcular_todos_combustiveis(estrito, persistir):
+    for item in recalcular_todos_combustiveis(estrito, persistir, permitir_negativo):
         for mov in item["movimentacoes"]:
             d = date.fromisoformat(mov["data"])
             if inicio and d < inicio:

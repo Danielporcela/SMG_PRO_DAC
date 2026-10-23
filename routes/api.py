@@ -629,14 +629,14 @@ def _depois_abastecimento(obj, dados, anterior):
     recalcular_abastecimento(obj)
     # Se já existe NF para este combustível, o valor do abastecimento deixa de
     # ser digitado manualmente e passa a usar o custo médio ponderado do estoque.
-    recalcular_estoque_combustivel(obj.combustivel)
+    recalcular_estoque_combustivel(obj.combustivel, permitir_negativo=True)
     if anterior and anterior.get("combustivel") and anterior.get("combustivel") != obj.combustivel:
-        recalcular_estoque_combustivel(anterior["combustivel"])
+        recalcular_estoque_combustivel(anterior["combustivel"], permitir_negativo=True)
     atualizar_consumo_diario_frota()
 
 
 def _depois_excluir_abastecimento(obj):
-    recalcular_estoque_combustivel(obj.combustivel)
+    recalcular_estoque_combustivel(obj.combustivel, permitir_negativo=True)
     atualizar_consumo_diario_frota()
 
 
