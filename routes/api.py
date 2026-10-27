@@ -377,10 +377,19 @@ def consultar_ordens_por_frota():
               .order_by(OrdemServico.data_abertura.desc(), OrdemServico.id.desc())
               .all())
 
+    # Serviços do posto de molas do veículo: os lançados dentro de uma OS e
+    # também os lançados avulsos (sem OS), para o histórico ficar completo.
+    postos_molas = (ServicoTerceiro.query
+                    .filter(ServicoTerceiro.veiculo_id == veiculo.id,
+                            ServicoTerceiro.categoria == "Posto de Molas")
+                    .order_by(ServicoTerceiro.data.desc(), ServicoTerceiro.id.desc())
+                    .all())
+
     return jsonify({
         "veiculo": veiculo.to_dict(),
         "total": len(ordens),
-        "ordens": [o.to_dict(com_itens=True) for o in ordens]
+        "ordens": [o.to_dict(com_itens=True) for o in ordens],
+        "postos_molas": [s.to_dict() for s in postos_molas]
     })
 
 

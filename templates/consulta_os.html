@@ -91,9 +91,36 @@
       <div>${esc(msg)}</div></div></div>`;
   }
 
+  let postosMolas = [];
+
+  function statusFinanceiro(status) {
+    const cls = { 'Pago':'sucesso', 'Pendente':'aviso' }[status] || 'cinza';
+    return `<span class="etiqueta ${cls}">${esc(status || '—')}</span>`;
+  }
+
+  function tabelaPostoMolas(lista, comOS) {
+    return `<div class="table-responsive"><table class="table table-sm table-hover mb-0 consulta-tabela">
+      <thead><tr><th>Data</th>${comOS ? '<th>OS</th>' : ''}<th>Posto de molas</th><th>Serviço executado</th><th>NF</th>
+        <th class="text-end">Peças</th><th class="text-end">Mão de obra</th><th class="text-end">Total</th><th>Situação</th></tr></thead>
+      <tbody>${lista.map(m => `<tr>
+        <td>${dataBR(m.data)}</td>
+        ${comOS ? `<td>${m.ordem_numero ? `<strong>${esc(m.ordem_numero)}</strong>` : '<span class="text-muted">Avulso</span>'}</td>` : ''}
+        <td>${esc(m.prestador || '—')}</td>
+        <td>${esc(m.descricao || '—')}</td>
+        <td>${esc(m.nota_fiscal || '—')}</td>
+        <td class="text-end">${dinheiro(m.valor_pecas)}</td>
+        <td class="text-end">${dinheiro(m.valor_mao_obra)}</td>
+        <td class="text-end"><strong>${dinheiro(m.valor)}</strong></td>
+        <td>${statusFinanceiro(m.status_financeiro)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  }
+
   function renderizar(dados) {
     const v = dados.veiculo || {};
     const ordens = dados.ordens || [];
+    postosMolas = dados.postos_molas || [];
+    const totalMolas = postosMolas.reduce((s, m) => s + Number(m.valor || 0), 0);
     const custo = ordens.reduce((s, o) => s + Number(o.custo_total || 0), 0);
     const finalizadas = ordens.filter(o => o.status === 'Finalizada').length;
 
@@ -126,6 +153,16 @@
           </table></div>` :
           `<div class="consulta-vazio"><i class="fa-solid fa-folder-open"></i><strong>Nenhuma ordem de serviço encontrada</strong><div>Esta frota ainda não possui OS cadastrada.</div></div>`}
         </div>
+      </div>
+      <div class="cartao mb-3">
+        <div class="cartao-topo">
+          <div><h3 class="mb-0"><i class="fa-solid fa-gears me-2" style="color:var(--petroleo)"></i>Serviços do posto de molas</h3>
+          <small class="text-muted">${postosMolas.length} lançamento(s) · total ${dinheiro(totalMolas)}</small></div>
+        </div>
+        <div class="cartao-corpo p-0">
+          ${postosMolas.length ? tabelaPostoMolas(postosMolas, true) :
+          `<div class="consulta-vazio" style="padding:30px 20px"><i class="fa-solid fa-gears"></i><strong>Nenhum serviço de posto de molas</strong><div>Esta frota ainda não teve serviço lançado no posto de molas.</div></div>`}
+        </div>
       </div>`;
     area.querySelectorAll('.ver-os').forEach(btn => {
       btn.addEventListener('click', () => abrirOS(ordens.find(o => String(o.id) === String(btn.dataset.id))));
@@ -137,6 +174,7 @@
     document.getElementById('consultaTitulo').textContent = `OS ${os.numero || '—'}`;
     document.getElementById('consultaSubtitulo').textContent = `Frota ${os.veiculo_nome || '—'}`;
     const itens = os.itens || [];
+    const molasDaOS = postosMolas.filter(m => String(m.ordem_servico_id) === String(os.id));
     document.getElementById('consultaDetalhes').innerHTML = `
       <div class="row g-3">
         <div class="col-md-3"><strong>Data de abertura</strong><div>${dataBR(os.data_abertura)}</div></div>
@@ -156,6 +194,7 @@
         <thead><tr><th>Descrição</th><th>Tipo</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
         <tbody>${itens.map(i => `<tr><td>${esc(i.descricao || '—')}</td><td>${esc(i.tipo_item || '—')}</td><td class="text-end">${numero(i.quantidade)}</td><td class="text-end">${dinheiro(i.valor_unitario)}</td><td class="text-end">${dinheiro(Number(i.quantidade || 0) * Number(i.valor_unitario || 0))}</td></tr>`).join('')}</tbody>
       </table></div>` : '<div class="text-muted">Nenhum item lançado nesta OS.</div>'}
+      ${molasDaOS.length ? `<hr><h6 class="display">Serviços do posto de molas desta OS</h6>${tabelaPostoMolas(molasDaOS, false)}` : ''}
       <div class="row justify-content-end mt-2"><div class="col-md-4"><div class="consulta-indicador"><small>Custo total da OS</small><strong>${dinheiro(os.custo_total)}</strong></div></div></div>`;
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalConsultaOS')).show();

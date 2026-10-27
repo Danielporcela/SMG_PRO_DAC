@@ -231,7 +231,7 @@ def marcar_item_comprado(ordem_id, item_id):
 
 
 @bp_compras.post(f"/{ROTA}/<int:ordem_id>/itens/<int:item_id>/entregue")
-@visualizar_tela(TELA)
+@editar_tela(TELA)
 def marcar_item_entregue(ordem_id, item_id):
     """Item entregue: some da lista — apaga o lançamento definitivamente.
 

@@ -94,8 +94,8 @@ def redefinir_senha_salvar(token):
     senha = request.form.get("senha") or ""
     confirmar = request.form.get("confirmar_senha") or ""
 
-    if len(senha) < 6:
-        flash("A senha precisa ter pelo menos 6 caracteres.", "erro")
+    if len(senha) < 12:
+        flash("A senha precisa ter pelo menos 12 caracteres.", "erro")
         return render_template("redefinir_senha.html", token=token)
 
     if senha != confirmar:

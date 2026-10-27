@@ -69,8 +69,8 @@ def trocar_senha():
     if not usuario.conferir_senha(dados.get("atual") or ""):
         return jsonify({"erro": "A senha atual não confere."}), 400
     nova = dados.get("nova") or ""
-    if len(nova) < 6:
-        return jsonify({"erro": "A nova senha precisa de pelo menos 6 caracteres."}), 400
+    if len(nova) < 12:
+        return jsonify({"erro": "A nova senha precisa de pelo menos 12 caracteres."}), 400
     usuario.definir_senha(nova)
     db.session.commit()
     return jsonify({"ok": True})
