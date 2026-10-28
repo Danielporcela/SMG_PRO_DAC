@@ -98,6 +98,36 @@
   text-shadow:0 1px 2px #000
 }
 
+/* nº de fogo dentro do pneu; nº da posição como selo no canto */
+.pneu-hotspot .pneu-fogo{
+  font-size:clamp(10px,1.7vw,20px);
+  font-weight:800;
+  letter-spacing:-.02em;
+  max-width:92%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.pneu-hotspot .pneu-n{
+  position:absolute;
+  top:-9px;
+  left:-9px;
+  min-width:19px;
+  height:19px;
+  padding:0 4px;
+  border-radius:10px;
+  background:#0f3d56;
+  color:#fff;
+  font-style:normal;
+  font-size:11px;
+  font-weight:700;
+  line-height:19px;
+  text-align:center;
+  border:1.5px solid #fff
+}
+/* lançado na OS mas ainda sem cadastro completo: contorno tracejado */
+.pneu-hotspot.so-os{border-style:dashed}
+
 .pneu-hotspot.cadastrado{
   box-shadow:
     0 0 0 3px currentColor,

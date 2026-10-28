@@ -377,19 +377,10 @@ def consultar_ordens_por_frota():
               .order_by(OrdemServico.data_abertura.desc(), OrdemServico.id.desc())
               .all())
 
-    # Serviços do posto de molas do veículo: os lançados dentro de uma OS e
-    # também os lançados avulsos (sem OS), para o histórico ficar completo.
-    postos_molas = (ServicoTerceiro.query
-                    .filter(ServicoTerceiro.veiculo_id == veiculo.id,
-                            ServicoTerceiro.categoria == "Posto de Molas")
-                    .order_by(ServicoTerceiro.data.desc(), ServicoTerceiro.id.desc())
-                    .all())
-
     return jsonify({
         "veiculo": veiculo.to_dict(),
         "total": len(ordens),
-        "ordens": [o.to_dict(com_itens=True) for o in ordens],
-        "postos_molas": [s.to_dict() for s in postos_molas]
+        "ordens": [o.to_dict(com_itens=True) for o in ordens]
     })
 
 
@@ -803,6 +794,38 @@ def mapa_pneus_obter(veiculo_id):
         },
         "posicoes": resposta,
     })
+
+
+@bp_api.get("/mapa-pneus/<int:veiculo_id>/os")
+@visualizar_tela("pneus")
+def mapa_pneus_por_os(veiculo_id):
+    """Pneus lançados nas OS da frota, por posição (o mais recente de cada uma).
+
+    Serve para o mapa mostrar o nº de fogo mesmo quando o pneu ainda não foi
+    cadastrado na tela de Pneus: o número vem do item da OS.
+    """
+    import re
+    itens = (ItemOS.query
+             .join(OrdemServico, ItemOS.ordem_servico_id == OrdemServico.id)
+             .filter(OrdemServico.veiculo_id == veiculo_id,
+                     ItemOS.posicao_pneu.isnot(None))
+             .order_by(ItemOS.id.desc()).all())
+    resultado = {}
+    for item in itens:
+        posicao = normalizar_posicao(item.posicao_pneu)
+        if not posicao or posicao in resultado:
+            continue
+        achado = re.search(r"(?<!\w)(?:n[º°]|n[o.]\s*(?=\d))\s*([\w-]+)", item.descricao or "", re.I)
+        os_obj = item.ordem
+        resultado[posicao] = {
+            "posicao": posicao,
+            "numero_fogo": achado.group(1) if achado else None,
+            "item_id": item.id,
+            "os_id": item.ordem_servico_id,
+            "os_numero": os_obj.numero if os_obj else None,
+            "os_status": os_obj.status if os_obj else None,
+        }
+    return jsonify(resultado)
 
 
 @bp_api.get("/mapa-pneus/<int:veiculo_id>/historico")

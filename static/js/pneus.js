@@ -25,6 +25,7 @@
 
   let veiculos = [];
   let pneus = [];
+  let pneusOS = {};   // pneus lançados nas OS da frota, por posição
   let veiculoSelecionado = null;
   let pneuAtual = null;
   const somenteLeitura = () => SGMF.somenteLeitura('pneus');
@@ -101,8 +102,23 @@
     ) || null;
   }
 
+  function fogoDaPosicao(pos, pneu){
+    // 1º o pneu cadastrado em uso; 2º o que foi lançado na OS.
+    return pneu?.numero_fogo || pneusOS[pos.nome]?.numero_fogo || '';
+  }
+
+  async function carregarPneusOS(){
+    pneusOS = {};
+    if (!veiculoSelecionado) return;
+    try{
+      pneusOS = await SGMF.get(`/api/mapa-pneus/${veiculoSelecionado.id}/os`) || {};
+    }catch(e){ pneusOS = {}; }
+  }
+
   function corHotspot(pos, pneu){
-    if (!pneu) return pos.cor === 'vermelho' ? 'vermelho' : 'cinza';
+    if (!pneu && !pneusOS[pos.nome]?.numero_fogo)
+      return pos.cor === 'vermelho' ? 'vermelho' : 'cinza';
+    if (!pneu) return pos.cor;
     if (pneu.trocar) return 'vermelho';
     return pos.cor;
   }
@@ -113,27 +129,34 @@
 
     POSICOES.forEach(pos => {
       const pneu = buscarPneu(pos);
+      const doOS = pneusOS[pos.nome];
+      const fogo = fogoDaPosicao(pos, pneu);
       const button = document.createElement('button');
 
       button.type = 'button';
       button.className =
-        `pneu-hotspot ${corHotspot(pos,pneu)} ${pneu ? 'cadastrado' : ''}`;
+        `pneu-hotspot ${corHotspot(pos,pneu)} ${fogo ? 'cadastrado' : ''} ${!pneu && fogo ? 'so-os' : ''}`;
 
       button.style.left = `${pos.x}%`;
       button.style.top = `${pos.y}%`;
-      button.title = pneu
-        ? `${pos.display} — ${pneu.numero_fogo}`
-        : `${pos.display} — sem cadastro`;
+      button.title = fogo
+        ? `${pos.display} — pneu ${fogo}` +
+          (!pneu && doOS ? ` (lançado na OS ${doOS.os_numero || doOS.os_id}, ainda sem cadastro completo)` : '')
+        : `${pos.display} — sem pneu`;
       button.setAttribute('aria-label', button.title);
-      button.innerHTML = `<span>${pos.n}</span>`;
+      button.innerHTML =
+        `<em class="pneu-n">${pos.n}</em>` +
+        `<span class="pneu-fogo">${fogo ? esc(fogo) : '—'}</span>`;
 
       button.addEventListener('click', () => abrirPneu(pos, pneu));
       areas.appendChild(button);
     });
 
-    const uso = pneusDaFrota();
+    const preenchidas = POSICOES.filter(
+      pos => fogoDaPosicao(pos, buscarPneu(pos))
+    ).length;
     setStatus(
-      `${frotaNome(veiculoSelecionado)} — ${uso.length}/10 posições cadastradas no mapa.`
+      `${frotaNome(veiculoSelecionado)} — ${preenchidas}/10 posições com pneu (cadastro + OS).`
     );
     atualizarResumo(null);
   }
@@ -204,6 +227,9 @@
       `<strong>Posição fixa:</strong> ${esc(pos.display)}. ` +
       `O cadastro será vinculado à frota <strong>${esc(frotaNome(veiculoSelecionado))}</strong>.`;
 
+    if (!pneu && pneusOS[pos.nome]?.numero_fogo)
+      el('mapaNumeroFogo').value = pneusOS[pos.nome].numero_fogo;
+
     el('btnSalvarMapaPneu').disabled = somenteLeitura();
     el('mapaNumeroFogo').disabled = somenteLeitura();
   }
@@ -223,6 +249,7 @@
       ]);
 
       renderFrotas();
+      await carregarPneusOS();
       renderMapa();
     }catch(e){
       setStatus(e.message || 'Não foi possível carregar o mapa.', true);
@@ -285,11 +312,15 @@
   el('pneuFrota').addEventListener('change', e => {
     veiculoSelecionado =
       veiculos.find(v => Number(v.id) === Number(e.target.value)) || null;
-    renderMapa();
+    carregarPneusOS().then(renderMapa);
   });
 
   el('btnAtualizarPneus').addEventListener('click', carregar);
   el('btnSalvarMapaPneu').addEventListener('click', salvar);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) carregar();
+  });
 
   carregar();
 })();
