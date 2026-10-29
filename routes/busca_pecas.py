@@ -55,7 +55,7 @@ def _textos_da_peca(peca, modo):
         return [peca.codigo, peca.referencia]
     if modo == "nome":
         return [peca.descricao]
-    return [peca.codigo, peca.referencia, peca.descricao, peca.grupo,
+    return [peca.codigo, peca.referencia, peca.marca, peca.descricao, peca.grupo,
             peca.localizacao, peca.fornecedor.nome if peca.fornecedor else ""]
 
 

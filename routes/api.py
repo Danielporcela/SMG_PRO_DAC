@@ -1044,11 +1044,38 @@ def _depois_peca(obj, dados, anterior):
 
 registrar_crud(
     bp_api, "pecas", Peca,
-    campos={"codigo": "str", "referencia": "str", "descricao": "str", "grupo": "str",
-            "unidade": "str", "estoque_minimo": "float", "custo_unitario": "float",
-            "localizacao": "str", "fornecedor_id": "int"},
+    campos={"codigo": "str", "referencia": "str", "marca": "str", "descricao": "str",
+            "grupo": "str", "unidade": "str", "estoque_minimo": "float",
+            "custo_unitario": "float", "localizacao": "str", "fornecedor_id": "int"},
     ordem=Peca.codigo, obrigatorios=("descricao",), tela="estoque",
     antes_salvar=_antes_peca, depois_salvar=_depois_peca)
+
+
+# Marcas sugeridas no cadastro de peças. A lista da tela junta estas marcas
+# com as que já foram usadas em peças cadastradas, então uma marca nova
+# digitada uma vez passa a aparecer para as próximas peças.
+MARCAS_PADRAO = (
+    "Bosch", "Mahle", "Fram", "Tecfil", "Wega", "Mann", "SKF", "Cofap", "Monroe",
+    "Sachs", "Valeo", "Continental", "Michelin", "Pirelli", "Goodyear",
+    "Bridgestone", "Cummins", "MWM", "Mercedes-Benz", "Scania", "Volvo",
+    "Volkswagen", "Iveco", "Ford", "Lubrax", "Shell", "Petronas", "Ipiranga",
+    "Texaco", "Delphi", "NGK", "Varga", "Fremax", "Nakata", "TRW", "Randon",
+    "Suspensys", "Jost", "Fras-le", "Eaton", "Wabco", "Genuína",
+)
+
+
+@bp_api.get("/pecas/marcas")
+@visualizar_tela("estoque")
+def listar_marcas_pecas():
+    """Nomes de marca para o campo Marca da peça (padrão + já cadastradas)."""
+    usadas = [m for (m,) in db.session.query(Peca.marca)
+              .filter(Peca.marca.isnot(None), Peca.marca != "").distinct().all()]
+    unicas = {}
+    for nome in list(MARCAS_PADRAO) + usadas:
+        nome = (nome or "").strip()
+        if nome:
+            unicas.setdefault(nome.lower(), nome)
+    return jsonify(sorted(unicas.values(), key=str.lower))
 
 
 @bp_api.get("/movimentos")

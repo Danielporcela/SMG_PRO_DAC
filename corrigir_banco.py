@@ -60,6 +60,7 @@ cur = conn.cursor()
 COLUNAS_PECAS = {
     "codigo": "VARCHAR(60)",
     "referencia": "VARCHAR(60)",
+    "marca": "VARCHAR(60)",
     "descricao": "VARCHAR(200)",
     "grupo": "VARCHAR(60)",
     "unidade": "VARCHAR(10)",

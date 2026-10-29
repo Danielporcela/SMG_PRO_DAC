@@ -11,6 +11,10 @@
      Como é um <datalist>, a pessoa pode escolher da lista OU digitar um grupo
      novo na hora, sem travar o cadastro da peça. -->
 <datalist id="listaGrupos"></datalist>
+
+<!-- Opções do campo Marca: marcas padrão + as já usadas em outras peças.
+     Também é um <datalist>: escolhe da lista ou digita uma marca nova. -->
+<datalist id="listaMarcas"></datalist>
 {% endblock %}
 
 {% block depois_tabela %}
@@ -119,6 +123,22 @@ async function carregarGruposCadastrados() {
 }
 carregarGruposCadastrados();
 
+/* ============================================================== marcas
+   Lista do campo Marca (/api/pecas/marcas): marcas mais comuns + as que já
+   foram gravadas em peças. Recarrega a cada abertura do formulário. */
+async function carregarMarcas() {
+  let nomes = [];
+  try {
+    const resposta = await fetch('/api/pecas/marcas');
+    if (resposta.ok) nomes = await resposta.json();
+  } catch (e) { nomes = []; }
+  const lista = document.getElementById('listaMarcas');
+  if (lista && Array.isArray(nomes)) {
+    lista.innerHTML = nomes.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
+  }
+}
+carregarMarcas();
+
 /* ======================================= botão "+" ao lado do campo Grupo
    Cadastra na hora o grupo digitado (ex.: Acessórios, Arrefecimento,
    Lataria), sem sair da tela da peça: grava em Cadastros > Grupos de peças
@@ -198,6 +218,8 @@ const telaEstoque = SGMF.tela({
   campos: [
     { nome: 'codigo', rotulo: 'Código', col: 3, exemplo: 'Gerado automaticamente' },
     { nome: 'referencia', rotulo: 'Referência', col: 3, exemplo: 'Nº do fabricante/fornecedor' },
+    { nome: 'marca', rotulo: 'Marca', col: 3, exemplo: 'Selecione ou digite a marca',
+      ajuda: 'Escolha uma marca da lista ou digite uma nova.' },
     { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Filtro de óleo motor MWM' },
     { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
       opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
@@ -221,6 +243,13 @@ const telaEstoque = SGMF.tela({
 
     /* Grupo: liga o campo ao <datalist> e busca a lista de novo, para um grupo
        cadastrado agora há pouco já aparecer sem precisar recarregar a página. */
+    const campoMarca = document.getElementById('campo_marca');
+    if (campoMarca) {
+      campoMarca.setAttribute('list', 'listaMarcas');
+      campoMarca.setAttribute('autocomplete', 'off');
+    }
+    carregarMarcas();
+
     const campoGrupo = document.getElementById('campo_grupo');
     if (campoGrupo) {
       campoGrupo.setAttribute('list', 'listaGrupos');
@@ -248,6 +277,7 @@ const telaEstoque = SGMF.tela({
   colunas: [
     { campo: 'codigo', rotulo: 'Código', classe: 'num' },
     { campo: 'referencia', rotulo: 'Referência', classe: 'num', render: v => v || '—' },
+    { campo: 'marca', rotulo: 'Marca', render: v => v || '—' },
     { campo: 'descricao', rotulo: 'Descrição' },
     { campo: 'grupo', rotulo: 'Grupo' },
     { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',
