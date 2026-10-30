@@ -126,3 +126,11 @@ _tela("/usuarios", "usuarios.html", "usuarios")
 _tela("/auditoria", "auditoria.html", "auditoria")
 _tela("/auditoria_estoque_os", "auditoria_estoque_os.html", "auditoria_estoque_os")
 _tela("/notificacoes", "notificacoes.html", "notificacoes")
+
+
+@bp_paginas.get("/cadastros-manuais")
+def cadastros_manuais():
+    """Central de lançamentos manuais; cada API aplica sua própria permissão."""
+    if not session.get("usuario_id"):
+        return redirect(url_for("auth.login"))
+    return render_template("cadastros_manuais.html", pagina="cadastros_manuais")
