@@ -5,7 +5,6 @@ from openpyxl import load_workbook
 
 from flask import Blueprint, current_app, jsonify, request, session
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
 
 from extensions import db
 from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, ItemOS,
@@ -428,10 +427,29 @@ def adicionar_posto_molas(os_id):
         registrar_log("criar", "servicos_terceiros", servico.id,
                       f"Posto de Molas · OS {ordem.numero} · veículo {ordem.veiculo_id}")
         db.session.commit()
-        return jsonify(ordem.to_dict(com_itens=True)), 201
+        # Não serializar novamente a OS após o commit. A tela já consulta
+        # os dados atualizados por GET; uma falha nessa serialização não deve
+        # transformar um lançamento efetivamente gravado em erro HTTP 500.
+        return jsonify({
+            "ok": True,
+            "mensagem": "Posto de Molas lançado com sucesso.",
+            "servico_id": servico.id,
+            "ordem_servico_id": ordem.id,
+            "valor": round(servico.valor or 0, 2),
+        }), 201
     except (ErroNegocio, ValueError) as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Falha ao lançar Posto de Molas na OS %s", os_id
+        )
+        return jsonify({
+            "erro": "Não foi possível lançar o Posto de Molas. "
+                    "A operação foi revertida; consulte os Logs do servidor.",
+            "tipo_erro": e.__class__.__name__,
+        }), 500
 
 
 @bp_api.get("/ordens/<int:os_id>/postos-molas")
@@ -977,217 +995,6 @@ def mapa_pneus_salvar():
     except Exception as e:
         db.session.rollback()
         return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}."}), 400
-
-# ------------------------------------------------------- Controle de pneus (tabela)
-# Planilha de controle: prefixo, placa, medida, nº de fogo, marca, posição,
-# sulcos 1 a 4, km, km/sulco e DOT. Quando o menor sulco fica abaixo do limite
-# (SULCO_MINIMO_MM, padrão 4 mm) o pneu aparece como "trocar" e entra nos alertas.
-_CP_SULCOS = ("sulco_1", "sulco_2", "sulco_3", "sulco_4")
-
-
-def _numero_opcional(valor, rotulo):
-    """Converte para float aceitando vírgula decimal; vazio vira None."""
-    if valor is None:
-        return None
-    if isinstance(valor, str):
-        valor = valor.strip().replace(",", ".")
-        if valor == "":
-            return None
-    try:
-        numero = float(valor)
-    except (TypeError, ValueError):
-        raise ErroNegocio(f"{rotulo} deve ser um número.")
-    if numero < 0:
-        raise ErroNegocio(f"{rotulo} não pode ser negativo.")
-    return numero
-
-
-def _situacao_pneu(pneu, limite):
-    """trocar | atencao | ok | sem_medicao (None quando o pneu não está em uso)."""
-    if pneu.status != "Em uso":
-        return None, pneu.menor_sulco
-    menor = pneu.menor_sulco
-    if menor is None and (pneu.sulco_mm or 0) > 0:
-        # Pneu antigo (cadastrado pelo mapa) que só tem o sulco único.
-        menor = pneu.sulco_mm
-    if menor is None:
-        return "sem_medicao", None
-    if menor < limite:
-        return "trocar", menor
-    if menor < limite + 1:
-        return "atencao", menor
-    return "ok", menor
-
-
-def _linha_controle_pneu(pneu, dot_por_pneu, limite):
-    situacao, menor = _situacao_pneu(pneu, limite)
-    veiculo = pneu.veiculo
-    return {
-        "id": pneu.id,
-        "veiculo_id": pneu.veiculo_id,
-        "prefixo": veiculo.prefixo if veiculo else None,
-        "placa": veiculo.placa if veiculo else None,
-        "medida": pneu.medida,
-        "numero_fogo": pneu.numero_fogo,
-        "marca": pneu.marca,
-        "posicao": normalizar_posicao(pneu.posicao) or pneu.posicao,
-        "sulco_1": pneu.sulco_1,
-        "sulco_2": pneu.sulco_2,
-        "sulco_3": pneu.sulco_3,
-        "sulco_4": pneu.sulco_4,
-        "menor_sulco": menor,
-        "situacao": situacao,
-        "km": pneu.km_pneu,
-        "km_por_sulco": pneu.km_por_sulco,
-        "dot": dot_por_pneu.get(pneu.id),
-        "status": pneu.status,
-        "vida": pneu.vida,
-    }
-
-
-@bp_api.get("/controle-pneus")
-@visualizar_tela("pneus")
-def controle_pneus_listar():
-    limite = float(current_app.config["SULCO_MINIMO_MM"])
-    pneus = (Pneu.query.options(joinedload(Pneu.veiculo))
-             .order_by(Pneu.veiculo_id, Pneu.posicao, Pneu.numero_fogo).all())
-    dot_por_pneu = {e.pneu_id: e.dot for e in PneuMapaDados.query.all()}
-    linhas = [_linha_controle_pneu(p, dot_por_pneu, limite) for p in pneus]
-    return jsonify({
-        "limite": limite,
-        "linhas": linhas,
-        "para_trocar": sum(1 for l in linhas if l["situacao"] == "trocar"),
-        "em_atencao": sum(1 for l in linhas if l["situacao"] == "atencao"),
-    })
-
-
-def _salvar_controle_pneu(pneu_id=None):
-    dados = request.get_json(silent=True) or {}
-    limite = float(current_app.config["SULCO_MINIMO_MM"])
-    try:
-        pneu = None
-        if pneu_id is not None:
-            pneu = db.session.get(Pneu, pneu_id)
-            if pneu is None:
-                return jsonify({"erro": "Pneu não encontrado."}), 404
-
-        try:
-            veiculo_id = int(dados.get("veiculo_id"))
-        except (TypeError, ValueError):
-            raise ErroNegocio("Selecione o prefixo/placa do veículo.")
-        veiculo = db.session.get(Veiculo, veiculo_id)
-        if veiculo is None:
-            raise ErroNegocio("Veículo não encontrado.")
-
-        fogo = str(dados.get("numero_fogo") or "").strip().upper()
-        if not fogo:
-            raise ErroNegocio("Informe o número de fogo.")
-        repetido = Pneu.query.filter(Pneu.numero_fogo == fogo)
-        if pneu is not None:
-            repetido = repetido.filter(Pneu.id != pneu.id)
-        if repetido.first() is not None:
-            raise ErroNegocio(f"Já existe um pneu cadastrado com o nº de fogo {fogo}.")
-
-        posicao_texto = str(dados.get("posicao") or "").strip()
-        posicao = normalizar_posicao(posicao_texto) if posicao_texto else None
-        if posicao_texto and posicao is None:
-            raise ErroNegocio("Selecione uma posição válida da lista.")
-
-        status = str(dados.get("status") or "Em uso").strip()
-        if status not in ("Em uso", "Estoque", "Descartado"):
-            raise ErroNegocio("Status inválido.")
-
-        sulcos = {c: _numero_opcional(dados.get(c), c.replace("_", " ").capitalize())
-                  for c in _CP_SULCOS}
-        medidos = [v for v in sulcos.values() if v is not None]
-        if status == "Em uso" and not medidos:
-            raise ErroNegocio("Informe ao menos um sulco (mm) para o pneu em uso.")
-        if any(v > 40 for v in medidos):
-            raise ErroNegocio("Sulco em mm parece incorreto (acima de 40 mm).")
-
-        km = _numero_opcional(dados.get("km"), "KM")
-        km_por_sulco = _numero_opcional(dados.get("km_por_sulco"), "KM/Sulco")
-        dot = str(dados.get("dot") or "").strip()[:20]
-        marca = str(dados.get("marca") or "").strip() or None
-        medida = str(dados.get("medida") or "").strip() or None
-
-        # Posição já ocupada por outro pneu em uso da mesma frota.
-        if status == "Em uso" and posicao:
-            ocupante = None
-            for outro in Pneu.query.filter_by(veiculo_id=veiculo_id, status="Em uso").all():
-                if pneu is not None and outro.id == pneu.id:
-                    continue
-                if normalizar_posicao(outro.posicao) == posicao:
-                    ocupante = outro
-                    break
-            if ocupante is not None:
-                if not dados.get("substituir"):
-                    raise ErroNegocio(
-                        f"A posição {posicao} de {veiculo.prefixo} já está ocupada pelo "
-                        f"pneu {ocupante.numero_fogo}. Confirme a substituição ou altere "
-                        "o status do outro pneu.")
-                ocupante.status = "Descartado"
-                _registrar_historico_pneu(
-                    ocupante, "Troca",
-                    f"Substituído na posição {posicao} pelo pneu {fogo}.")
-
-        novo = pneu is None
-        if novo:
-            pneu = Pneu(numero_fogo=fogo)
-            db.session.add(pneu)
-
-        pneu.numero_fogo = fogo
-        pneu.veiculo_id = veiculo_id
-        pneu.posicao = posicao
-        pneu.marca = marca
-        pneu.medida = medida
-        pneu.status = status
-        for campo, valor in sulcos.items():
-            setattr(pneu, campo, valor)
-        # O mapa e os alertas leem `sulco_mm`: guarda o MENOR sulco medido.
-        if medidos:
-            pneu.sulco_mm = min(medidos)
-        pneu.km_pneu = km
-        pneu.km_por_sulco = km_por_sulco
-        pneu.data_medicao = hoje()
-        if novo:
-            pneu.data_instalacao = hoje()
-            pneu.km_instalacao = veiculo.hodometro or 0
-        db.session.flush()
-
-        extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()
-        if extra is None:
-            extra = PneuMapaDados(pneu_id=pneu.id)
-            db.session.add(extra)
-        extra.dot = dot or None
-
-        menor = min(medidos) if medidos else None
-        detalhe = f"Controle de pneus: menor sulco {menor:.1f} mm." if menor is not None \
-            else "Controle de pneus."
-        _registrar_historico_pneu(pneu, "Instalação" if novo else "Atualização", detalhe)
-        db.session.commit()
-
-        dot_por_pneu = {pneu.id: extra.dot}
-        return jsonify(_linha_controle_pneu(pneu, dot_por_pneu, limite)), (201 if novo else 200)
-    except ErroNegocio as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"erro": f"Não foi possível salvar: {e.__class__.__name__}."}), 400
-
-
-@bp_api.post("/controle-pneus")
-@editar_tela("pneus")
-def controle_pneus_criar():
-    return _salvar_controle_pneu()
-
-
-@bp_api.put("/controle-pneus/<int:pneu_id>")
-@editar_tela("pneus")
-def controle_pneus_editar(pneu_id):
-    return _salvar_controle_pneu(pneu_id)
-
 
 # -------------------------------------------------------- Módulo 11: estoque
 def _verificar_peca_duplicada(obj, anterior):
