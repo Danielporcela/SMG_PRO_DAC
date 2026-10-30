@@ -13,6 +13,28 @@ from extensions import db
 from models import PADRAO_POR_PERFIL, PESO_NIVEL, LogAuditoria
 
 
+def _mensagem_exclusao_bloqueada(exc, nome):
+    """Explica por que a exclusão falhou e registra o erro real no log.
+
+    No PostgreSQL o erro de chave estrangeira informa a tabela que ainda
+    referencia o registro; mostramos esse nome para o usuário saber onde
+    está o vínculo. Outros erros (não-FK) não são mais mascarados.
+    """
+    import logging
+    import re
+    logging.getLogger(__name__).exception("Falha ao excluir %s: %s", nome, exc)
+    texto = str(getattr(exc, "orig", exc))
+    if "foreign key" in texto.lower() or "FOREIGN KEY" in texto:
+        m = re.search(r'on table "([^"]+)"', texto) or re.search(r'from table "([^"]+)"', texto)
+        if m:
+            return (f"Este registro está vinculado a lançamentos na tabela "
+                    f"'{m.group(1)}' e não pode ser excluído. Remova ou "
+                    f"reatribua esses lançamentos primeiro.")
+        return ("Este registro está vinculado a outros lançamentos "
+                "e não pode ser excluído.")
+    return f"Não foi possível excluir: {exc.__class__.__name__}."
+
+
 # ----------------------------------------------------------------- segurança
 def login_obrigatorio(f):
     @wraps(f)
@@ -318,9 +340,8 @@ def registrar_crud(bp, rota, Model, campos, ordem=None, obrigatorios=(),
         except ErroNegocio as e:
             db.session.rollback()
             return jsonify({"erro": str(e)}), 400
-        except Exception:
+        except Exception as e:
             db.session.rollback()
-            return jsonify({"erro": "Este registro está vinculado a outros lançamentos "
-                                    "e não pode ser excluído."}), 400
+            return jsonify({"erro": _mensagem_exclusao_bloqueada(e, nome)}), 400
         return jsonify({"ok": True})
 
