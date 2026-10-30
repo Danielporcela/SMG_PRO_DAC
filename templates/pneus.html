@@ -1,20 +1,91 @@
 {% extends "base.html" %}
-{% block titulo %}Mapa de Pneus{% endblock %}
-{% block cabecalho %}Mapa de Pneus — Caminhão Truck{% endblock %}
-{% block descricao %}Clique diretamente em cada pneu para cadastrar, editar ou consultar a posição.{% endblock %}
+{% block titulo %}Pneus{% endblock %}
+{% block cabecalho %}Pneus{% endblock %}
+{% block descricao %}Controle de sulco, km e DOT por pneu. O alerta de troca dispara quando o menor sulco fica abaixo do limite (4 mm).{% endblock %}
 
 {% block acoes %}
-<div class="pneus-toolbar">
-  <label for="pneuFrota">Frota</label>
-  <select id="pneuFrota" class="form-select"></select>
-  <button class="btn btn-primario" id="btnAtualizarPneus">
-    <i class="fa-solid fa-rotate"></i> Atualizar
-  </button>
-</div>
+<button class="btn btn-primario" id="btnNovoControlePneu">
+  <i class="fa-solid fa-plus"></i> Novo pneu
+</button>
 {% endblock %}
 
 {% block conteudo %}
+<ul class="nav nav-tabs mb-3" id="abasPneus" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tabControle" data-bs-toggle="tab"
+            data-bs-target="#abaControle" type="button" role="tab">
+      <i class="fa-solid fa-table-list"></i> Controle de pneus
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tabMapa" data-bs-toggle="tab"
+            data-bs-target="#abaMapa" type="button" role="tab">
+      <i class="fa-solid fa-truck"></i> Mapa
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="abaControle" role="tabpanel">
+
+    <div class="cp-alerta d-none" id="cpAlerta" role="alert"></div>
+
+    <div class="cp-filtros">
+      <input id="cpBusca" class="form-control" type="search"
+             placeholder="Buscar prefixo, placa, nº de fogo, marca, DOT…">
+      <select id="cpFiltroFrota" class="form-select" aria-label="Filtrar por frota">
+        <option value="">Todas as frotas</option>
+      </select>
+      <select id="cpFiltroStatus" class="form-select" aria-label="Filtrar por status">
+        <option value="Em uso" selected>Em uso</option>
+        <option value="Estoque">Estoque</option>
+        <option value="Descartado">Descartado</option>
+        <option value="">Todos</option>
+      </select>
+      <label class="cp-check">
+        <input type="checkbox" id="cpSoTrocar"> Somente para trocar
+      </label>
+    </div>
+
+    <div class="cp-tabela-wrap">
+      <table class="dataTable cp-tabela" id="cpTabela">
+        <thead>
+          <tr>
+            <th>Prefixo</th>
+            <th>Placa</th>
+            <th>Medida</th>
+            <th>Nº de fogo</th>
+            <th>Marca</th>
+            <th>Posição</th>
+            <th class="cp-num">Sulco 1</th>
+            <th class="cp-num">Sulco 2</th>
+            <th class="cp-num">Sulco 3</th>
+            <th class="cp-num">Sulco 4</th>
+            <th>Situação</th>
+            <th class="cp-num">KM</th>
+            <th class="cp-num">KM/Sulco</th>
+            <th>DOT</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="cpCorpo">
+          <tr><td colspan="15" class="cp-vazio">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cp-rodape" id="cpRodape"></div>
+  </div>
+
+  <div class="tab-pane fade" id="abaMapa" role="tabpanel">
 <div class="mapa-pneus-page">
+  <div class="pneus-toolbar mb-3">
+    <label for="pneuFrota">Frota</label>
+    <select id="pneuFrota" class="form-select"></select>
+    <button class="btn btn-primario" id="btnAtualizarPneus">
+      <i class="fa-solid fa-rotate"></i> Atualizar
+    </button>
+  </div>
+
   <div class="mapa-status" id="mapaStatus">Carregando frota…</div>
 
   <div class="mapa-card">
@@ -55,6 +126,93 @@
     <div><strong>Nº de fogo:</strong> —</div>
     <div><strong>Status:</strong> —</div>
     <div><strong>Sulco:</strong> —</div>
+  </div>
+</div>
+
+  </div>
+</div>
+
+<div class="modal fade" id="modalControlePneu" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header mapa-modal-header">
+        <h5 class="modal-title" id="cpModalTitulo">Novo pneu</h5>
+        <button type="button" class="btn-close btn-close-white"
+                data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cpId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Prefixo / Placa *</label>
+            <select id="cpVeiculo" class="form-select"></select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Nº de fogo *</label>
+            <input id="cpFogo" class="form-control" maxlength="30">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Status</label>
+            <select id="cpStatus" class="form-select">
+              <option>Em uso</option>
+              <option>Estoque</option>
+              <option>Descartado</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Medida</label>
+            <input id="cpMedida" class="form-control" placeholder="275/80 R22.5">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Marca</label>
+            <input id="cpMarca" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Posição</label>
+            <select id="cpPosicao" class="form-select"></select>
+          </div>
+
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 1 (mm)</label>
+            <input id="cpSulco1" type="number" step="0.1" min="0" class="form-control">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 2 (mm)</label>
+            <input id="cpSulco2" type="number" step="0.1" min="0" class="form-control">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 3 (mm)</label>
+            <input id="cpSulco3" type="number" step="0.1" min="0" class="form-control">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 4 (mm)</label>
+            <input id="cpSulco4" type="number" step="0.1" min="0" class="form-control">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">KM</label>
+            <input id="cpKm" type="number" step="1" min="0" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">KM/Sulco</label>
+            <input id="cpKmSulco" type="number" step="0.01" min="0" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">DOT</label>
+            <input id="cpDot" class="form-control" maxlength="20" placeholder="Ex.: 2423">
+          </div>
+        </div>
+        <div class="alert alert-light border mt-3 mb-0" id="cpAvisoSulco">
+          Quando o menor sulco ficar abaixo de <strong>4 mm</strong>, o pneu é
+          marcado como <strong>TROCAR</strong> e entra nos alertas do sistema.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="cpSalvar">Salvar pneu</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -162,4 +320,5 @@
 {% block scripts %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/pneus.css') }}">
 <script src="{{ url_for('static', filename='js/pneus.js') }}"></script>
+<script src="{{ url_for('static', filename='js/controle_pneus.js') }}"></script>
 {% endblock %}

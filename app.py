@@ -111,7 +111,8 @@ def criar_app(config=Config):
                                                      garantir_numero_os_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
-                                                     garantir_campos_ordens_servico)
+                                                     garantir_campos_ordens_servico,
+                                                     garantir_campos_controle_pneus)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
         garantir_ordens_compra()
@@ -126,6 +127,7 @@ def criar_app(config=Config):
         garantir_campos_execucao_os()
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
+        garantir_campos_controle_pneus()
         garantir_ferramentas()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é

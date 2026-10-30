@@ -387,6 +387,26 @@ def garantir_ultimo_acesso_usuario():
             ))
 
 
+def garantir_campos_controle_pneus():
+    """Adiciona à tabela `pneus` as colunas do controle de pneus.
+
+    Sulco 1 a 4 (medição em mm), km do pneu e km por sulco. Só acrescenta
+    colunas ausentes: nenhum dado existente é alterado ou apagado.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    if "pneus" not in set(insp.get_table_names()):
+        return
+
+    colunas = ("sulco_1", "sulco_2", "sulco_3", "sulco_4", "km_pneu", "km_por_sulco")
+    with engine.begin() as conn:
+        existentes = {c["name"] for c in inspect(engine).get_columns("pneus")}
+        tipo = "DOUBLE PRECISION" if engine.dialect.name == "postgresql" else "FLOAT"
+        for coluna in colunas:
+            if coluna not in existentes:
+                conn.execute(text(f'ALTER TABLE "pneus" ADD COLUMN "{coluna}" {tipo}'))
+
+
 def garantir_campos_execucao_os():
     """Garante as colunas de execução da OS adicionadas após a instalação inicial.
 

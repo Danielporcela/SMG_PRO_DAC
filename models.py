@@ -470,7 +470,6 @@ class Peca(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     codigo = db.Column(db.String(40), unique=True, nullable=False, index=True)
     referencia = db.Column(db.String(60))  # número do fabricante/fornecedor, livre para ela digitar
-    marca = db.Column(db.String(60))       # marca do produto (Bosch, Mahle, Fram...)
     descricao = db.Column(db.String(160), nullable=False)
     grupo = db.Column(db.String(40))       # Motor, Suspensão, Freios, ...
     unidade = db.Column(db.String(10), default="UN")
@@ -490,7 +489,7 @@ class Peca(db.Model):
 
     def to_dict(self):
         return {"id": self.id, "codigo": self.codigo, "referencia": self.referencia,
-                "marca": self.marca, "descricao": self.descricao,
+                "descricao": self.descricao,
                 "grupo": self.grupo, "unidade": self.unidade, "quantidade": self.quantidade,
                 "estoque_minimo": self.estoque_minimo, "custo_unitario": self.custo_unitario,
                 "valor_total": round((self.quantidade or 0) * (self.custo_unitario or 0), 2),
@@ -1221,7 +1220,26 @@ class Pneu(db.Model):
     data_medicao = db.Column(db.Date, default=_hoje)
     status = db.Column(db.String(20), default="Em uso")  # Em uso | Estoque | Descartado
     custo = db.Column(db.Float, default=0)
+    # Controle de pneus: medição dos 4 sulcos, km do pneu e km por mm de sulco.
+    # `sulco_mm` continua sendo o valor usado pelo mapa e pelos alertas: ele
+    # recebe o MENOR sulco medido (veja `menor_sulco`).
+    sulco_1 = db.Column(db.Float)
+    sulco_2 = db.Column(db.Float)
+    sulco_3 = db.Column(db.Float)
+    sulco_4 = db.Column(db.Float)
+    km_pneu = db.Column(db.Float)
+    km_por_sulco = db.Column(db.Float)
     veiculo = db.relationship("Veiculo")
+
+    @property
+    def sulcos_medidos(self):
+        return [v for v in (self.sulco_1, self.sulco_2, self.sulco_3, self.sulco_4)
+                if v is not None]
+
+    @property
+    def menor_sulco(self):
+        medidos = self.sulcos_medidos
+        return min(medidos) if medidos else None
 
     def to_dict(self, sulco_minimo=4.0):
         km_rodados = 0
@@ -1235,6 +1253,9 @@ class Pneu(db.Model):
                 "data_instalacao": self.data_instalacao.isoformat() if self.data_instalacao else None,
                 "data_medicao": self.data_medicao.isoformat() if self.data_medicao else None,
                 "status": self.status, "custo": self.custo,
+                "sulco_1": self.sulco_1, "sulco_2": self.sulco_2,
+                "sulco_3": self.sulco_3, "sulco_4": self.sulco_4,
+                "km_pneu": self.km_pneu, "km_por_sulco": self.km_por_sulco,
                 "trocar": (self.sulco_mm or 0) < sulco_minimo and self.status == "Em uso",
                 "identificacao": f"{self.numero_fogo} · {self.posicao or ''}".strip()}
 

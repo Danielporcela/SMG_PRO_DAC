@@ -130,6 +130,27 @@ def listar_alertas_ativos():
             f"{numero} está {os_obj.status.lower()} com prioridade {os_obj.prioridade.lower()}.",
             "ordem_servico", os_obj.id, "/manutencao"))
 
+    # Pneus em uso com o menor sulco medido abaixo do limite (padrão 4 mm).
+    # O alerta some sozinho quando o pneu é trocado ou o sulco é corrigido.
+    sulco_minimo = float(_cfg("SULCO_MINIMO_MM", 4.0))
+    for pneu in (Pneu.query.filter(Pneu.status == "Em uso").all()):
+        menor = pneu.menor_sulco
+        if menor is None and (pneu.sulco_mm or 0) > 0:
+            menor = pneu.sulco_mm
+        if menor is None or menor >= sulco_minimo:
+            continue
+        veiculo = pneu.veiculo
+        if veiculo is not None and veiculo.grupo_consumo_legado:
+            continue
+        onde = veiculo.prefixo if veiculo else "sem veículo"
+        alertas.append(_alerta(
+            f"pneu:sulco:{pneu.id}", "pneu", "critico",
+            "Pneu abaixo do sulco mínimo",
+            f"Pneu {pneu.numero_fogo} ({onde}"
+            f"{' · ' + pneu.posicao if pneu.posicao else ''}) está com {menor:.1f} mm, "
+            f"abaixo de {sulco_minimo:.0f} mm. Programe a substituição.",
+            "pneu", pneu.id, "/pneus"))
+
     # Consumo: compara o abastecimento mais recente com a média histórica
     # anterior do mesmo veículo. O alerta some quando o consumo volta ao padrão.
     if desvio_consumo > 0:
