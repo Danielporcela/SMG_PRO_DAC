@@ -73,6 +73,7 @@
 
   async function entrar() {
     const botao = document.getElementById('entrar');
+    if (botao.disabled) return; // já há um login em andamento: não envia de novo
     aviso.classList.add('d-none');
     botao.disabled = true;
     botao.textContent = 'Verificando…';

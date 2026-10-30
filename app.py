@@ -112,7 +112,8 @@ def criar_app(config=Config):
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
                                                      garantir_campos_ordens_servico,
-                                                     garantir_campos_controle_pneus)
+                                                     garantir_campos_controle_pneus,
+                                                     garantir_indices_login)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
         garantir_ordens_compra()
@@ -128,6 +129,7 @@ def criar_app(config=Config):
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
         garantir_campos_controle_pneus()
+        garantir_indices_login()
         garantir_ferramentas()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
@@ -199,6 +201,11 @@ def criar_app(config=Config):
         g.admin_autorizador_exclusao = autorizador.nome
         return None
 
+    # "Conectado agora" usa janela de 5 min (painel_conectados). Gravar a
+    # presença a cada 150 s mantém quem está usando o sistema dentro da janela
+    # e reduz os UPDATE/COMMIT no PostgreSQL (antes: 1 por minuto por usuário).
+    INTERVALO_PRESENCA_S = 150
+
     @app.before_request
     def marcar_presenca():
         """Atualiza a marca de "última atividade" de quem está logado.
@@ -206,7 +213,7 @@ def criar_app(config=Config):
         Não existe tabela de sessões: "conectado agora" (card do Painel) é
         só uma janela de atividade recente nesta coluna.
 
-        O intervalo de 60s é controlado na própria sessão (cookie): enquanto
+        O intervalo de 150s é controlado na própria sessão (cookie): enquanto
         não passar o intervalo, NENHUM SQL é executado — antes cada requisição
         gerava um UPDATE + COMMIT mesmo sem nada para gravar, e uma tela que
         dispara 8 APIs fazia 8 idas extras ao PostgreSQL.
@@ -220,7 +227,7 @@ def criar_app(config=Config):
         import time
         agora_ts = time.time()
         ultimo_ts = session.get("_presenca_ts") or 0
-        if 0 <= agora_ts - ultimo_ts < 60:
+        if 0 <= agora_ts - ultimo_ts < INTERVALO_PRESENCA_S:
             return None
 
         from sqlalchemy import or_
@@ -232,7 +239,7 @@ def criar_app(config=Config):
         # Normalizamos para datetime ingênuo para evitar a mistura de
         # aware/naive, que causa TypeError no PostgreSQL ao consultar o painel.
         agora_marca = _agora_marca().replace(tzinfo=None)
-        limite = agora_marca - timedelta(seconds=60)
+        limite = agora_marca - timedelta(seconds=INTERVALO_PRESENCA_S)
         try:
             atualizadas = (Usuario.query.filter(Usuario.id == usuario_id)
                            .filter(or_(Usuario.ultimo_acesso.is_(None),

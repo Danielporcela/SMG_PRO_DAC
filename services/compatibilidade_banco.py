@@ -387,6 +387,35 @@ def garantir_ultimo_acesso_usuario():
             ))
 
 
+def garantir_indices_login():
+    """Índices para o bloqueio de login (tentativas_login / bloqueios_acesso).
+
+    Cada tentativa de login consulta as últimas tentativas por e-mail e por IP.
+    Sem índice, a tabela (que só cresce) é varrida inteira a cada login e o
+    sistema fica lento quando vários usuários entram ao mesmo tempo.
+    CREATE INDEX IF NOT EXISTS funciona em PostgreSQL e SQLite e é idempotente.
+    """
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    comandos = []
+    if "tentativas_login" in tabelas:
+        comandos += [
+            'CREATE INDEX IF NOT EXISTS ix_tentativas_login_email_id ON tentativas_login (email_tentado, id)',
+            'CREATE INDEX IF NOT EXISTS ix_tentativas_login_ip_id ON tentativas_login (ip, id)',
+        ]
+    if "bloqueios_acesso" in tabelas:
+        comandos.append(
+            'CREATE INDEX IF NOT EXISTS ix_bloqueios_acesso_tipo_valor ON bloqueios_acesso (tipo, valor, liberado)')
+    if not comandos:
+        return
+    try:
+        with engine.begin() as conn:
+            for comando in comandos:
+                conn.execute(text(comando))
+    except Exception as e:  # índice é otimização: nunca pode impedir o sistema de subir
+        print(f"[SGMF] Índices de login adiados: {e}")
+
+
 def garantir_campos_controle_pneus():
     """Adiciona à tabela `pneus` as colunas do controle de pneus.
 

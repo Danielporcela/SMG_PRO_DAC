@@ -119,7 +119,10 @@ _tela("/ferramentas", "ferramentas.html", "ferramentas")
 _tela("/orcamento", "orcamento.html", "orcamento")
 _tela("/ranking", "ranking.html", "ranking")
 _tela("/relatorios", "relatorios.html", "relatorios")
-_tela("/importacao", "importacao.html", "importacao")
+@bp_paginas.get("/importacao")
+def importacao():
+    """Aba "Importar planilha" retirada do menu: volta para o painel."""
+    return redirect(url_for("paginas.dashboard"))
 
 # Telas exclusivas do administrador — fora da matriz de permissões.
 _tela("/usuarios", "usuarios.html", "usuarios")
@@ -130,7 +133,5 @@ _tela("/notificacoes", "notificacoes.html", "notificacoes")
 
 @bp_paginas.get("/cadastros-manuais")
 def cadastros_manuais():
-    """Central de lançamentos manuais; cada API aplica sua própria permissão."""
-    if not session.get("usuario_id"):
-        return redirect(url_for("auth.login"))
-    return render_template("cadastros_manuais.html", pagina="cadastros_manuais")
+    """Aba "Lançamentos manuais" retirada do menu: volta para o painel."""
+    return redirect(url_for("paginas.dashboard"))

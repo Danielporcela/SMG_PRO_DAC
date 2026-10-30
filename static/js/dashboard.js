@@ -797,6 +797,11 @@
 
   // "Conectados agora" muda com o tempo mesmo sem o usuário tocar em nada
   // (login/logout de outra pessoa, sessão que expirou) — atualiza sozinho
-  // a cada 30s, sem recarregar gráficos e indicadores do período inteiro.
-  setInterval(() => { carregarConectados().catch(() => {}); }, 30000);
+  // a cada 2 min, sem recarregar gráficos e indicadores do período inteiro.
+  // Intervalo de 120s e pausado com a aba em segundo plano (antes: 30s sempre),
+  // para não sobrecarregar o servidor com consultas desnecessárias.
+  setInterval(() => {
+    if (document.hidden) return;
+    carregarConectados().catch(() => {});
+  }, 120000);
 })();

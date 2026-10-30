@@ -224,12 +224,8 @@
           <h5 class="modal-title" id="modalMapaTitulo">Pneu</h5>
           <small id="modalMapaPosicao"></small>
         </div>
-        <button
-          type="button"
-          class="btn-close btn-close-white"
-          data-bs-dismiss="modal"
-          aria-label="Fechar"
-        ></button>
+        <button type="button" class="btn-close btn-close-white"
+                data-bs-dismiss="modal" aria-label="Fechar"></button>
       </div>
 
       <div class="modal-body">
@@ -237,67 +233,52 @@
         <input type="hidden" id="mapaPneuPosicao">
 
         <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Número de fogo *</label>
+          <div class="col-md-3">
+            <label class="form-label">Prefixo</label>
+            <input id="mapaPrefixo" class="form-control" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Placa</label>
+            <input id="mapaPlaca" class="form-control" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Medida</label>
+            <input id="mapaMedida" class="form-control" placeholder="275/80 R22.5">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Nº de fogo *</label>
             <input id="mapaNumeroFogo" class="form-control" maxlength="30">
           </div>
 
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">Marca</label>
             <input id="mapaMarca" class="form-control">
           </div>
-
-          <div class="col-md-4">
-            <label class="form-label">Medida</label>
-            <input
-              id="mapaMedida"
-              class="form-control"
-              placeholder="275/80 R22.5"
-            >
+          <div class="col-md-6">
+            <label class="form-label">Posição</label>
+            <input id="mapaPosicaoCampo" class="form-control" readonly>
           </div>
 
-          <div class="col-md-3">
-            <label class="form-label">Sulco (mm)</label>
-            <input id="mapaSulco" type="number" step="0.1" class="form-control">
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 1 (mm)</label>
+            <input id="mapaSulco1" type="number" step="0.1" min="0" class="form-control">
           </div>
-
-          <div class="col-md-3">
-            <label class="form-label">Km instalação</label>
-            <input id="mapaKm" type="number" step="1" class="form-control">
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 2 (mm)</label>
+            <input id="mapaSulco2" type="number" step="0.1" min="0" class="form-control">
           </div>
-
-          <div class="col-md-3">
-            <label class="form-label">Data instalação</label>
-            <input id="mapaData" type="date" class="form-control">
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 3 (mm)</label>
+            <input id="mapaSulco3" type="number" step="0.1" min="0" class="form-control">
           </div>
-
-          <div class="col-md-3">
-            <label class="form-label">Vida</label>
-            <select id="mapaVida" class="form-select">
-              <option>Novo</option>
-              <option>1ª recapagem</option>
-              <option>2ª recapagem</option>
-              <option>3ª recapagem</option>
-            </select>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sulco 4 (mm)</label>
+            <input id="mapaSulco4" type="number" step="0.1" min="0" class="form-control">
           </div>
 
           <div class="col-md-4">
-            <label class="form-label">Status</label>
-            <select id="mapaStatusPneu" class="form-select">
-              <option>Em uso</option>
-              <option>Estoque</option>
-              <option>Descartado</option>
-            </select>
-          </div>
-
-          <div class="col-md-4">
-            <label class="form-label">Custo (R$)</label>
-            <input id="mapaCusto" type="number" step="0.01" class="form-control">
-          </div>
-
-          <div class="col-md-4">
-            <label class="form-label">Última medição</label>
-            <input id="mapaMedicao" type="date" class="form-control">
+            <label class="form-label">DOT</label>
+            <input id="mapaDot" class="form-control" maxlength="20" placeholder="Ex.: 2423">
           </div>
         </div>
 
@@ -305,12 +286,8 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-contorno" data-bs-dismiss="modal">
-          Cancelar
-        </button>
-        <button class="btn btn-primario" id="btnSalvarMapaPneu">
-          Salvar pneu
-        </button>
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="btnSalvarMapaPneu">Salvar pneu</button>
       </div>
     </div>
   </div>

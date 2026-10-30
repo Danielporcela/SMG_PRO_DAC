@@ -28,6 +28,9 @@
   let pneusOS = {};   // pneus lançados nas OS da frota, por posição
   let veiculoSelecionado = null;
   let pneuAtual = null;
+  let ultimaCarga = 0;   // evita recarregar a cada troca de aba/foco
+  let sujo = false;      // true quando algo foi salvo em outra aba da tela
+  const FRESCOR_MS = 30000;
   const somenteLeitura = () => SGMF.somenteLeitura('pneus');
 
   const el = id => document.getElementById(id);
@@ -56,7 +59,7 @@
       return;
     }
 
-    const salvo = Number(select.dataset.selecionado || 0);
+    const salvo = Number(veiculoSelecionado?.id || select.dataset.selecionado || 0);
     const alvo = atuais.find(v => v.id === salvo) || atuais[0];
     select.value = alvo.id;
     veiculoSelecionado = alvo;
@@ -119,7 +122,7 @@
     if (!pneu && !pneusOS[pos.nome]?.numero_fogo)
       return pos.cor === 'vermelho' ? 'vermelho' : 'cinza';
     if (!pneu) return pos.cor;
-    if (pneu.trocar) return 'vermelho';
+    if (pneu.situacao === 'trocar') return 'vermelho';
     return pos.cor;
   }
 
@@ -180,26 +183,33 @@
       `<div><strong>Nº de fogo:</strong> ${esc(pneu.numero_fogo)}</div>` +
       `<div><strong>Status:</strong> ${esc(pneu.status)}</div>` +
       `<div><strong>Sulco:</strong> ${
-        pneu.sulco_mm == null ? '—' : esc(SGMF.numero(pneu.sulco_mm,1)+' mm')
-      }</div>`;
+        pneu.menor_sulco == null ? '—' : esc(SGMF.numero(pneu.menor_sulco,1)+' mm')
+      }</div>` +
+      `<div><strong>DOT:</strong> ${esc(pneu.dot || '—')}</div>`;
   }
 
-  function limparFormulario(){
-    [
-      'mapaPneuId',
-      'mapaPneuPosicao',
-      'mapaNumeroFogo',
-      'mapaMarca',
-      'mapaMedida',
-      'mapaSulco',
-      'mapaKm',
-      'mapaData',
-      'mapaCusto',
-      'mapaMedicao'
-    ].forEach(id => el(id).value='');
+  const SULCOS = ['mapaSulco1','mapaSulco2','mapaSulco3','mapaSulco4'];
+  const CAMPOS_EDITAVEIS = ['mapaMedida','mapaNumeroFogo','mapaMarca','mapaDot', ...SULCOS];
 
-    el('mapaVida').value = 'Novo';
-    el('mapaStatusPneu').value = 'Em uso';
+  function limparFormulario(){
+    ['mapaPneuId','mapaPneuPosicao','mapaPrefixo','mapaPlaca','mapaMedida',
+     'mapaNumeroFogo','mapaMarca','mapaPosicaoCampo','mapaDot', ...SULCOS
+    ].forEach(id => el(id).value='');
+  }
+
+  function avisoSulco(){
+    const medidos = SULCOS.map(id => el(id).value).filter(v => v !== '').map(Number);
+    const caixa = el('mapaAvisoPosicao');
+    const limite = 4;
+    if (medidos.length && Math.min(...medidos) < limite){
+      caixa.className = 'alert alert-danger border mt-4 mb-0';
+      caixa.innerHTML = `<strong>TROCAR:</strong> menor sulco ${esc(SGMF.numero(Math.min(...medidos),1))} mm, ` +
+        `abaixo de ${limite} mm. Este pneu entrará nos alertas.`;
+    }else{
+      caixa.className = 'alert alert-light border mt-4 mb-0';
+      caixa.innerHTML = `<strong>Posição fixa:</strong> ${esc(el('mapaPosicaoCampo').value)}. ` +
+        `O cadastro será vinculado à frota <strong>${esc(frotaNome(veiculoSelecionado))}</strong>.`;
+    }
   }
 
   function preencherFormulario(pos, pneu){
@@ -207,31 +217,26 @@
 
     el('mapaPneuId').value = pneu?.id || '';
     el('mapaPneuPosicao').value = pos.nome;
-    el('mapaNumeroFogo').value = pneu?.numero_fogo || '';
+    el('mapaPrefixo').value = veiculoSelecionado?.prefixo || '';
+    el('mapaPlaca').value = veiculoSelecionado?.placa || '';
+    el('mapaPosicaoCampo').value = pos.display;
+    el('mapaNumeroFogo').value = pneu?.numero_fogo || pneusOS[pos.nome]?.numero_fogo || '';
     el('mapaMarca').value = pneu?.marca || '';
     el('mapaMedida').value = pneu?.medida || '';
-    el('mapaSulco').value = pneu?.sulco_mm ?? '';
-    el('mapaKm').value = pneu?.km_instalacao ?? '';
-    el('mapaData').value = pneu?.data_instalacao || SGMF.hoje();
-    el('mapaVida').value = pneu?.vida || 'Novo';
-    el('mapaStatusPneu').value = pneu?.status || 'Em uso';
-    el('mapaCusto').value = pneu?.custo ?? '';
-    el('mapaMedicao').value = pneu?.data_medicao || SGMF.hoje();
+    el('mapaSulco1').value = pneu?.sulco_1 ?? '';
+    el('mapaSulco2').value = pneu?.sulco_2 ?? '';
+    el('mapaSulco3').value = pneu?.sulco_3 ?? '';
+    el('mapaSulco4').value = pneu?.sulco_4 ?? '';
+    el('mapaDot').value = pneu?.dot || '';
 
     el('modalMapaTitulo').textContent =
       pneu ? `Editar pneu ${pneu.numero_fogo}` : `Cadastrar pneu — posição ${pos.n}`;
-
     el('modalMapaPosicao').textContent = pos.display;
 
-    el('mapaAvisoPosicao').innerHTML =
-      `<strong>Posição fixa:</strong> ${esc(pos.display)}. ` +
-      `O cadastro será vinculado à frota <strong>${esc(frotaNome(veiculoSelecionado))}</strong>.`;
-
-    if (!pneu && pneusOS[pos.nome]?.numero_fogo)
-      el('mapaNumeroFogo').value = pneusOS[pos.nome].numero_fogo;
-
-    el('btnSalvarMapaPneu').disabled = somenteLeitura();
-    el('mapaNumeroFogo').disabled = somenteLeitura();
+    const bloqueado = somenteLeitura();
+    CAMPOS_EDITAVEIS.forEach(id => { el(id).disabled = bloqueado; });
+    el('btnSalvarMapaPneu').disabled = bloqueado;
+    avisoSulco();
   }
 
   function abrirPneu(pos, pneu){
@@ -241,12 +246,20 @@
     bootstrap.Modal.getOrCreateInstance(el('modalMapaPneu')).show();
   }
 
-  async function carregar(){
+  async function carregar(forcar = true){
+    if (!forcar && !sujo && Date.now() - ultimaCarga < FRESCOR_MS) return;
     try{
-      [veiculos,pneus] = await Promise.all([
-        SGMF.get('/api/veiculos'),
-        SGMF.get('/api/pneus')
+      // A lista de veículos quase não muda: só é buscada na 1ª vez ou ao forçar.
+      const reqVeiculos = (forcar || !veiculos.length)
+        ? SGMF.get('/api/veiculos') : Promise.resolve(veiculos);
+      const [listaVeiculos, controle] = await Promise.all([
+        reqVeiculos,
+        SGMF.get('/api/controle-pneus')
       ]);
+      veiculos = listaVeiculos || [];
+      pneus = (controle && controle.linhas) || [];
+      sujo = false;
+      ultimaCarga = Date.now();
 
       renderFrotas();
       await carregarPneusOS();
@@ -264,44 +277,60 @@
       return SGMF.aviso('Selecione uma frota.');
 
     const numero = el('mapaNumeroFogo').value.trim().toUpperCase();
-
     if (!numero)
       return SGMF.aviso('Informe o número de fogo.');
 
+    const num = id => el(id).value === '' ? null : Number(el(id).value);
     const dados = {
-      numero_fogo: numero,
       veiculo_id: Number(veiculoSelecionado.id),
+      numero_fogo: numero,
+      status: 'Em uso',
       posicao: el('mapaPneuPosicao').value,
-      marca: el('mapaMarca').value.trim() || null,
       medida: el('mapaMedida').value.trim() || null,
-      sulco_mm: el('mapaSulco').value === ''
-        ? null : Number(el('mapaSulco').value),
-      km_instalacao: el('mapaKm').value === ''
-        ? null : Number(el('mapaKm').value),
-      data_instalacao: el('mapaData').value || null,
-      vida: el('mapaVida').value,
-      status: el('mapaStatusPneu').value,
-      custo: el('mapaCusto').value === ''
-        ? null : Number(el('mapaCusto').value),
-      data_medicao: el('mapaMedicao').value || null
+      marca: el('mapaMarca').value.trim() || null,
+      sulco_1: num('mapaSulco1'),
+      sulco_2: num('mapaSulco2'),
+      sulco_3: num('mapaSulco3'),
+      sulco_4: num('mapaSulco4'),
+      // km e km/sulco não aparecem neste formulário: preserva o que já existe.
+      km: pneuAtual?.km ?? null,
+      km_por_sulco: pneuAtual?.km_por_sulco ?? null,
+      dot: el('mapaDot').value.trim() || null
     };
+
+    if ([dados.sulco_1, dados.sulco_2, dados.sulco_3, dados.sulco_4].every(v => v == null))
+      return SGMF.aviso('Informe ao menos um sulco (mm).');
+
+    // Nº de fogo diferente do pneu que está na posição = troca de pneu.
+    let trocaDePneu = false;
+    if (pneuAtual?.id && pneuAtual.numero_fogo !== numero){
+      const ok = await SGMF.confirmar(
+        'Trocar o pneu desta posição?',
+        `A posição já tem o pneu ${pneuAtual.numero_fogo}. Ele será marcado como ` +
+        `Descartado e o pneu ${numero} ocupará o lugar.`,
+        'Trocar pneu');
+      if (!ok) return;
+      trocaDePneu = true;
+      dados.substituir = true;
+      dados.km = null;
+      dados.km_por_sulco = null;
+    }
 
     const btn = el('btnSalvarMapaPneu');
     btn.disabled = true;
 
     try{
-      if (pneuAtual?.id)
-        await SGMF.put(`/api/pneus/${pneuAtual.id}`, dados);
+      const editando = pneuAtual?.id && !trocaDePneu;
+      if (editando)
+        await SGMF.put(`/api/controle-pneus/${pneuAtual.id}`, dados);
       else
-        await SGMF.post('/api/pneus', dados);
+        await SGMF.post('/api/controle-pneus', dados);
 
       bootstrap.Modal.getInstance(el('modalMapaPneu')).hide();
+      SGMF.sucesso(editando ? 'Pneu atualizado' : 'Pneu cadastrado no mapa');
 
-      SGMF.sucesso(
-        pneuAtual?.id ? 'Pneu atualizado' : 'Pneu cadastrado no mapa'
-      );
-
-      await carregar();
+      document.dispatchEvent(new Event('pneus:alterado'));
+      await carregar(true);
     }catch(e){
       SGMF.falha(e.message);
     }finally{
@@ -315,12 +344,18 @@
     carregarPneusOS().then(renderMapa);
   });
 
-  el('btnAtualizarPneus').addEventListener('click', carregar);
+  SULCOS.forEach(id => el(id).addEventListener('input', avisoSulco));
+  el('btnAtualizarPneus').addEventListener('click', () => carregar(true));
   el('btnSalvarMapaPneu').addEventListener('click', salvar);
 
+  // Eventos entre as duas abas da tela (evita recarregar tudo a cada clique).
+  document.addEventListener('pneus:alterado', () => { sujo = true; });
+  document.addEventListener('pneus:mapa-visivel', () => carregar(false));
+
+  // Ao voltar para a janela, só recarrega se os dados estiverem velhos.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) carregar();
+    if (!document.hidden) carregar(false);
   });
 
-  carregar();
+  carregar(true);
 })();

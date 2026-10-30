@@ -14,6 +14,9 @@
   let linhas = [];
   let veiculos = [];
   let limite = 4;
+  let ultimaCarga = 0;   // evita recarregar a cada troca de aba
+  let sujo = false;      // true quando o mapa salvou algo
+  const FRESCOR_MS = 30000;
 
   const el = id => document.getElementById(id);
   const esc = v => SGMF.esc(v == null ? '' : v);
@@ -134,12 +137,16 @@
     if (vistos.has(Number(atual))) select.value = atual;
   }
 
-  async function carregar() {
+  async function carregar(forcar = true) {
+    if (!forcar && !sujo && Date.now() - ultimaCarga < FRESCOR_MS) return;
     try {
       const [dados, listaVeiculos] = await Promise.all([
         SGMF.get('/api/controle-pneus'),
-        SGMF.get('/api/veiculos')
+        // a lista de veículos quase não muda: só busca na 1ª vez ou ao forçar
+        (forcar || !veiculos.length) ? SGMF.get('/api/veiculos') : Promise.resolve(veiculos)
       ]);
+      sujo = false;
+      ultimaCarga = Date.now();
       limite = Number(dados.limite) || 4;
       linhas = dados.linhas || [];
       veiculos = (listaVeiculos || []).filter(v => !v.grupo_consumo_legado);
@@ -261,7 +268,8 @@
 
       bootstrap.Modal.getInstance(el('modalControlePneu')).hide();
       SGMF.sucesso(id ? 'Pneu atualizado' : 'Pneu cadastrado');
-      await carregar();
+      document.dispatchEvent(new Event('pneus:alterado'));
+      await carregar(true);
     } catch (e) {
       SGMF.falha(e.message);
     } finally {
@@ -293,9 +301,11 @@
 
   el('cpSalvar').addEventListener('click', salvar);
 
-  // Ao voltar para a aba Mapa, recarrega o mapa para refletir o que foi salvo aqui.
-  el('tabMapa').addEventListener('shown.bs.tab', () => el('btnAtualizarPneus').click());
-  el('tabControle').addEventListener('shown.bs.tab', carregar);
+  // Troca de aba: só recarrega se algo mudou ou se os dados ficaram velhos.
+  document.addEventListener('pneus:alterado', () => { sujo = true; });
+  el('tabMapa').addEventListener('shown.bs.tab',
+    () => document.dispatchEvent(new Event('pneus:mapa-visivel')));
+  el('tabControle').addEventListener('shown.bs.tab', () => carregar(false));
 
-  carregar();
+  carregar(true);
 })();

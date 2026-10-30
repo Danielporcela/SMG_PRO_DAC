@@ -192,6 +192,8 @@ class Usuario(db.Model):
 
     def primeira_tela_liberada(self):
         for chave, _, _ in TELAS_SISTEMA:
+            if chave == "importacao":
+                continue  # aba retirada do menu: a página só redireciona ao painel
             if self.tem_acesso(chave, "visualizar"):
                 return chave
         return None
