@@ -98,6 +98,7 @@ def criar_app(config=Config):
     # PostgreSQL ainda não recebeu as tabelas ou alguma coluna do módulo.
     with app.app_context():
         from services.compatibilidade_banco import (garantir_campos_execucao_os,
+                                                     garantir_campos_notas_fiscais_pecas,
                                                      garantir_consumo_diario,
                                                      garantir_estoque_combustivel,
                                                      garantir_itens_os_servicos_terceiros,
@@ -117,6 +118,7 @@ def criar_app(config=Config):
         garantir_estoque_combustivel()
         garantir_ordens_compra()
         garantir_pecas_serial()
+        garantir_campos_notas_fiscais_pecas()
         garantir_itens_os_servicos_terceiros()
         garantir_servicos_terceiros_financeiros()
         garantir_lavagens_financeiro()
@@ -315,22 +317,6 @@ def criar_app(config=Config):
 
     with app.app_context():
         preparar_banco()
-
-        # Compatibilidade de segurança do login: versões anteriores podem
-        # ter a tabela alembic_version marcada como atual mesmo sem a tabela
-        # permissoes_acesso. O login consulta Usuario.permissoes ao montar a
-        # sessão; se a tabela estiver ausente, a autenticação termina em HTTP
-        # 500 depois de validar a senha. create_all(tables=[...]) cria SOMENTE
-        # esta tabela quando ausente e não altera nem apaga dados existentes.
-        from models import PermissaoAcesso
-        if not db.inspect(db.engine).has_table(PermissaoAcesso.__tablename__):
-            db.create_all(tables=[PermissaoAcesso.__table__])
-            app.logger.warning(
-                "[SGMF] Tabela %s ausente: criada automaticamente para "
-                "restabelecer a montagem das permissões no login.",
-                PermissaoAcesso.__tablename__
-            )
-
         # Em banco totalmente novo, preparar_banco cria as tabelas depois da
         # primeira checagem de compatibilidade. Rodamos novamente somente a
         # garantia idempotente dos grupos para semear os grupos padrão.

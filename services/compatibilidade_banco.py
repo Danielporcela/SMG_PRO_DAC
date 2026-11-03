@@ -203,6 +203,63 @@ def garantir_pecas_serial():
             conn.execute(text('ALTER TABLE "itens_nota_fiscal" ADD COLUMN "numeros_serie" TEXT'))
 
 
+def garantir_campos_notas_fiscais_pecas():
+    """Completa, sem apagar dados, as colunas fiscais usadas no lançamento de itens de NF.
+
+    Algumas instalações antigas já tinham as tabelas notas_fiscais/itens_nota_fiscal,
+    mas não receberam todas as colunas tributárias adicionadas posteriormente ao modelo.
+    O INSERT do item então falha no PostgreSQL com ProgrammingError/UndefinedColumn.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+    esperadas = {
+        "pecas": {
+            "ncm": "VARCHAR(8)",
+            "cfop_entrada": "VARCHAR(4)",
+            "cst_icms": "VARCHAR(3)",
+            "cst_pis": "VARCHAR(2)",
+            "cst_cofins": "VARCHAR(2)",
+            "cst_ibs_cbs": "VARCHAR(3)",
+            "classificacao_tributaria": "VARCHAR(6)",
+        },
+        "itens_nota_fiscal": {
+            "ncm": "VARCHAR(8)",
+            "cfop": "VARCHAR(4)",
+            "cst_icms": "VARCHAR(3)",
+            "base_icms": "FLOAT",
+            "aliquota_icms": "FLOAT",
+            "valor_icms": "FLOAT",
+            "cst_pis": "VARCHAR(2)",
+            "base_pis": "FLOAT",
+            "aliquota_pis": "FLOAT",
+            "valor_pis": "FLOAT",
+            "cst_cofins": "VARCHAR(2)",
+            "base_cofins": "FLOAT",
+            "aliquota_cofins": "FLOAT",
+            "valor_cofins": "FLOAT",
+            "cst_ibs_cbs": "VARCHAR(3)",
+            "classificacao_tributaria": "VARCHAR(6)",
+            "base_ibs_cbs": "FLOAT",
+            "aliquota_ibs": "FLOAT",
+            "valor_ibs": "FLOAT",
+            "aliquota_cbs": "FLOAT",
+            "valor_cbs": "FLOAT",
+            "baixado_estoque": "BOOLEAN DEFAULT false",
+            "numeros_serie": "TEXT",
+        },
+    }
+    with engine.begin() as conn:
+        for tabela, colunas in esperadas.items():
+            if tabela not in tabelas:
+                continue  # db.create_all() cria em instalação nova
+            existentes = {c["name"] for c in inspect(engine).get_columns(tabela)}
+            for nome, tipo in colunas.items():
+                if nome not in existentes:
+                    conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'))
+                    existentes.add(nome)
+
+
 def garantir_itens_os_servicos_terceiros():
     """Adiciona, sem apagar dados, os campos usados por serviços de terceiros.
 
@@ -390,35 +447,6 @@ def garantir_ultimo_acesso_usuario():
             ))
 
 
-def garantir_indices_login():
-    """Índices para o bloqueio de login (tentativas_login / bloqueios_acesso).
-
-    Cada tentativa de login consulta as últimas tentativas por e-mail e por IP.
-    Sem índice, a tabela (que só cresce) é varrida inteira a cada login e o
-    sistema fica lento quando vários usuários entram ao mesmo tempo.
-    CREATE INDEX IF NOT EXISTS funciona em PostgreSQL e SQLite e é idempotente.
-    """
-    engine = db.engine
-    tabelas = set(inspect(engine).get_table_names())
-    comandos = []
-    if "tentativas_login" in tabelas:
-        comandos += [
-            'CREATE INDEX IF NOT EXISTS ix_tentativas_login_email_id ON tentativas_login (email_tentado, id)',
-            'CREATE INDEX IF NOT EXISTS ix_tentativas_login_ip_id ON tentativas_login (ip, id)',
-        ]
-    if "bloqueios_acesso" in tabelas:
-        comandos.append(
-            'CREATE INDEX IF NOT EXISTS ix_bloqueios_acesso_tipo_valor ON bloqueios_acesso (tipo, valor, liberado)')
-    if not comandos:
-        return
-    try:
-        with engine.begin() as conn:
-            for comando in comandos:
-                conn.execute(text(comando))
-    except Exception as e:  # índice é otimização: nunca pode impedir o sistema de subir
-        print(f"[SGMF] Índices de login adiados: {e}")
-
-
 def garantir_campos_controle_pneus():
     """Adiciona à tabela `pneus` as colunas do controle de pneus.
 
@@ -571,70 +599,3 @@ def garantir_ferramentas_veiculo():
         return
     if UsoFerramentaVeiculo.__tablename__ not in tabelas:
         UsoFerramentaVeiculo.__table__.create(engine, checkfirst=True)
-
-
-def garantir_campos_tributarios_notas_fiscais():
-    """Completa os campos fiscais de peças e itens de NF em bancos antigos.
-
-    A tela de notas passou a gravar os dados de IBS/CBS e classificação
-    tributária. Em instalações anteriores, essas colunas podem ainda não
-    existir. A rotina acrescenta apenas o que estiver faltando e preserva
-    todos os lançamentos já registrados.
-    """
-    engine = db.engine
-    insp = inspect(engine)
-    tabelas = set(insp.get_table_names())
-
-    # Banco novo: as tabelas serão criadas por db.create_all().
-    if "pecas" not in tabelas or "itens_nota_fiscal" not in tabelas:
-        return
-
-    campos = {
-        "pecas": {
-            "ncm": "VARCHAR(8)",
-            "cfop_entrada": "VARCHAR(4)",
-            "cst_icms": "VARCHAR(3)",
-            "cst_pis": "VARCHAR(2)",
-            "cst_cofins": "VARCHAR(2)",
-            "cst_ibs_cbs": "VARCHAR(3)",
-            "classificacao_tributaria": "VARCHAR(6)",
-        },
-        "itens_nota_fiscal": {
-            "descricao": "VARCHAR(160)",
-            "quantidade": "FLOAT",
-            "valor_unitario": "FLOAT",
-            "ncm": "VARCHAR(8)",
-            "cfop": "VARCHAR(4)",
-            "cst_icms": "VARCHAR(3)",
-            "base_icms": "FLOAT",
-            "aliquota_icms": "FLOAT",
-            "valor_icms": "FLOAT",
-            "cst_pis": "VARCHAR(2)",
-            "base_pis": "FLOAT",
-            "aliquota_pis": "FLOAT",
-            "valor_pis": "FLOAT",
-            "cst_cofins": "VARCHAR(2)",
-            "base_cofins": "FLOAT",
-            "aliquota_cofins": "FLOAT",
-            "valor_cofins": "FLOAT",
-            "cst_ibs_cbs": "VARCHAR(3)",
-            "classificacao_tributaria": "VARCHAR(6)",
-            "base_ibs_cbs": "FLOAT",
-            "aliquota_ibs": "FLOAT",
-            "valor_ibs": "FLOAT",
-            "aliquota_cbs": "FLOAT",
-            "valor_cbs": "FLOAT",
-            "baixado_estoque": "BOOLEAN",
-            "numeros_serie": "TEXT",
-        },
-    }
-
-    with engine.begin() as conn:
-        for tabela, definicoes in campos.items():
-            existentes = {col["name"] for col in inspect(conn).get_columns(tabela)}
-            for nome, tipo in definicoes.items():
-                if nome not in existentes:
-                    conn.execute(text(
-                        f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'
-                    ))
-
