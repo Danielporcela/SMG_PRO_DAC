@@ -131,29 +131,29 @@
             </a>
             <div class="collapse mt-3" id="itemDadosFiscais">
               <div class="row g-3">
-                <div class="col-md-3"><label class="form-label">NCM</label><input class="form-control" id="itemNcm"></div>
-                <div class="col-md-3"><label class="form-label">CFOP entrada</label><input class="form-control" id="itemCfop"></div>
-                <div class="col-md-3"><label class="form-label">Classif. tributária</label><input class="form-control" id="itemClassificacaoTributaria"></div>
-                <div class="col-md-3"><label class="form-label">CST IBS/CBS</label><input class="form-control" id="itemCstIbsCbs"></div>
+                <div class="col-md-3"><label class="form-label">NCM</label><input class="form-control" id="itemNcm" maxlength="10"></div>
+                <div class="col-md-3"><label class="form-label">CFOP entrada</label><input class="form-control" id="itemCfop" maxlength="5"></div>
+                <div class="col-md-3"><label class="form-label">Classif. tributária</label><input class="form-control" id="itemClassificacaoTributaria" maxlength="6"></div>
+                <div class="col-md-3"><label class="form-label">CST IBS/CBS</label><input class="form-control" id="itemCstIbsCbs" maxlength="3"></div>
               </div>
               <hr>
               <div class="row g-2 align-items-end">
                 <div class="col-md-1"><small class="text-muted">ICMS</small></div>
-                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstIcms"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstIcms" maxlength="3"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="icms" id="itemBaseIcms"></div>
                 <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="icms" id="itemAliquotaIcms"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorIcms"></div>
               </div>
               <div class="row g-2 align-items-end mt-1">
                 <div class="col-md-1"><small class="text-muted">PIS</small></div>
-                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstPis"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstPis" maxlength="2"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="pis" id="itemBasePis"></div>
                 <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="pis" id="itemAliquotaPis"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorPis"></div>
               </div>
               <div class="row g-2 align-items-end mt-1">
                 <div class="col-md-1"><small class="text-muted">COFINS</small></div>
-                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstCofins"></div>
+                <div class="col-md-2"><label class="form-label" style="font-size:11.5px">CST</label><input class="form-control form-control-sm" id="itemCstCofins" maxlength="2"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Base (R$)</label><input type="number" step="any" class="form-control form-control-sm campo-base" data-grupo="cofins" id="itemBaseCofins"></div>
                 <div class="col-md-2"><label class="form-label" style="font-size:11.5px">Alíquota (%)</label><input type="number" step="any" class="form-control form-control-sm campo-aliquota" data-grupo="cofins" id="itemAliquotaCofins"></div>
                 <div class="col-md-3"><label class="form-label" style="font-size:11.5px">Valor (R$)</label><input type="number" step="any" class="form-control form-control-sm" id="itemValorCofins"></div>

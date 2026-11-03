@@ -370,7 +370,20 @@ def adicionar_item_nota(nota_id):
 
     def num(campo):
         v = dados.get(campo)
-        return float(v) if v not in (None, "") else None
+        return float(str(v).replace(",", ".")) if v not in (None, "") else None
+
+    def codigo(campo, tamanho, rotulo, padrao=None):
+        """NCM, CFOP e CSTs: tira pontos/espaços (8708.30.90, 1.102) e confere
+        o tamanho. O Postgres recusa texto maior que o VARCHAR da coluna (o
+        SQLite local deixava passar) e isso virava 500 só em produção."""
+        valor = dados.get(campo)
+        if valor in (None, ""):
+            valor = padrao
+        valor = "".join(ch for ch in str(valor or "") if ch.isalnum())
+        if len(valor) > tamanho:
+            raise ErroNegocio(f"{rotulo} aceita no máximo {tamanho} caracteres "
+                              f"(informado: {valor}).")
+        return valor or None
 
     try:
         _nota_precisa_estar_aberta(nota)
@@ -386,23 +399,24 @@ def adicionar_item_nota(nota_id):
 
         item = ItemNotaFiscal(
             nota_fiscal_id=nota.id, peca_id=peca.id,
-            descricao=(dados.get("descricao") or peca.descricao),
+            descricao=(dados.get("descricao") or peca.descricao or "")[:160],
             quantidade=quantidade,
             valor_unitario=float(dados.get("valor_unitario") or peca.custo_unitario or 0),
-            ncm=(dados.get("ncm") or peca.ncm),
-            cfop=(dados.get("cfop") or peca.cfop_entrada),
-            cst_icms=(dados.get("cst_icms") or peca.cst_icms),
+            ncm=codigo("ncm", 8, "NCM", peca.ncm),
+            cfop=codigo("cfop", 4, "CFOP", peca.cfop_entrada),
+            cst_icms=codigo("cst_icms", 3, "CST ICMS", peca.cst_icms),
             base_icms=num("base_icms"), aliquota_icms=num("aliquota_icms"),
             valor_icms=num("valor_icms"),
-            cst_pis=(dados.get("cst_pis") or peca.cst_pis),
+            cst_pis=codigo("cst_pis", 2, "CST PIS", peca.cst_pis),
             base_pis=num("base_pis"), aliquota_pis=num("aliquota_pis"),
             valor_pis=num("valor_pis"),
-            cst_cofins=(dados.get("cst_cofins") or peca.cst_cofins),
+            cst_cofins=codigo("cst_cofins", 2, "CST COFINS", peca.cst_cofins),
             base_cofins=num("base_cofins"), aliquota_cofins=num("aliquota_cofins"),
             valor_cofins=num("valor_cofins"),
-            cst_ibs_cbs=(dados.get("cst_ibs_cbs") or peca.cst_ibs_cbs),
-            classificacao_tributaria=(dados.get("classificacao_tributaria")
-                                      or peca.classificacao_tributaria),
+            cst_ibs_cbs=codigo("cst_ibs_cbs", 3, "CST IBS/CBS", peca.cst_ibs_cbs),
+            classificacao_tributaria=codigo("classificacao_tributaria", 6,
+                                            "Classificação tributária",
+                                            peca.classificacao_tributaria),
             base_ibs_cbs=num("base_ibs_cbs"),
             aliquota_ibs=num("aliquota_ibs"), valor_ibs=num("valor_ibs"),
             aliquota_cbs=num("aliquota_cbs"), valor_cbs=num("valor_cbs"),
@@ -410,18 +424,14 @@ def adicionar_item_nota(nota_id):
         db.session.add(item)
         registrar_log("criar", "itens_nota_fiscal", nota.id, f"NF {nota.numero}: {peca.codigo}")
         db.session.commit()
-    except (ErroNegocio, ValueError, TypeError) as e:
+    except (ErroNegocio, ValueError) as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     except Exception as e:
         db.session.rollback()
-        current_app.logger.exception(
-            "Falha ao lançar peça na nota fiscal %s", nota_id
-        )
-        return jsonify({
-            "erro": "Não foi possível lançar a peça. A operação foi desfeita; "
-                    "consulte os logs do servidor para identificar o detalhe."
-        }), 500
+        current_app.logger.exception("Falha ao lançar item na nota fiscal %s", nota_id)
+        return jsonify({"erro": f"Não foi possível lançar o item ({e.__class__.__name__}). "
+                                "O detalhe técnico está no log do servidor."}), 500
     return jsonify(nota.to_dict(com_itens=True)), 201
 
 
@@ -496,16 +506,10 @@ def testar_email():
     """Envia uma mensagem de teste para conferir a configuração."""
     dados = request.get_json(silent=True) or {}
     para = [e.strip() for e in (dados.get("destinatario") or "").split(",") if e.strip()]
-    corpo = ("SGMF Pro\n\nEnvio de e-mail funcionando.\n"
-             "Se você recebeu esta mensagem, os avisos automáticos estão prontos.")
-    try:
-        ok, detalhe = notificacoes.enviar_email("[SGMF] Teste de envio", corpo,
-                                                destinatarios=para or None)
-    except Exception as e:
-        return jsonify({"erro": f"Falha ao enviar: {e}"}), 400
-    if not ok:
-        return jsonify({"erro": detalhe}), 400
-    enviados = para or notificacoes.destinatarios_padrao()
+    corpo = notificacoes.montar_resumo([
+        {"nivel": "info", "categoria": "Teste", "titulo": "Envio de e-mail funcionando",
+         "detalhe": "Se você recebeu esta mensagem, os avisos automáticos estão prontos."}])
+    enviados = notificacoes.enviar_email("[SGMF] Teste de envio", corpo, para or None)
     registrar_log("testar", "email", 0, ", ".join(enviados))
     db.session.commit()
     return jsonify({"ok": True, "destinatarios": enviados})
