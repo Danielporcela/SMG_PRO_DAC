@@ -46,6 +46,13 @@
           <p class="form-text mt-0">Digite a descrição e a quantidade do item. Não há busca nem seleção de peças do estoque.</p>
         </div>
 
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 mb-2">
+          <h6 class="mb-0">Orçamentos de fornecedores</h6>
+          <button type="button" class="btn btn-contorno btn-sm" id="ocAbrirOrcamentos">
+            <i class="fa-solid fa-file-invoice-dollar me-1"></i> Incluir orçamento
+          </button>
+        </div>
+        <div id="ocListaOrcamentos" class="mb-3"></div>
         <div id="ocListaItens"></div>
       </div>
       <div class="modal-footer justify-content-between flex-wrap gap-2">
@@ -70,6 +77,27 @@
       </div>
     </div>
   </div>
+</div>
+
+
+<div class="modal fade" id="modalOrcamentoCompra" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header" style="background:var(--petroleo);color:#fff">
+      <h5 class="modal-title display">Incluir orçamento de fornecedor</h5>
+      <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="row g-2 mb-3">
+        <div class="col-md-6"><label class="form-label">Fornecedor</label><select class="form-select" id="ocFornecedorCotacao"><option value="">Carregando fornecedores...</option></select></div>
+        <div class="col-md-3"><label class="form-label">Frete (R$)</label><input class="form-control" type="number" min="0" step="0.01" id="ocFreteCotacao" value="0"></div>
+        <div class="col-md-3"><label class="form-label">Prazo de entrega</label><input class="form-control" id="ocPrazoCotacao" placeholder="Ex.: 5 dias"></div>
+        <div class="col-12"><label class="form-label">Condição de pagamento</label><input class="form-control" id="ocPagamentoCotacao" placeholder="Ex.: 30 dias / à vista"></div>
+      </div>
+      <div id="ocItensCotacao"></div>
+      <label class="form-label mt-2">Observações</label><textarea class="form-control" id="ocObsCotacao" rows="2"></textarea>
+    </div>
+    <div class="modal-footer"><button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primario" id="ocSalvarCotacao">Salvar orçamento</button></div>
+  </div></div>
 </div>
 
 <div class="modal fade" id="modalReprovarCompra" tabindex="-1">
@@ -221,6 +249,8 @@ async function abrirItensCompra(ordemId) {
     ` · solicitada em ${SGMF.data(ordemAtual.data_solicitacao)} · ${ordemAtual.status}`;
   limparFormularioItem();
   renderizarItensCompra();
+  await carregarOrcamentosCompra();
+  document.getElementById('ocAbrirOrcamentos').style.display = ordemAtual.status === 'Pendente' ? '' : 'none';
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalItensCompra')).show();
 }
 
@@ -307,9 +337,7 @@ async function mudarStatus(acao, corpo, mensagem) {
 }
 
 document.getElementById('ocAprovar').onclick = async () => {
-  if (!await SGMF.confirmar('Aprovar esta ordem?',
-      'Ela fica liberada para o financeiro comprar. O estoque não é alterado.', 'Aprovar')) return;
-  mudarStatus('aprovar', null, 'Ordem aprovada');
+  if (!await aprovarComCotacoes()) return;
 };
 
 document.getElementById('ocReprovar').onclick = () => {
@@ -338,6 +366,65 @@ document.getElementById('ocReabrir').onclick = async () => {
 };
 
 document.getElementById('ocImprimir').onclick = () => imprimirCompra(ordemAtual.id);
+
+
+
+/* Cotações: cada fornecedor informa o preço de cada item da solicitação. */
+async function carregarOrcamentosCompra() {
+  const area = document.getElementById('ocListaOrcamentos');
+  try {
+    const dados = await SGMF.get(`/api/ordens_compra/${ordemAtual.id}/orcamentos`);
+    const cotacoes = dados.cotacoes || [];
+    if (!cotacoes.length) { area.innerHTML = '<p class="text-muted small mb-0">Nenhum orçamento cadastrado.</p>'; return; }
+    const ofertasPorItem = {};
+    cotacoes.forEach(c => (c.ofertas || []).forEach(o => { (ofertasPorItem[o.item_ordem_id] ||= []).push({...o, fornecedor:c.fornecedor_nome, cotacao_id:c.id}); }));
+    const itens = ordemAtual.itens || [];
+    area.innerHTML = `<div class="table-responsive"><table class="table table-sm table-bordered align-middle"><thead><tr><th>Produto</th><th>Fornecedor</th><th>Marca</th><th class="text-end">Unitário</th><th class="text-end">Total</th><th>Escolha</th></tr></thead><tbody>${itens.flatMap(i => { const ofertas = ofertasPorItem[i.id] || []; const menor = ofertas.length ? Math.min(...ofertas.map(o => Number(o.valor_unitario))) : null; return ofertas.map(o => `<tr class="${Number(o.valor_unitario) === menor ? 'table-success' : ''}"><td>${SGMF.esc(i.descricao)}</td><td>${SGMF.esc(o.fornecedor)} ${Number(o.valor_unitario) === menor ? '<span class="badge bg-success">Menor preço</span>' : ''}</td><td>${SGMF.esc(o.marca || '—')}</td><td class="text-end">${SGMF.moeda(o.valor_unitario)}</td><td class="text-end">${SGMF.moeda(o.valor_total)}</td><td>${o.selecionada ? '<span class="badge bg-success">Aprovada</span>' : (PODE_DECIDIR_COMPRA ? `<input type="radio" name="ocMelhor_${i.id}" value="${o.id}" aria-label="Selecionar oferta">` : '—')}</td></tr>`); }).join('')}</tbody></table></div>`;
+    cotacoes.forEach(c => { const resumo = document.createElement('div'); resumo.className='small text-muted mb-1'; resumo.textContent = `${c.fornecedor_nome}: frete ${SGMF.moeda(c.frete)} · prazo ${c.prazo_entrega || 'não informado'} · pagamento ${c.condicao_pagamento || 'não informado'}`; area.appendChild(resumo); });
+  } catch (e) { area.innerHTML = `<p class="text-danger small">${SGMF.esc(e.message)}</p>`; }
+}
+
+async function abrirFormularioOrcamento() {
+  if (!ordemAtual || ordemAtual.status !== 'Pendente') return;
+  try {
+    const fornecedores = await SGMF.get('/api/fornecedores');
+    const lista = Array.isArray(fornecedores) ? fornecedores : (fornecedores.dados || fornecedores.items || []);
+    document.getElementById('ocFornecedorCotacao').innerHTML = '<option value="">Selecione...</option>' + lista.filter(f => f.ativo !== false).map(f => `<option value="${f.id}">${SGMF.esc(f.nome)}</option>`).join('');
+  } catch (e) { return SGMF.falha('Não foi possível carregar os fornecedores: ' + e.message); }
+  document.getElementById('ocFreteCotacao').value='0';
+  document.getElementById('ocPrazoCotacao').value='';
+  document.getElementById('ocPagamentoCotacao').value='';
+  document.getElementById('ocObsCotacao').value='';
+  document.getElementById('ocItensCotacao').innerHTML=(ordemAtual.itens || []).map(i => `<div class="row g-2 align-items-end border-bottom py-2"><div class="col-md-5"><label class="form-label small">${SGMF.esc(i.descricao)} · Qtde ${SGMF.numero(i.quantidade,2)}</label><input type="hidden" value="${i.id}" class="ocItemCotacaoId"></div><div class="col-md-3"><label class="form-label small">Marca</label><input class="form-control form-control-sm ocMarcaCotacao"></div><div class="col-md-4"><label class="form-label small">Preço unitário (R$)</label><input class="form-control form-control-sm ocValorCotacao" type="number" min="0" step="0.01" required></div></div>`).join('');
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalOrcamentoCompra')).show();
+}
+
+document.getElementById('ocAbrirOrcamentos').onclick = abrirFormularioOrcamento;
+document.getElementById('ocSalvarCotacao').onclick = async () => {
+  const fornecedor_id = document.getElementById('ocFornecedorCotacao').value;
+  if (!fornecedor_id) return SGMF.aviso('Selecione o fornecedor.');
+  const linhas = Array.from(document.querySelectorAll('#ocItensCotacao .row'));
+  const ofertas = linhas.map(l => ({item_ordem_id:Number(l.querySelector('.ocItemCotacaoId').value), marca:l.querySelector('.ocMarcaCotacao').value, valor_unitario:l.querySelector('.ocValorCotacao').value})).filter(o => o.valor_unitario !== '');
+  if (!ofertas.length) return SGMF.aviso('Informe pelo menos um preço.');
+  try {
+    await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/orcamentos`, {fornecedor_id, frete:document.getElementById('ocFreteCotacao').value, prazo_entrega:document.getElementById('ocPrazoCotacao').value, condicao_pagamento:document.getElementById('ocPagamentoCotacao').value, observacao:document.getElementById('ocObsCotacao').value, ofertas});
+    bootstrap.Modal.getInstance(document.getElementById('modalOrcamentoCompra')).hide();
+    await carregarOrcamentosCompra(); SGMF.sucesso('Orçamento incluído.');
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+async function aprovarComCotacoes() {
+  const escolhidas = (ordemAtual.itens || []).map(i => document.querySelector(`input[name="ocMelhor_${i.id}"]:checked`)).filter(Boolean).map(r => Number(r.value));
+  if (escolhidas.length !== (ordemAtual.itens || []).length) {
+    SGMF.aviso('Antes de aprovar, selecione uma oferta para cada produto na tabela de orçamentos.'); return false;
+  }
+  if (!await SGMF.confirmar('Aprovar os fornecedores selecionados?', 'A aprovação ficará registrada por produto. O estoque não será movimentado.', 'Aprovar')) return false;
+  try {
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/orcamentos/selecionar`, {oferta_ids:escolhidas});
+    SGMF.sucesso('Orçamentos aprovados.'); renderizarItensCompra(); telaCompras.carregar(); await carregarOrcamentosCompra();
+    return true;
+  } catch (e) { SGMF.falha(e.message); return false; }
+}
 
 /* ------------------------------------------------ imprimir a ordem de compra
    Mesmo cuidado da impressão da OS: o documento é montado por partes na

@@ -25,16 +25,6 @@ def criar_app(config=Config):
     # x_for=1 confia em um único proxy à frente (o do Render).
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-    # Trava de requisições por IP: passou do limite (login, varredura de 404
-    # ou volume geral), o IP fica 30 minutos bloqueado (HTTP 429).
-    # Registrada aqui, antes dos demais before_request, para rodar primeiro.
-    from services.limite_requisicoes import registrar_limite
-    registrar_limite(app)
-
-    # Velocidade: gzip + cache dos arquivos estáticos (?v=data do arquivo).
-    from services.desempenho import registrar_cache_painel, registrar_desempenho
-    registrar_desempenho(app)
-
     @app.after_request
     def cabecalhos_seguranca(resposta):
         """Cabeçalhos HTTP básicos que faltavam: sem eles, o navegador não
@@ -121,10 +111,8 @@ def criar_app(config=Config):
                                                      garantir_numero_os_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
-                                                     garantir_ferramentas_veiculo,
                                                      garantir_campos_ordens_servico,
-                                                     garantir_campos_controle_pneus,
-                                                     garantir_indices_login)
+                                                     garantir_campos_controle_pneus)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
         garantir_ordens_compra()
@@ -140,11 +128,7 @@ def criar_app(config=Config):
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
         garantir_campos_controle_pneus()
-        garantir_indices_login()
         garantir_ferramentas()
-        # Cria a tabela uso_ferramentas_veiculo em bancos já existentes. O
-        # Painel (/api/painel/graficos) consulta essa tabela; sem ela dava 500.
-        garantir_ferramentas_veiculo()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -215,11 +199,6 @@ def criar_app(config=Config):
         g.admin_autorizador_exclusao = autorizador.nome
         return None
 
-    # "Conectado agora" usa janela de 5 min (painel_conectados). Gravar a
-    # presença a cada 150 s mantém quem está usando o sistema dentro da janela
-    # e reduz os UPDATE/COMMIT no PostgreSQL (antes: 1 por minuto por usuário).
-    INTERVALO_PRESENCA_S = 150
-
     @app.before_request
     def marcar_presenca():
         """Atualiza a marca de "última atividade" de quem está logado.
@@ -227,7 +206,7 @@ def criar_app(config=Config):
         Não existe tabela de sessões: "conectado agora" (card do Painel) é
         só uma janela de atividade recente nesta coluna.
 
-        O intervalo de 150s é controlado na própria sessão (cookie): enquanto
+        O intervalo de 60s é controlado na própria sessão (cookie): enquanto
         não passar o intervalo, NENHUM SQL é executado — antes cada requisição
         gerava um UPDATE + COMMIT mesmo sem nada para gravar, e uma tela que
         dispara 8 APIs fazia 8 idas extras ao PostgreSQL.
@@ -241,7 +220,7 @@ def criar_app(config=Config):
         import time
         agora_ts = time.time()
         ultimo_ts = session.get("_presenca_ts") or 0
-        if 0 <= agora_ts - ultimo_ts < INTERVALO_PRESENCA_S:
+        if 0 <= agora_ts - ultimo_ts < 60:
             return None
 
         from sqlalchemy import or_
@@ -253,7 +232,7 @@ def criar_app(config=Config):
         # Normalizamos para datetime ingênuo para evitar a mistura de
         # aware/naive, que causa TypeError no PostgreSQL ao consultar o painel.
         agora_marca = _agora_marca().replace(tzinfo=None)
-        limite = agora_marca - timedelta(seconds=INTERVALO_PRESENCA_S)
+        limite = agora_marca - timedelta(seconds=60)
         try:
             atualizadas = (Usuario.query.filter(Usuario.id == usuario_id)
                            .filter(or_(Usuario.ultimo_acesso.is_(None),
@@ -336,6 +315,22 @@ def criar_app(config=Config):
 
     with app.app_context():
         preparar_banco()
+
+        # Compatibilidade de segurança do login: versões anteriores podem
+        # ter a tabela alembic_version marcada como atual mesmo sem a tabela
+        # permissoes_acesso. O login consulta Usuario.permissoes ao montar a
+        # sessão; se a tabela estiver ausente, a autenticação termina em HTTP
+        # 500 depois de validar a senha. create_all(tables=[...]) cria SOMENTE
+        # esta tabela quando ausente e não altera nem apaga dados existentes.
+        from models import PermissaoAcesso
+        if not db.inspect(db.engine).has_table(PermissaoAcesso.__tablename__):
+            db.create_all(tables=[PermissaoAcesso.__table__])
+            app.logger.warning(
+                "[SGMF] Tabela %s ausente: criada automaticamente para "
+                "restabelecer a montagem das permissões no login.",
+                PermissaoAcesso.__tablename__
+            )
+
         # Em banco totalmente novo, preparar_banco cria as tabelas depois da
         # primeira checagem de compatibilidade. Rodamos novamente somente a
         # garantia idempotente dos grupos para semear os grupos padrão.
@@ -362,10 +357,6 @@ def criar_app(config=Config):
     if app.config.get("AGENDADOR_ATIVO") and not app.config.get("TESTING"):
         from services.notificacoes import iniciar_agendador
         iniciar_agendador(app)
-
-    # Cache curto (30 s) das leituras do Painel. Fica por último de propósito:
-    # assim todos os before_request acima (login, presença, CSRF) rodam antes.
-    registrar_cache_painel(app)
 
     return app
 

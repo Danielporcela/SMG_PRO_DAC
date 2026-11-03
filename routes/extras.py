@@ -410,9 +410,18 @@ def adicionar_item_nota(nota_id):
         db.session.add(item)
         registrar_log("criar", "itens_nota_fiscal", nota.id, f"NF {nota.numero}: {peca.codigo}")
         db.session.commit()
-    except (ErroNegocio, ValueError) as e:
+    except (ErroNegocio, ValueError, TypeError) as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Falha ao lançar peça na nota fiscal %s", nota_id
+        )
+        return jsonify({
+            "erro": "Não foi possível lançar a peça. A operação foi desfeita; "
+                    "consulte os logs do servidor para identificar o detalhe."
+        }), 500
     return jsonify(nota.to_dict(com_itens=True)), 201
 
 

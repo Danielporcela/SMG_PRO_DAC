@@ -22,8 +22,9 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 
 from extensions import db
-from models import (CARGO_APROVACAO_COMPRAS, ItemOrdemCompra, OrdemCompra, Peca,
-                    proximo_numero_ordem_compra)
+from models import (CARGO_APROVACAO_COMPRAS, CotacaoFornecedorOrdemCompra,
+                    OfertaItemCotacaoOrdemCompra, ItemOrdemCompra, OrdemCompra, Peca,
+                    Fornecedor, proximo_numero_ordem_compra)
 from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_log,
                            visualizar_tela)
 from services.tempo import hoje
@@ -343,5 +344,97 @@ def reabrir(ordem_id):
     ordem.aprovado_por = None
     ordem.data_aprovacao = None
     registrar_log("editar", ROTA, ordem.id, f"reaberta por {_usuario()}")
+    db.session.commit()
+    return _resposta(ordem)
+
+
+# ------------------------------------------------------ cotações de fornecedores
+@bp_compras.get(f"/{ROTA}/<int:ordem_id>/orcamentos")
+@visualizar_tela(TELA)
+def listar_cotacoes(ordem_id):
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    cotacoes = (CotacaoFornecedorOrdemCompra.query
+                .filter_by(ordem_compra_id=ordem.id)
+                .order_by(CotacaoFornecedorOrdemCompra.criado_em.asc()).all())
+    return jsonify({"ordem_id": ordem.id, "cotacoes": [c.to_dict() for c in cotacoes]})
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/orcamentos")
+@editar_tela(TELA)
+def incluir_cotacao(ordem_id):
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        _exigir_pendente(ordem)
+        fornecedor_id = int(dados.get("fornecedor_id") or 0)
+        fornecedor = db.session.get(Fornecedor, fornecedor_id)
+        if not fornecedor or not fornecedor.ativo:
+            raise ErroNegocio("Selecione um fornecedor ativo cadastrado no sistema.")
+        ofertas_recebidas = dados.get("ofertas") or []
+        itens_validos = {i.id: i for i in ordem.itens}
+        if not ofertas_recebidas:
+            raise ErroNegocio("Informe o preço de pelo menos um produto.")
+        cotacao = CotacaoFornecedorOrdemCompra(
+            ordem_compra_id=ordem.id, fornecedor_id=fornecedor.id,
+            frete=max(_numero(dados.get("frete"), 0), 0),
+            prazo_entrega=(dados.get("prazo_entrega") or "").strip()[:80],
+            condicao_pagamento=(dados.get("condicao_pagamento") or "").strip()[:160],
+            observacao=(dados.get("observacao") or "").strip()[:300],
+            cadastrado_por=_usuario())
+        db.session.add(cotacao)
+        db.session.flush()
+        for oferta in ofertas_recebidas:
+            item_id = int(oferta.get("item_ordem_id") or 0)
+            item = itens_validos.get(item_id)
+            if not item:
+                raise ErroNegocio("Uma das linhas informadas não pertence a esta ordem.")
+            valor = _numero(oferta.get("valor_unitario"), -1)
+            if valor < 0:
+                raise ErroNegocio(f"Informe um preço válido para {item.descricao}.")
+            db.session.add(OfertaItemCotacaoOrdemCompra(
+                cotacao_id=cotacao.id, item_ordem_id=item.id,
+                marca=(oferta.get("marca") or "").strip()[:100], valor_unitario=valor))
+        registrar_log("criar", "cotacoes_fornecedor_ordem_compra", cotacao.id,
+                      f"{ordem.numero} · {fornecedor.nome}")
+        db.session.commit()
+    except (ErroNegocio, ValueError, TypeError) as erro:
+        db.session.rollback()
+        return jsonify({"erro": str(erro) if isinstance(erro, ErroNegocio) else "Confira os dados da cotação."}), 400
+    return jsonify(cotacao.to_dict()), 201
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/orcamentos/selecionar")
+@editar_tela(TELA)
+def selecionar_ofertas_cotacao(ordem_id):
+    bloqueio = _exigir_gerente_financeira()
+    if bloqueio:
+        return bloqueio
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    if ordem.status != "Pendente":
+        return jsonify({"erro": "A comparação só pode ser aprovada enquanto a ordem estiver Pendente."}), 400
+    dados = request.get_json(silent=True) or {}
+    selecionadas = dados.get("oferta_ids") or []
+    if not ordem.itens or len(selecionadas) != len(ordem.itens):
+        return jsonify({"erro": "Selecione uma oferta para cada produto antes de aprovar."}), 400
+    ofertas = OfertaItemCotacaoOrdemCompra.query.join(CotacaoFornecedorOrdemCompra).filter(
+        CotacaoFornecedorOrdemCompra.ordem_compra_id == ordem.id,
+        OfertaItemCotacaoOrdemCompra.id.in_(selecionadas)).all()
+    por_item = {o.item_ordem_id: o for o in ofertas}
+    if len(por_item) != len(ordem.itens) or any(i.id not in por_item for i in ordem.itens):
+        return jsonify({"erro": "A seleção precisa conter uma oferta válida para cada produto."}), 400
+    ofertas_da_ordem = (OfertaItemCotacaoOrdemCompra.query
+                        .join(CotacaoFornecedorOrdemCompra)
+                        .filter(CotacaoFornecedorOrdemCompra.ordem_compra_id == ordem.id)
+                        .all())
+    for oferta_existente in ofertas_da_ordem:
+        oferta_existente.selecionada = False
+    for oferta in ofertas:
+        oferta.selecionada = True
+    ordem.status = "Aprovada"
+    ordem.aprovado_por = _usuario()
+    ordem.data_aprovacao = hoje()
+    ordem.motivo_reprovacao = None
+    registrar_log("editar", ROTA, ordem.id,
+                  f"cotação aprovada por {ordem.aprovado_por}; ofertas: {','.join(map(str, selecionadas))}")
     db.session.commit()
     return _resposta(ordem)

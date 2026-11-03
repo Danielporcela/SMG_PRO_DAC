@@ -2225,3 +2225,56 @@ class UsoFerramentaVeiculo(db.Model):
             "cancelado_por": self.cancelado_por,
             "motivo_cancelamento": self.motivo_cancelamento,
         }
+
+
+class CotacaoFornecedorOrdemCompra(db.Model):
+    """Uma proposta comercial recebida para uma ordem de compra."""
+    __tablename__ = "cotacoes_fornecedor_ordem_compra"
+    id = db.Column(db.Integer, primary_key=True)
+    ordem_compra_id = db.Column(db.Integer, db.ForeignKey("ordens_compra.id"), nullable=False, index=True)
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"), nullable=False)
+    frete = db.Column(db.Float, default=0)
+    prazo_entrega = db.Column(db.String(80))
+    condicao_pagamento = db.Column(db.String(160))
+    observacao = db.Column(db.String(300))
+    cadastrado_por = db.Column(db.String(120))
+    criado_em = db.Column(db.DateTime, default=_agora)
+    fornecedor = db.relationship("Fornecedor")
+    ofertas = db.relationship("OfertaItemCotacaoOrdemCompra", backref="cotacao", cascade="all, delete-orphan", lazy="selectin")
+
+    @property
+    def valor_produtos(self):
+        return sum((o.valor_unitario or 0) * (o.item.quantidade or 0) for o in self.ofertas if o.item)
+
+    @property
+    def valor_total(self):
+        return round(self.valor_produtos + (self.frete or 0), 2)
+
+    def to_dict(self):
+        return {"id": self.id, "fornecedor_id": self.fornecedor_id,
+                "fornecedor_nome": self.fornecedor.nome if self.fornecedor else "Fornecedor",
+                "frete": self.frete or 0, "prazo_entrega": self.prazo_entrega,
+                "condicao_pagamento": self.condicao_pagamento, "observacao": self.observacao,
+                "cadastrado_por": self.cadastrado_por,
+                "valor_produtos": round(self.valor_produtos, 2), "valor_total": self.valor_total,
+                "ofertas": [o.to_dict() for o in self.ofertas]}
+
+
+class OfertaItemCotacaoOrdemCompra(db.Model):
+    """Preço cotado por fornecedor para um item específico da ordem."""
+    __tablename__ = "ofertas_item_cotacao_ordem_compra"
+    id = db.Column(db.Integer, primary_key=True)
+    cotacao_id = db.Column(db.Integer, db.ForeignKey("cotacoes_fornecedor_ordem_compra.id"), nullable=False, index=True)
+    item_ordem_id = db.Column(db.Integer, db.ForeignKey("itens_ordem_compra.id"), nullable=False, index=True)
+    marca = db.Column(db.String(100))
+    valor_unitario = db.Column(db.Float, nullable=False, default=0)
+    selecionada = db.Column(db.Boolean, default=False, nullable=False)
+    item = db.relationship("ItemOrdemCompra")
+
+    def to_dict(self):
+        return {"id": self.id, "item_ordem_id": self.item_ordem_id,
+                "descricao": self.item.descricao if self.item else "Item",
+                "quantidade": self.item.quantidade if self.item else 0,
+                "marca": self.marca, "valor_unitario": self.valor_unitario or 0,
+                "valor_total": round((self.valor_unitario or 0) * (self.item.quantidade or 0), 2) if self.item else 0,
+                "selecionada": bool(self.selecionada)}

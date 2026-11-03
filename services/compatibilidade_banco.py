@@ -78,7 +78,8 @@ def garantir_ordens_compra():
     Resolve instalações antigas em que o código do módulo foi publicado antes
     da atualização correspondente do banco de dados.
     """
-    from models import ItemOrdemCompra, OrdemCompra
+    from models import (ItemOrdemCompra, OrdemCompra, CotacaoFornecedorOrdemCompra,
+                       OfertaItemCotacaoOrdemCompra)
 
     engine = db.engine
     insp = inspect(engine)
@@ -88,6 +89,8 @@ def garantir_ordens_compra():
         OrdemCompra.__table__.create(engine, checkfirst=True)
     if "itens_ordem_compra" not in tabelas:
         ItemOrdemCompra.__table__.create(engine, checkfirst=True)
+    CotacaoFornecedorOrdemCompra.__table__.create(engine, checkfirst=True)
+    OfertaItemCotacaoOrdemCompra.__table__.create(engine, checkfirst=True)
 
     # Reinspeciona, pois alguma tabela pode ter acabado de ser criada.
     insp = inspect(engine)
@@ -568,3 +571,70 @@ def garantir_ferramentas_veiculo():
         return
     if UsoFerramentaVeiculo.__tablename__ not in tabelas:
         UsoFerramentaVeiculo.__table__.create(engine, checkfirst=True)
+
+
+def garantir_campos_tributarios_notas_fiscais():
+    """Completa os campos fiscais de peças e itens de NF em bancos antigos.
+
+    A tela de notas passou a gravar os dados de IBS/CBS e classificação
+    tributária. Em instalações anteriores, essas colunas podem ainda não
+    existir. A rotina acrescenta apenas o que estiver faltando e preserva
+    todos os lançamentos já registrados.
+    """
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+
+    # Banco novo: as tabelas serão criadas por db.create_all().
+    if "pecas" not in tabelas or "itens_nota_fiscal" not in tabelas:
+        return
+
+    campos = {
+        "pecas": {
+            "ncm": "VARCHAR(8)",
+            "cfop_entrada": "VARCHAR(4)",
+            "cst_icms": "VARCHAR(3)",
+            "cst_pis": "VARCHAR(2)",
+            "cst_cofins": "VARCHAR(2)",
+            "cst_ibs_cbs": "VARCHAR(3)",
+            "classificacao_tributaria": "VARCHAR(6)",
+        },
+        "itens_nota_fiscal": {
+            "descricao": "VARCHAR(160)",
+            "quantidade": "FLOAT",
+            "valor_unitario": "FLOAT",
+            "ncm": "VARCHAR(8)",
+            "cfop": "VARCHAR(4)",
+            "cst_icms": "VARCHAR(3)",
+            "base_icms": "FLOAT",
+            "aliquota_icms": "FLOAT",
+            "valor_icms": "FLOAT",
+            "cst_pis": "VARCHAR(2)",
+            "base_pis": "FLOAT",
+            "aliquota_pis": "FLOAT",
+            "valor_pis": "FLOAT",
+            "cst_cofins": "VARCHAR(2)",
+            "base_cofins": "FLOAT",
+            "aliquota_cofins": "FLOAT",
+            "valor_cofins": "FLOAT",
+            "cst_ibs_cbs": "VARCHAR(3)",
+            "classificacao_tributaria": "VARCHAR(6)",
+            "base_ibs_cbs": "FLOAT",
+            "aliquota_ibs": "FLOAT",
+            "valor_ibs": "FLOAT",
+            "aliquota_cbs": "FLOAT",
+            "valor_cbs": "FLOAT",
+            "baixado_estoque": "BOOLEAN",
+            "numeros_serie": "TEXT",
+        },
+    }
+
+    with engine.begin() as conn:
+        for tabela, definicoes in campos.items():
+            existentes = {col["name"] for col in inspect(conn).get_columns(tabela)}
+            for nome, tipo in definicoes.items():
+                if nome not in existentes:
+                    conn.execute(text(
+                        f'ALTER TABLE "{tabela}" ADD COLUMN "{nome}" {tipo}'
+                    ))
+
