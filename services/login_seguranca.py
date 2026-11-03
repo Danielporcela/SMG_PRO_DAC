@@ -20,10 +20,13 @@ LIMITE_TENTATIVAS = 4
 
 
 def ip_cliente(request):
-    """IP real do cliente. Requer ProxyFix (ver app.py) para não pegar o
-    IP interno do proxy do Render em vez do IP de quem está tentando logar.
+    """IP real do cliente, já corrigido pelo ProxyFix (app.py).
+
+    Usa remote_addr e NÃO access_route[0]: o primeiro item de
+    X-Forwarded-For é escrito pelo próprio visitante, então um robô
+    trocando esse cabeçalho a cada tentativa escaparia do bloqueio por IP.
     """
-    return request.access_route[0] if request.access_route else (request.remote_addr or "")
+    return request.remote_addr or ""
 
 
 def bloqueado(email, ip):

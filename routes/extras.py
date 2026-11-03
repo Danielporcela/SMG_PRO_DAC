@@ -487,10 +487,16 @@ def testar_email():
     """Envia uma mensagem de teste para conferir a configuração."""
     dados = request.get_json(silent=True) or {}
     para = [e.strip() for e in (dados.get("destinatario") or "").split(",") if e.strip()]
-    corpo = notificacoes.montar_resumo([
-        {"nivel": "info", "categoria": "Teste", "titulo": "Envio de e-mail funcionando",
-         "detalhe": "Se você recebeu esta mensagem, os avisos automáticos estão prontos."}])
-    enviados = notificacoes.enviar_email("[SGMF] Teste de envio", corpo, para or None)
+    corpo = ("SGMF Pro\n\nEnvio de e-mail funcionando.\n"
+             "Se você recebeu esta mensagem, os avisos automáticos estão prontos.")
+    try:
+        ok, detalhe = notificacoes.enviar_email("[SGMF] Teste de envio", corpo,
+                                                destinatarios=para or None)
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao enviar: {e}"}), 400
+    if not ok:
+        return jsonify({"erro": detalhe}), 400
+    enviados = para or notificacoes.destinatarios_padrao()
     registrar_log("testar", "email", 0, ", ".join(enviados))
     db.session.commit()
     return jsonify({"ok": True, "destinatarios": enviados})

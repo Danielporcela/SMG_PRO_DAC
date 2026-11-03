@@ -182,8 +182,9 @@ def _montar_ordens(aba, ordens):
     for posicao, o in enumerate(ordens, start=2):
         valores = [o.numero, o.data_solicitacao, o.solicitante, o.setor, o.prioridade, o.status,
                    o.fornecedor.nome if o.fornecedor else None, len(o.itens),
-                   len(o.itens_pendentes), o.valor_total,
-                   o.comprado_por, o.data_compra, o.fechado_por, o.data_fechamento,
+                   len([i for i in o.itens if not i.comprado]), o.valor_total,
+                   o.comprado_por, o.data_compra,
+                   getattr(o, "fechado_por", None), getattr(o, "data_fechamento", None),
                    o.justificativa]
         for coluna, valor in enumerate(valores, start=1):
             aba.cell(row=posicao, column=coluna, value=valor)

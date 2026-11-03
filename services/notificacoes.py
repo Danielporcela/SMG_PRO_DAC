@@ -33,14 +33,14 @@ def email_configurado():
     )
 
 
-def enviar_email(assunto, corpo_texto, corpo_html=None):
+def enviar_email(assunto, corpo_texto, corpo_html=None, destinatarios=None):
     if not email_configurado():
         return False, "E mail não enviado porque o SMTP não está completamente configurado."
 
     msg = EmailMessage()
     msg["Subject"] = assunto
     msg["From"] = current_app.config.get("EMAIL_REMETENTE") or current_app.config.get("SMTP_USUARIO")
-    msg["To"] = ", ".join(_destinatarios())
+    msg["To"] = ", ".join(destinatarios or _destinatarios())
     msg.set_content(corpo_texto)
     if corpo_html:
         msg.add_alternative(corpo_html, subtype="html")
@@ -119,8 +119,11 @@ def enviar_mudancas_alertas():
         return {"enviados": 0, "motivo": str(exc)}
 
 
+TAREFA_DIARIA = "email_alertas_diario"
+
+
 def _controle_diario():
-    tarefa = "email_alertas_diario"
+    tarefa = TAREFA_DIARIA
     registro = ControleTarefa.query.filter_by(tarefa=tarefa).first()
     if registro is None:
         registro = ControleTarefa(tarefa=tarefa)
@@ -260,6 +263,15 @@ def iniciar_agendador(app):
 
 
 # Compatibilidade com chamadas usadas por versões anteriores.
+# Nomes que routes/extras.py usa para a tela de Notificações.
+configurado = email_configurado
+destinatarios_padrao = _destinatarios
+
+
+def executar_alertas_diarios(forcar=False):
+    return processar_alertas(forcar_resumo=forcar)
+
+
 enviar_alertas = enviar_mudancas_alertas
 enviar_alertas_email = enviar_mudancas_alertas
 disparar_alertas = processar_alertas

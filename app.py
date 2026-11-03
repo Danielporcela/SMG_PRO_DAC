@@ -25,6 +25,16 @@ def criar_app(config=Config):
     # x_for=1 confia em um único proxy à frente (o do Render).
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+    # Trava de requisições por IP: passou do limite (login, varredura de 404
+    # ou volume geral), o IP fica 30 minutos bloqueado (HTTP 429).
+    # Registrada aqui, antes dos demais before_request, para rodar primeiro.
+    from services.limite_requisicoes import registrar_limite
+    registrar_limite(app)
+
+    # Velocidade: gzip + cache dos arquivos estáticos (?v=data do arquivo).
+    from services.desempenho import registrar_cache_painel, registrar_desempenho
+    registrar_desempenho(app)
+
     @app.after_request
     def cabecalhos_seguranca(resposta):
         """Cabeçalhos HTTP básicos que faltavam: sem eles, o navegador não
@@ -111,6 +121,7 @@ def criar_app(config=Config):
                                                      garantir_numero_os_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
+                                                     garantir_ferramentas_veiculo,
                                                      garantir_campos_ordens_servico,
                                                      garantir_campos_controle_pneus,
                                                      garantir_indices_login)
@@ -131,6 +142,9 @@ def criar_app(config=Config):
         garantir_campos_controle_pneus()
         garantir_indices_login()
         garantir_ferramentas()
+        # Cria a tabela uso_ferramentas_veiculo em bancos já existentes. O
+        # Painel (/api/painel/graficos) consulta essa tabela; sem ela dava 500.
+        garantir_ferramentas_veiculo()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
@@ -348,6 +362,10 @@ def criar_app(config=Config):
     if app.config.get("AGENDADOR_ATIVO") and not app.config.get("TESTING"):
         from services.notificacoes import iniciar_agendador
         iniciar_agendador(app)
+
+    # Cache curto (30 s) das leituras do Painel. Fica por último de propósito:
+    # assim todos os before_request acima (login, presença, CSRF) rodam antes.
+    registrar_cache_painel(app)
 
     return app
 
