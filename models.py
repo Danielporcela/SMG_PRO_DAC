@@ -472,6 +472,7 @@ class Peca(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     codigo = db.Column(db.String(40), unique=True, nullable=False, index=True)
     referencia = db.Column(db.String(60))  # número do fabricante/fornecedor, livre para ela digitar
+    marca = db.Column(db.String(60))
     descricao = db.Column(db.String(160), nullable=False)
     grupo = db.Column(db.String(40))       # Motor, Suspensão, Freios, ...
     unidade = db.Column(db.String(10), default="UN")
@@ -491,6 +492,7 @@ class Peca(db.Model):
 
     def to_dict(self):
         return {"id": self.id, "codigo": self.codigo, "referencia": self.referencia,
+                "marca": self.marca,
                 "descricao": self.descricao,
                 "grupo": self.grupo, "unidade": self.unidade, "quantidade": self.quantidade,
                 "estoque_minimo": self.estoque_minimo, "custo_unitario": self.custo_unitario,
