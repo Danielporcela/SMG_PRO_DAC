@@ -192,6 +192,8 @@ class Usuario(db.Model):
 
     def primeira_tela_liberada(self):
         for chave, _, _ in TELAS_SISTEMA:
+            if chave == "importacao":
+                continue  # aba retirada do menu: a página só redireciona ao painel
             if self.tem_acesso(chave, "visualizar"):
                 return chave
         return None
@@ -674,9 +676,6 @@ class NotaFiscal(db.Model):
     fornecedor = db.relationship("Fornecedor")
     itens = db.relationship("ItemNotaFiscal", backref="nota", cascade="all, delete-orphan",
                             lazy="selectin")
-    parcelas = db.relationship("ParcelaNotaFiscal", backref="nota", cascade="all, delete-orphan",
-                               lazy="selectin",
-                               order_by="ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id")
 
     @property
     def valor_total(self):
@@ -703,43 +702,10 @@ class NotaFiscal(db.Model):
             "valor_ibs": valor_ibs, "valor_cbs": valor_cbs,
             "valor_tributos": round(valor_icms + valor_pis + valor_cofins + valor_ibs + valor_cbs, 2),
             "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else ""),
-            "qtd_parcelas": len(self.parcelas),
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
-            d["parcelas"] = [p.to_dict() for p in self.parcelas]
         return d
-
-
-class ParcelaNotaFiscal(db.Model):
-    """Parcela (boleto) a pagar de uma nota fiscal de entrada.
-
-    A nota paga em boleto tem uma ou mais datas de vencimento. A tela lateral
-    "Boletos a vencer" lista as parcelas ainda não pagas conforme a data
-    escolhida. Nada aqui mexe no estoque.
-    """
-    __tablename__ = "parcelas_nota_fiscal"
-    id = db.Column(db.Integer, primary_key=True)
-    nota_fiscal_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais.id"),
-                               nullable=False, index=True)
-    numero = db.Column(db.Integer, default=1)           # 1, 2, 3... na ordem de vencimento
-    data_vencimento = db.Column(db.Date, nullable=False, index=True)
-    valor = db.Column(db.Float, default=0)
-    pago = db.Column(db.Boolean, default=False, nullable=False)
-    data_pagamento = db.Column(db.Date)
-    pago_por = db.Column(db.String(120))
-
-    def to_dict(self):
-        nota = self.nota
-        return {"id": self.id, "nota_fiscal_id": self.nota_fiscal_id,
-                "numero": self.numero,
-                "total_parcelas": len(nota.parcelas) if nota else None,
-                "data_vencimento": self.data_vencimento.isoformat() if self.data_vencimento else None,
-                "valor": self.valor or 0, "pago": bool(self.pago),
-                "data_pagamento": self.data_pagamento.isoformat() if self.data_pagamento else None,
-                "pago_por": self.pago_por,
-                "nota": nota.to_dict()["identificacao"] if nota else None,
-                "fornecedor_nome": nota.fornecedor.nome if nota and nota.fornecedor else None}
 
 
 class ItemNotaFiscal(db.Model):
@@ -1519,7 +1485,7 @@ def _sincronizar_oleo_ao_aplicar_item(session, _flush_context, _instances):
 # ============================================================================
 TAMANHOS_UNIFORME = {
     "roupa": ["PP", "P", "M", "G", "GG", "XG"],
-    "calcado": [str(n) for n in range(34, 47)],   # 34 a 46
+    "calcado": [str(n) for n in range(34, 48)],   # 34 a 47
     "luva": ["07", "08", "09", "10"],
     "unico": ["Único"],
 }
@@ -1581,7 +1547,7 @@ class ItemUniforme(db.Model):
         return tamanhos_do_tipo(self.tipo_tamanho)
 
     def saldos_ordenados(self):
-        """Na ordem do tipo (PP→XG, 34→46), com qualquer tamanho estranho no fim."""
+        """Na ordem do tipo (PP→XG, 34→47), com qualquer tamanho estranho no fim."""
         ordem = {t: i for i, t in enumerate(self.tamanhos_previstos())}
         return sorted(self.saldos or [],
                       key=lambda s: (ordem.get(s.tamanho, 999), s.tamanho or ""))
@@ -1874,9 +1840,6 @@ class OrdemCompra(db.Model):
     itens = db.relationship("ItemOrdemCompra", backref="ordem_compra",
                             cascade="all, delete-orphan", lazy="selectin")
     anexos = db.relationship("Anexo", cascade="all, delete-orphan", lazy="selectin")
-    orcamentos = db.relationship("OrcamentoCompra", backref="ordem_compra",
-                                 cascade="all, delete-orphan", lazy="selectin",
-                                 order_by="OrcamentoCompra.valor_total")
 
     @property
     def valor_total(self):
@@ -1904,13 +1867,11 @@ class OrdemCompra(db.Model):
             "data_compra": self.data_compra.isoformat() if self.data_compra else None,
             "valor_total": self.valor_total, "qtd_itens": len(self.itens),
             "qtd_anexos": len(self.anexos),
-            "qtd_orcamentos": len(self.orcamentos),
             "editavel": self.editavel,
             "identificacao": f"OC {self.numero}" if self.numero else f"OC #{self.id}",
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
-            d["orcamentos"] = [o.to_dict() for o in self.orcamentos]
         return d
 
 
@@ -1946,46 +1907,6 @@ class ItemOrdemCompra(db.Model):
                 "comprado": bool(self.comprado),
                 "comprado_por": self.comprado_por,
                 "data_compra_item": self.data_compra_item.isoformat() if self.data_compra_item else None}
-
-
-class OrcamentoCompra(db.Model):
-    """Orçamento (cotação) de um fornecedor para uma ordem de compra.
-
-    Guarda o valor total que o fornecedor passou para o pedido inteiro, o
-    prazo e uma observação. O fornecedor pode ser um cadastrado
-    (`fornecedor_id`) ou só um nome digitado (`fornecedor_nome`). Só um
-    orçamento por ordem fica como `escolhido`.
-    """
-    __tablename__ = "orcamentos_ordem_compra"
-    id = db.Column(db.Integer, primary_key=True)
-    ordem_compra_id = db.Column(db.Integer, db.ForeignKey("ordens_compra.id"),
-                                nullable=False, index=True)
-    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
-    fornecedor_nome = db.Column(db.String(120))
-    valor_total = db.Column(db.Float, default=0)
-    prazo_entrega = db.Column(db.String(60))
-    observacao = db.Column(db.String(200))
-    escolhido = db.Column(db.Boolean, default=False, nullable=False)
-    criado_por = db.Column(db.String(120))
-    criado_em = db.Column(db.DateTime, default=_agora)
-    fornecedor = db.relationship("Fornecedor")
-
-    @property
-    def nome_fornecedor(self):
-        if self.fornecedor is not None:
-            return self.fornecedor.nome
-        return self.fornecedor_nome or "—"
-
-    def to_dict(self):
-        return {"id": self.id, "ordem_compra_id": self.ordem_compra_id,
-                "fornecedor_id": self.fornecedor_id,
-                "fornecedor_nome": self.nome_fornecedor,
-                "valor_total": self.valor_total or 0,
-                "prazo_entrega": self.prazo_entrega,
-                "observacao": self.observacao,
-                "escolhido": bool(self.escolhido),
-                "criado_por": self.criado_por,
-                "criado_em": self.criado_em.isoformat() if self.criado_em else None}
 
 
 def proximo_numero_ordem_compra():
