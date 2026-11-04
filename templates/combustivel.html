@@ -54,6 +54,14 @@
           <i class="fa-solid fa-print"></i>
         </button>
       </div>
+      <div class="px-3 pt-2 pb-2 border-bottom">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+          <input type="search" class="form-control" id="buscaNFCombustivel" placeholder="Pesquisar nota fiscal pelo número…" autocomplete="off" inputmode="search">
+          <button class="btn btn-contorno" type="button" id="limparBuscaNFCombustivel" title="Limpar pesquisa"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="resultadoBuscaNFCombustivel" class="mt-2" style="font-size:12px;display:none"></div>
+      </div>
       <div class="cartao-corpo p-0" id="tabelaNotasCombustivel"></div>
     </div>
   </div>
@@ -141,6 +149,56 @@
 let previaAbastecimentos = null;
 let notasCombustivelCache = [];
 let modalNFCombustivel = null;
+
+// ---- pesquisa de NF por número (a lista traz todas as NFs lançadas, de qualquer período)
+function normalizarNF(v) {
+  // ignora espaços, pontos, traços e zeros à esquerda: "000.123" = "123"
+  return String(v == null ? '' : v).toLowerCase().replace(/[^0-9a-z]/g, '').replace(/^0+(?=[0-9a-z])/, '');
+}
+
+function renderTabelaNotasCombustivel() {
+  const alvo = document.getElementById('tabelaNotasCombustivel');
+  const aviso = document.getElementById('resultadoBuscaNFCombustivel');
+  const termoBruto = (document.getElementById('buscaNFCombustivel').value || '').trim();
+  const termo = normalizarNF(termoBruto);
+  const todas = notasCombustivelCache || [];
+  let notas = todas;
+  aviso.style.display = 'none';
+  aviso.innerHTML = '';
+
+  if (termo) {
+    const exatas = todas.filter(n => normalizarNF(n.numero_nf) === termo);
+    const parecidas = todas.filter(n => normalizarNF(n.numero_nf).includes(termo));
+    notas = parecidas;
+    aviso.style.display = '';
+    if (exatas.length) {
+      const det = exatas.map(n => `${SGMF.data(n.data)}${n.fornecedor_nome ? ' · ' + SGMF.esc(n.fornecedor_nome) : ''} · ${SGMF.moeda(n.valor_total)}${n.lancado_por ? ' · por ' + SGMF.esc(n.lancado_por) : ''}`).join('<br>');
+      aviso.innerHTML = `<div class="text-success"><i class="fa-solid fa-circle-check me-1"></i><strong>NF ${SGMF.esc(termoBruto)} JÁ FOI LANÇADA</strong>${exatas.length > 1 ? ` (${exatas.length} lançamentos com esse número)` : ''}</div><div class="text-muted">${det}</div>`;
+    } else if (parecidas.length) {
+      aviso.innerHTML = `<div class="text-warning"><i class="fa-solid fa-triangle-exclamation me-1"></i><strong>NF ${SGMF.esc(termoBruto)} não encontrada com esse número exato.</strong> Mostrando ${parecidas.length} nota(s) com número parecido.</div>`;
+    } else {
+      aviso.innerHTML = `<div class="text-danger"><i class="fa-solid fa-circle-xmark me-1"></i><strong>NF ${SGMF.esc(termoBruto)} NÃO foi lançada no sistema.</strong></div>`;
+    }
+  }
+
+  if (!todas.length) {
+    alvo.innerHTML = '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
+    return;
+  }
+  if (!notas.length) {
+    alvo.innerHTML = '<div class="p-3 text-muted">Nenhuma nota encontrada para essa pesquisa.</div>';
+    return;
+  }
+  alvo.innerHTML = `
+        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
+        <th class="ps-3">Data</th><th>NF</th><th>Fornecedor</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th>Lançado por</th><th></th>
+        </tr></thead><tbody>${notas.map(n => `<tr${termo && normalizarNF(n.numero_nf) === termo ? ' class="table-success"' : ''}><td class="ps-3">${SGMF.data(n.data)}</td><td><strong>${SGMF.esc(n.numero_nf)}</strong></td><td>${n.fornecedor_nome ? SGMF.esc(n.fornecedor_nome) : '<span class="text-muted">—</span>'}</td><td>${SGMF.esc(n.combustivel)}</td>
+        <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
+        <td>${n.lancado_por ? SGMF.esc(n.lancado_por) : '<span class="text-muted">—</span>'}</td>
+        <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`;
+}
+
 let modalAjusteCombustivel = null;
 let estoqueCombustivelCache = null;
 
@@ -330,15 +388,7 @@ async function carregarControleCombustivel(manual = false) {
     if (rNotas.status === 'fulfilled') {
       const notas = rNotas.value || [];
       notasCombustivelCache = notas;
-      document.getElementById('tabelaNotasCombustivel').innerHTML = notas.length ? `
-        <div class="table-responsive" style="max-height:360px"><table class="table table-sm align-middle mb-0" style="font-size:12px"><thead><tr>
-        <th class="ps-3">Data</th><th>NF</th><th>Combustível</th><th class="text-end">Litros</th><th class="text-end">R$/L</th><th class="text-end">Total</th><th>Lançado por</th><th></th>
-        </tr></thead><tbody>${notas.map(n => `<tr><td class="ps-3">${SGMF.data(n.data)}</td><td>${SGMF.esc(n.numero_nf)}</td><td>${SGMF.esc(n.combustivel)}</td>
-        <td class="text-end num">${SGMF.numero(n.litros, 2)}</td><td class="text-end num">${SGMF.moeda(n.valor_litro)}</td><td class="text-end num"><strong>${SGMF.moeda(n.valor_total)}</strong></td>
-        <td>${n.lancado_por ? SGMF.esc(n.lancado_por) : '<span class="text-muted">—</span>'}</td>
-        <td class="text-nowrap"><button class="btn btn-contorno btn-sm" onclick="abrirNFCombustivel(${n.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn btn-contorno btn-sm" onclick="excluirNFCombustivel(${n.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`
-        : '<div class="p-3 text-muted">Nenhuma NF de combustível lançada.</div>';
+      renderTabelaNotasCombustivel();
     } else {
       document.getElementById('tabelaNotasCombustivel').innerHTML = erroHtml(rNotas.reason);
     }
@@ -369,6 +419,13 @@ async function carregarControleCombustivel(manual = false) {
 
 
 document.getElementById('botaoNovaNFCombustivel').onclick = () => abrirNFCombustivel();
+document.getElementById('buscaNFCombustivel').addEventListener('input', renderTabelaNotasCombustivel);
+document.getElementById('limparBuscaNFCombustivel').onclick = () => {
+  const campo = document.getElementById('buscaNFCombustivel');
+  campo.value = '';
+  renderTabelaNotasCombustivel();
+  campo.focus();
+};
 document.getElementById('salvarNFCombustivel').onclick = salvarNFCombustivel;
 document.getElementById('botaoAjustarEstoque').onclick = abrirAjusteCombustivel;
 document.getElementById('salvarAjusteCombustivel').onclick = salvarAjusteCombustivel;
