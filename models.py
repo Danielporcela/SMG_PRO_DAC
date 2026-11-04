@@ -676,6 +676,9 @@ class NotaFiscal(db.Model):
     fornecedor = db.relationship("Fornecedor")
     itens = db.relationship("ItemNotaFiscal", backref="nota", cascade="all, delete-orphan",
                             lazy="selectin")
+    parcelas = db.relationship("ParcelaNotaFiscal", backref="nota", cascade="all, delete-orphan",
+                               lazy="selectin",
+                               order_by="ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id")
 
     @property
     def valor_total(self):
@@ -702,10 +705,43 @@ class NotaFiscal(db.Model):
             "valor_ibs": valor_ibs, "valor_cbs": valor_cbs,
             "valor_tributos": round(valor_icms + valor_pis + valor_cofins + valor_ibs + valor_cbs, 2),
             "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else ""),
+            "qtd_parcelas": len(self.parcelas),
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
+            d["parcelas"] = [p.to_dict() for p in self.parcelas]
         return d
+
+
+class ParcelaNotaFiscal(db.Model):
+    """Parcela (boleto) a pagar de uma nota fiscal de entrada.
+
+    A nota paga em boleto tem uma ou mais datas de vencimento. A tela lateral
+    "Boletos a vencer" lista as parcelas ainda não pagas conforme a data
+    escolhida. Nada aqui mexe no estoque.
+    """
+    __tablename__ = "parcelas_nota_fiscal"
+    id = db.Column(db.Integer, primary_key=True)
+    nota_fiscal_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais.id"),
+                               nullable=False, index=True)
+    numero = db.Column(db.Integer, default=1)           # 1, 2, 3... na ordem de vencimento
+    data_vencimento = db.Column(db.Date, nullable=False, index=True)
+    valor = db.Column(db.Float, default=0)
+    pago = db.Column(db.Boolean, default=False, nullable=False)
+    data_pagamento = db.Column(db.Date)
+    pago_por = db.Column(db.String(120))
+
+    def to_dict(self):
+        nota = self.nota
+        return {"id": self.id, "nota_fiscal_id": self.nota_fiscal_id,
+                "numero": self.numero,
+                "total_parcelas": len(nota.parcelas) if nota else None,
+                "data_vencimento": self.data_vencimento.isoformat() if self.data_vencimento else None,
+                "valor": self.valor or 0, "pago": bool(self.pago),
+                "data_pagamento": self.data_pagamento.isoformat() if self.data_pagamento else None,
+                "pago_por": self.pago_por,
+                "nota": nota.to_dict()["identificacao"] if nota else None,
+                "fornecedor_nome": nota.fornecedor.nome if nota and nota.fornecedor else None}
 
 
 class ItemNotaFiscal(db.Model):
@@ -1870,6 +1906,7 @@ class OrdemCompra(db.Model):
             "data_compra": self.data_compra.isoformat() if self.data_compra else None,
             "valor_total": self.valor_total, "qtd_itens": len(self.itens),
             "qtd_anexos": len(self.anexos),
+            "qtd_orcamentos": len(self.orcamentos),
             "editavel": self.editavel,
             "identificacao": f"OC {self.numero}" if self.numero else f"OC #{self.id}",
         }
