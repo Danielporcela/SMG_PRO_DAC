@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block titulo %}Boletos a vencer{% endblock %}
+{% block cabecalho %}Boletos a vencer{% endblock %}
+{% block descricao %}Parcelas (boletos) das notas fiscais que ainda não foram pagas, por período de vencimento.{% endblock %}
+
+{% block conteudo %}
+<div class="cartao">
+  <div class="cartao-topo flex-wrap gap-2">
+    <h3><i class="fa-solid fa-barcode me-2" style="color:var(--petroleo)"></i>Vencimentos do período</h3>
+    <div class="d-flex gap-2 flex-wrap ms-auto align-items-end">
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroInicio">De</label>
+        <input type="date" class="form-control form-control-sm" id="filtroInicio">
+      </div>
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroFim">Até</label>
+        <input type="date" class="form-control form-control-sm" id="filtroFim">
+      </div>
+      <div>
+        <label class="form-label mb-0" style="font-size:11.5px" for="filtroBuscaBoleto">Pesquisar</label>
+        <input type="search" class="form-control form-control-sm" id="filtroBuscaBoleto"
+               style="min-width:200px" autocomplete="off" placeholder="Fornecedor ou nota">
+      </div>
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" id="filtroVencidas">
+        <label class="form-check-label" style="font-size:12.5px" for="filtroVencidas">Incluir vencidas anteriores</label>
+      </div>
+      <button class="btn btn-contorno btn-sm" id="botaoImprimirBoletos">
+        <i class="fa-solid fa-print me-1"></i> Imprimir
+      </button>
+    </div>
+  </div>
+
+  <div class="px-3 pt-2 d-flex gap-2 flex-wrap align-items-center" style="font-size:12.5px">
+    <span style="color:var(--texto-suave)">Atalhos:</span>
+    <button type="button" class="btn btn-contorno btn-sm" data-atalho="mes">Este mês</button>
+    <button type="button" class="btn btn-contorno btn-sm" data-atalho="proximo">Próximo mês</button>
+    <button type="button" class="btn btn-contorno btn-sm" data-atalho="7">Próximos 7 dias</button>
+    <button type="button" class="btn btn-contorno btn-sm" data-atalho="30">Próximos 30 dias</button>
+  </div>
+
+  <div class="px-3 pt-3 d-flex gap-4 flex-wrap" id="resumoBoletos" style="font-size:13px"></div>
+
+  <div class="cartao-corpo p-0"><div id="areaBoletos">
+    <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando boletos…</div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const el = (id) => document.getElementById(id);
+  let itensCarregados = [];
+
+  const diaIso = (ano, mes, dia) => SGMF.paraISO ? SGMF.paraISO(new Date(ano, mes, dia))
+    : `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+  const somarDias = (n) => { const d = new Date(); d.setDate(d.getDate() + n);
+    return diaIso(d.getFullYear(), d.getMonth(), d.getDate()); };
+
+  function definirPeriodo(inicio, fim) {
+    el('filtroInicio').value = inicio;
+    el('filtroFim').value = fim;
+    carregar();
+  }
+
+  function atalho(tipo) {
+    const hoje = new Date();
+    const a = hoje.getFullYear(), m = hoje.getMonth();
+    if (tipo === 'mes') return definirPeriodo(diaIso(a, m, 1), diaIso(a, m + 1, 0));
+    if (tipo === 'proximo') return definirPeriodo(diaIso(a, m + 1, 1), diaIso(a, m + 2, 0));
+    definirPeriodo(SGMF.hoje(), somarDias(Number(tipo)));
+  }
+
+  function situacao(p) {
+    if (p.vencida) return SGMF.etiqueta('Vencida há ' + Math.abs(p.dias) + ' d', 'vermelha');
+    if (p.dias === 0) return SGMF.etiqueta('Vence hoje', 'ambar');
+    return SGMF.etiqueta('Em ' + p.dias + ' d', 'verde');
+  }
+
+  function itensVisiveis() {
+    const termo = el('filtroBuscaBoleto').value.trim().toLowerCase();
+    if (!termo) return itensCarregados;
+    return itensCarregados.filter((p) =>
+      `${p.fornecedor_nome || ''} ${p.nota || ''}`.toLowerCase().includes(termo));
+  }
+
+  function desenhar() {
+    const itens = itensVisiveis();
+    const area = el('areaBoletos');
+    const resumo = el('resumoBoletos');
+
+    if (!itens.length) {
+      resumo.innerHTML = '';
+      area.innerHTML = '<div class="vazio"><i class="fa-solid fa-circle-check"></i>'
+        + '<strong>Nenhum boleto em aberto neste período</strong>Ajuste as datas ou a pesquisa.</div>';
+      return;
+    }
+
+    const total = itens.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+    const vencidas = itens.filter((p) => p.vencida);
+    const totalVencidas = vencidas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+    resumo.innerHTML =
+      `<div><span style="color:var(--texto-suave)">Parcelas</span><br><strong style="font-size:18px">${itens.length}</strong></div>`
+      + `<div><span style="color:var(--texto-suave)">Total a pagar</span><br><strong style="font-size:18px">${SGMF.moeda(total)}</strong></div>`
+      + `<div><span style="color:var(--texto-suave)">Já vencidas</span><br><strong style="font-size:18px;color:${vencidas.length ? 'var(--alerta)' : 'inherit'}">`
+      + `${vencidas.length} · ${SGMF.moeda(totalVencidas)}</strong></div>`;
+
+    area.innerHTML = `<table id="tabelaBoletos" class="table table-hover align-middle mb-0" style="width:100%">
+      <thead><tr>
+        <th>Vencimento</th><th>Situação</th><th>Fornecedor</th><th>Nota</th>
+        <th class="text-center">Parcela</th><th class="text-end">Valor</th>
+      </tr></thead>
+      <tbody>${itens.map((p) => `<tr>
+        <td><strong>${SGMF.data(p.data_vencimento)}</strong></td>
+        <td>${situacao(p)}</td>
+        <td>${SGMF.esc(p.fornecedor_nome) || '—'}</td>
+        <td>${SGMF.esc(p.nota) || '—'}</td>
+        <td class="text-center">${p.numero}/${p.total_parcelas}</td>
+        <td class="text-end">${SGMF.moeda(p.valor)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr>
+        <th colspan="5" class="text-end">Total (${itens.length} parcela${itens.length > 1 ? 's' : ''})</th>
+        <th class="text-end">${SGMF.moeda(total)}</th>
+      </tr></tfoot>
+    </table>`;
+  }
+
+  async function carregar() {
+    const area = el('areaBoletos');
+    const params = new URLSearchParams();
+    if (el('filtroInicio').value) params.set('inicio', el('filtroInicio').value);
+    if (el('filtroFim').value) params.set('fim', el('filtroFim').value);
+    if (el('filtroVencidas').checked) params.set('vencidas', '1');
+    // Mantém o endereço da página com o período, para atualizar/compartilhar o link.
+    history.replaceState(null, '', '/boletos?' + params.toString());
+    try {
+      const resp = await fetch('/api/parcelas_nota/a_vencer?' + params.toString(),
+                               { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const dados = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        itensCarregados = [];
+        el('resumoBoletos').innerHTML = '';
+        area.innerHTML = '<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>'
+          + `<strong>${SGMF.esc(dados.erro || 'Não foi possível carregar os boletos.')}</strong></div>`;
+        return;
+      }
+      itensCarregados = dados.itens;
+      desenhar();
+      if (dados.qtd > dados.exibidas) {
+        SGMF.aviso(`Mostrando as ${dados.exibidas} primeiras de ${dados.qtd} parcelas. Reduza o período.`);
+      }
+    } catch (e) {
+      area.innerHTML = '<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>'
+        + '<strong>Não foi possível carregar os boletos.</strong></div>';
+    }
+  }
+
+  // Período inicial: o que veio no endereço (?inicio=&fim=) ou o mês corrente.
+  const q = new URLSearchParams(location.search);
+  const agora = new Date();
+  el('filtroInicio').value = q.get('inicio') || diaIso(agora.getFullYear(), agora.getMonth(), 1);
+  el('filtroFim').value = q.get('fim') || diaIso(agora.getFullYear(), agora.getMonth() + 1, 0);
+  el('filtroVencidas').checked = q.get('vencidas') === '1';
+
+  ['filtroInicio', 'filtroFim', 'filtroVencidas'].forEach((id) => el(id).addEventListener('change', carregar));
+  el('filtroBuscaBoleto').addEventListener('input', desenhar);
+  document.querySelectorAll('[data-atalho]').forEach((b) =>
+    b.addEventListener('click', () => atalho(b.dataset.atalho)));
+  el('botaoImprimirBoletos').addEventListener('click', () => {
+    if (!document.getElementById('tabelaBoletos')) return SGMF.aviso('Não há boletos para imprimir neste período.');
+    SGMF.imprimir('tabelaBoletos', 'Boletos a vencer');
+  });
+
+  carregar();
+})();
+</script>
+{% endblock %}

@@ -32,43 +32,7 @@
     {% if pode('manutencao') and not is_cco %}<a href="{{ url_for('paginas.lavagem', novo=1) }}" class="{{ 'ativo' if pagina == 'lavagem' }}"><i class="fa-solid fa-soap"></i> Lavagem</a>{% endif %}
     {% if pode('compras') %}<a href="/compras" class="{{ 'ativo' if pagina == 'compras' }}"><i class="fa-solid fa-cart-shopping"></i> Ordens de compra</a>{% endif %}
     {% if pode('estoque') %}<a href="{{ url_for('paginas.notas_fiscais') }}" class="{{ 'ativo' if pagina == 'notas_fiscais' }}"><i class="fa-solid fa-file-invoice"></i> Lançamento de notas</a>{% endif %}
-    {% if pode('estoque') %}
-    <style>
-      .venc-lateral { margin: 4px 10px 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px;
-                      background: rgba(255,255,255,.04); }
-      .venc-toggle { display: flex; align-items: center; gap: 8px; width: 100%; background: transparent; border: 0;
-                     color: #DCE6EE; font-size: 13px; font-weight: 600; padding: 8px 10px; text-align: left; }
-      .venc-corpo { padding: 0 10px 10px; }
-      .venc-corpo .form-control, .venc-corpo .form-select { font-size: 12.5px; }
-      .venc-lista { max-height: 320px; overflow-y: auto; margin-top: 8px; }
-      .venc-item { display: block; text-decoration: none; padding: 6px 8px; margin-bottom: 4px; border-radius: 6px;
-                   background: rgba(255,255,255,.06); color: #DCE6EE; font-size: 12px; line-height: 1.35; }
-      .venc-item:hover { background: rgba(255,255,255,.12); color: #fff; }
-      .venc-item .venc-linha { display: flex; justify-content: space-between; gap: 8px; }
-      .venc-item .venc-sub { color: #9FB2C0; font-size: 11px; }
-      .venc-item.vencida { border-left: 3px solid #E5484D; }
-      .venc-item.hoje { border-left: 3px solid #F5A524; }
-      .venc-item.futura { border-left: 3px solid #3FB58A; }
-      .venc-total { font-size: 12px; color: #9FB2C0; margin-top: 4px; }
-    </style>
-    <div class="venc-lateral" id="vencLateral">
-      <button type="button" class="venc-toggle" id="vencToggle" aria-expanded="false">
-        <i class="fa-solid fa-barcode"></i> Boletos a vencer
-        <span class="contador d-none" id="vencContador"></span>
-        <i class="fa-solid fa-chevron-down ms-auto" style="font-size:11px"></i>
-      </button>
-      <div class="venc-corpo d-none" id="vencCorpo">
-        <label class="form-label mb-0" style="font-size:11px;color:#9FB2C0" for="vencData">Data</label>
-        <input type="date" class="form-control form-control-sm" id="vencData">
-        <select class="form-select form-select-sm mt-1" id="vencModo" aria-label="Filtro de vencimento">
-          <option value="ate">Até esta data (inclui vencidas)</option>
-          <option value="na">Somente nesta data</option>
-        </select>
-        <div class="venc-lista" id="vencLista"></div>
-        <div class="venc-total" id="vencTotal"></div>
-      </div>
-    </div>
-    {% endif %}
+    {% if pode('estoque') %}<a href="{{ url_for('paginas.boletos') }}" class="{{ 'ativo' if pagina == 'boletos' }}" title="Boletos vencidos ou que vencem hoje"><i class="fa-solid fa-barcode"></i> Boletos a vencer <span class="contador d-none" id="vencContador">0</span></a>{% endif %}
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}
     {% if pode('grupos_consumo') %}<a href="{{ url_for('paginas.grupos_consumo') }}" class="{{ 'ativo' if pagina == 'grupos_consumo' }}"><i class="fa-solid fa-people-group"></i> Grupos de consumo</a>{% endif %}
@@ -181,56 +145,25 @@
 {% block scripts %}{% endblock %}
 {% if pode('estoque') %}
 <script>
-/* Painel lateral "Boletos a vencer": parcelas não pagas das notas fiscais,
-   conforme a data escolhida. Quem lança/altera parcelas chama
-   window.atualizarVencimentosLateral() para o painel acompanhar. */
+/* Contador do item "Boletos a vencer" no menu lateral: parcelas não pagas que
+   já venceram ou vencem hoje. Quem lança/altera parcelas chama
+   window.atualizarVencimentosLateral() para o número acompanhar. */
 (function () {
-  const corpo = document.getElementById('vencCorpo');
-  if (!corpo) return;
-  const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const moeda = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  const dataBR = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+  const contador = document.getElementById('vencContador');
+  if (!contador) return;
   const hojeIso = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
-  el('vencData').value = hojeIso();
-
   async function carregar() {
-    const lista = el('vencLista');
     try {
-      const url = '/api/parcelas_nota/a_vencer?data=' + encodeURIComponent(el('vencData').value || hojeIso())
-                + '&modo=' + encodeURIComponent(el('vencModo').value);
-      const resp = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-      if (!resp.ok) throw new Error('falha');
+      const resp = await fetch('/api/parcelas_nota/a_vencer?fim=' + encodeURIComponent(hojeIso()),
+                               { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      if (!resp.ok) return;
       const dados = await resp.json();
-
-      const contador = el('vencContador');
       contador.textContent = dados.qtd;
       contador.classList.toggle('d-none', !dados.qtd);
-
-      lista.innerHTML = dados.itens.length ? dados.itens.map((p) => {
-        const classe = p.vencida ? 'vencida' : (p.dias === 0 ? 'hoje' : 'futura');
-        const prazo = p.vencida ? 'vencida há ' + Math.abs(p.dias) + ' d'
-                    : (p.dias === 0 ? 'vence hoje' : 'em ' + p.dias + ' d');
-        return `<a class="venc-item ${classe}" href="/notas-fiscais" title="Abrir lançamento de notas">
-          <span class="venc-linha"><strong>${dataBR(p.data_vencimento)}</strong><strong>${moeda(p.valor)}</strong></span>
-          <span class="venc-sub">${esc(p.fornecedor_nome) || '—'} · ${esc(p.nota)} · parc. ${p.numero}/${p.total_parcelas} · ${prazo}</span>
-        </a>`;
-      }).join('') : '<div class="venc-total">Nenhuma parcela a vencer nesta seleção.</div>';
-      el('vencTotal').textContent = dados.qtd ? dados.qtd + ' parcela(s) · total ' + moeda(dados.total) : '';
-    } catch (e) {
-      lista.innerHTML = '<div class="venc-total">Não foi possível carregar os vencimentos.</div>';
-    }
+    } catch (e) { /* sem contador: o menu continua funcionando */ }
   }
   window.atualizarVencimentosLateral = carregar;
-
-  el('vencToggle').onclick = () => {
-    const aberto = corpo.classList.toggle('d-none') === false;
-    el('vencToggle').setAttribute('aria-expanded', aberto ? 'true' : 'false');
-  };
-  el('vencData').addEventListener('change', carregar);
-  el('vencModo').addEventListener('change', carregar);
   carregar();
 })();
 </script>

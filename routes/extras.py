@@ -628,31 +628,67 @@ def pagar_parcela_nota(nota_id, parcela_id):
 def parcelas_a_vencer():
     """Alimenta o painel lateral "Boletos a vencer".
 
-    `data` (padrão: hoje) e `modo`:
-      - "ate": parcelas não pagas com vencimento até a data (inclui vencidas);
+    Por período (é o que o painel usa): `inicio` e `fim` (AAAA-MM-DD) trazem
+    todas as parcelas não pagas com vencimento dentro do intervalo, da mais
+    antiga para a mais nova. Com `vencidas=1`, entram também as que já venceram
+    antes do início do período e continuam sem pagamento.
+
+    Por data única (compatibilidade): `data` (padrão: hoje) e `modo`:
+      - "ate": vencimento até a data (inclui vencidas);
       - "na":  só as que vencem exatamente na data.
     """
     try:
-        data = _data_nf(request.args.get("data"), "Data") or hoje()
+        inicio = _data_nf(request.args.get("inicio"), "Data inicial")
+        fim = _data_nf(request.args.get("fim"), "Data final")
+        data = _data_nf(request.args.get("data"), "Data")
     except ErroNegocio as e:
         return jsonify({"erro": str(e)}), 400
-    modo = "na" if request.args.get("modo") == "na" else "ate"
-
-    q = (ParcelaNotaFiscal.query.join(NotaFiscal)
-         .filter(ParcelaNotaFiscal.pago.is_(False), NotaFiscal.status != "Cancelada"))
-    q = q.filter(ParcelaNotaFiscal.data_vencimento == data) if modo == "na" \
-        else q.filter(ParcelaNotaFiscal.data_vencimento <= data)
-    parcelas = q.order_by(ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id).limit(200).all()
 
     base = hoje()
+    q = (ParcelaNotaFiscal.query.join(NotaFiscal)
+         .filter(ParcelaNotaFiscal.pago.is_(False), NotaFiscal.status != "Cancelada"))
+
+    if inicio or fim:
+        if inicio and fim and inicio > fim:
+            return jsonify({"erro": "A data inicial não pode ser maior que a data final."}), 400
+        incluir_vencidas = request.args.get("vencidas") in ("1", "true", "on")
+        if fim:
+            q = q.filter(ParcelaNotaFiscal.data_vencimento <= fim)
+        if inicio:
+            if incluir_vencidas:
+                q = q.filter(db.or_(ParcelaNotaFiscal.data_vencimento >= inicio,
+                                    ParcelaNotaFiscal.data_vencimento < base))
+            else:
+                q = q.filter(ParcelaNotaFiscal.data_vencimento >= inicio)
+        modo = "periodo"
+    else:
+        data = data or base
+        modo = "na" if request.args.get("modo") == "na" else "ate"
+        q = q.filter(ParcelaNotaFiscal.data_vencimento == data) if modo == "na" \
+            else q.filter(ParcelaNotaFiscal.data_vencimento <= data)
+
+    # Totais sobre tudo que casa com o filtro; a lista é limitada só para não pesar a tela.
+    limite = 500
+    total_parcelas = q.count()
+    parcelas = q.order_by(ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id).limit(limite).all()
+    soma = (q.with_entities(db.func.coalesce(db.func.sum(ParcelaNotaFiscal.valor), 0)).scalar()) or 0
+
     itens = []
     for p in parcelas:
         d = p.to_dict()
         d["dias"] = (p.data_vencimento - base).days
         d["vencida"] = p.data_vencimento < base
         itens.append(d)
-    return jsonify({"data": data.isoformat(), "modo": modo, "qtd": len(itens),
-                    "total": round(sum(i["valor"] for i in itens), 2), "itens": itens})
+    return jsonify({
+        "modo": modo,
+        "inicio": inicio.isoformat() if inicio else None,
+        "fim": fim.isoformat() if fim else None,
+        "data": data.isoformat() if data else None,
+        "qtd": total_parcelas,
+        "exibidas": len(itens),
+        "total": round(float(soma), 2),
+        "itens": itens,
+    })
 
 
 # ========================================================== notificações
