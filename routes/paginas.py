@@ -113,6 +113,14 @@ def notas_fiscais():
     return render_template("notas_fiscais.html", pagina="notas_fiscais")
 
 
+# Boletos (parcelas das notas fiscais) a vencer em um período, com impressão.
+# Usa a mesma permissão do estoque, igual à API de parcelas.
+@bp_paginas.get("/boletos")
+@exige_tela("estoque")
+def boletos():
+    return render_template("boletos.html", pagina="boletos")
+
+
 _tela("/funcionarios", "funcionarios.html", "funcionarios")
 _tela("/uniformes", "uniformes.html", "uniformes")
 _tela("/ferramentas", "ferramentas.html", "ferramentas")

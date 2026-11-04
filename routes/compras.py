@@ -23,8 +23,9 @@ from flask import Blueprint, jsonify, request, session
 
 from extensions import db
 from models import (CARGO_APROVACAO_COMPRAS, CotacaoFornecedorOrdemCompra,
-                    OfertaItemCotacaoOrdemCompra, ItemOrdemCompra, OrdemCompra, Peca,
-                    Fornecedor, proximo_numero_ordem_compra)
+                    Fornecedor, ItemOrdemCompra, OfertaItemCotacaoOrdemCompra,
+                    OrcamentoCompra, OrdemCompra, Peca,
+                    proximo_numero_ordem_compra)
 from services.crud import (ErroNegocio, editar_tela, registrar_crud, registrar_log,
                            visualizar_tela)
 from services.tempo import hoje
@@ -203,6 +204,122 @@ def remover_item(ordem_id, item_id):
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
+    return _resposta(ordem)
+
+
+# ------------------------------------------- orçamentos de fornecedores
+def _exigir_aberta_para_orcamento(ordem):
+    if ordem.status not in ("Pendente", "Aprovada"):
+        raise ErroNegocio(
+            f"Esta ordem já está {ordem.status.lower()} e não aceita mais orçamentos.")
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/orcamentos-fornecedor")
+@editar_tela(TELA)
+def adicionar_orcamento(ordem_id):
+    """Inclui o orçamento de um fornecedor (valor total, prazo e observação).
+
+    O fornecedor vem do cadastro (`fornecedor_id`) ou é só um nome digitado
+    (`fornecedor_nome`) — cotação com quem ainda não está cadastrado.
+    """
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        _exigir_aberta_para_orcamento(ordem)
+
+        fornecedor = None
+        if dados.get("fornecedor_id"):
+            fornecedor = db.session.get(Fornecedor, int(dados["fornecedor_id"]))
+            if fornecedor is None:
+                raise ErroNegocio("O fornecedor escolhido não existe mais no cadastro.")
+        nome = (dados.get("fornecedor_nome") or "").strip()
+        if fornecedor is None and not nome:
+            raise ErroNegocio("Escolha o fornecedor ou digite o nome dele.")
+
+        valor = _numero(dados.get("valor_total"), -1)
+        if valor <= 0:
+            raise ErroNegocio("Informe o valor do orçamento (maior que zero).")
+
+        orcamento = OrcamentoCompra(
+            ordem_compra_id=ordem.id,
+            fornecedor_id=fornecedor.id if fornecedor else None,
+            fornecedor_nome=None if fornecedor else nome[:120],
+            valor_total=round(valor, 2),
+            prazo_entrega=(dados.get("prazo_entrega") or "").strip()[:60] or None,
+            observacao=(dados.get("observacao") or "").strip()[:200] or None,
+            criado_por=_usuario(),
+        )
+        db.session.add(orcamento)
+        db.session.flush()
+        registrar_log("criar", "orcamentos_ordem_compra", orcamento.id,
+                      f"{ordem.numero} · {orcamento.nome_fornecedor} · R$ {orcamento.valor_total:.2f}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception:
+        db.session.rollback()
+        return jsonify({"erro": "Não foi possível incluir o orçamento. Confira o "
+                                "fornecedor e o valor informados."}), 400
+    db.session.refresh(ordem)
+    return _resposta(ordem)
+
+
+def _orcamento_da_ordem(ordem, orcamento_id):
+    orcamento = db.session.get(OrcamentoCompra, orcamento_id)
+    if orcamento is None or orcamento.ordem_compra_id != ordem.id:
+        return None
+    return orcamento
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/orcamentos-fornecedor/<int:orcamento_id>/escolher")
+@editar_tela(TELA)
+def escolher_orcamento(ordem_id, orcamento_id):
+    """Marca o orçamento vencedor (só um por ordem) e, se o fornecedor for
+    cadastrado, passa ele a ser o fornecedor da ordem. Clicar de novo no
+    orçamento já escolhido desfaz a escolha."""
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    orcamento = _orcamento_da_ordem(ordem, orcamento_id)
+    if orcamento is None:
+        return jsonify({"erro": "Este orçamento não pertence a esta ordem de compra."}), 404
+    try:
+        _exigir_aberta_para_orcamento(ordem)
+        ja_escolhido = bool(orcamento.escolhido)
+        for o in ordem.orcamentos:
+            o.escolhido = False
+        if not ja_escolhido:
+            orcamento.escolhido = True
+            if orcamento.fornecedor_id:
+                ordem.fornecedor_id = orcamento.fornecedor_id
+        registrar_log("editar", "orcamentos_ordem_compra", orcamento.id,
+                      f"{ordem.numero} · {orcamento.nome_fornecedor} · "
+                      f"escolhido={orcamento.escolhido}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    db.session.refresh(ordem)
+    return _resposta(ordem)
+
+
+@bp_compras.post(f"/{ROTA}/<int:ordem_id>/orcamentos-fornecedor/<int:orcamento_id>/remover")
+@editar_tela(TELA)
+def remover_orcamento(ordem_id, orcamento_id):
+    """Remove um orçamento. Usa POST (e não DELETE) pelo mesmo motivo de
+    /itens/<id>/entregue: não aciona a senha administrativa global."""
+    ordem = db.get_or_404(OrdemCompra, ordem_id)
+    orcamento = _orcamento_da_ordem(ordem, orcamento_id)
+    if orcamento is None:
+        return jsonify({"erro": "Este orçamento não pertence a esta ordem de compra."}), 404
+    try:
+        _exigir_aberta_para_orcamento(ordem)
+        db.session.delete(orcamento)
+        registrar_log("excluir", "orcamentos_ordem_compra", orcamento_id, ordem.numero or "")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    db.session.refresh(ordem)
     return _resposta(ordem)
 
 

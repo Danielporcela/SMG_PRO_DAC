@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
-                    NotaFiscal, OrdemCompra, OrdemServico, Peca)
+                    NotaFiscal, OrdemCompra, OrdemServico, ParcelaNotaFiscal, Peca)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
@@ -481,6 +481,217 @@ def finalizar_nota_fiscal(nota_id):
         return jsonify({"erro": f"Não foi possível finalizar a nota ({e.__class__.__name__}). "
                                 "O detalhe técnico está no log do servidor."}), 500
     return jsonify(resultado)
+
+
+# ===================================================== boletos (parcelas da NF)
+def _nota_aceita_parcelas(nota):
+    if nota.status == "Cancelada":
+        raise ErroNegocio("Esta nota está cancelada e não aceita parcelas.")
+
+
+def _renumerar_parcelas(nota):
+    """Mantém 1, 2, 3... na ordem de vencimento."""
+    db.session.flush()
+    db.session.refresh(nota)
+    for n, p in enumerate(sorted(nota.parcelas, key=lambda x: (x.data_vencimento, x.id)), 1):
+        p.numero = n
+
+
+def _valor_positivo(valor, rotulo="Valor"):
+    try:
+        v = float(str(valor).replace(",", "."))
+    except (TypeError, ValueError):
+        raise ErroNegocio(f"{rotulo} inválido.")
+    if v <= 0:
+        raise ErroNegocio(f"{rotulo} precisa ser maior que zero.")
+    return round(v, 2)
+
+
+@bp_extras.post("/api/notas_fiscais/<int:nota_id>/parcelas")
+@editar_tela("estoque")
+def adicionar_parcela_nota(nota_id):
+    """Inclui uma data de vencimento (boleto) com o valor da parcela."""
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        _nota_aceita_parcelas(nota)
+        vencimento = _data_nf(dados.get("data_vencimento"), "Vencimento")
+        if not vencimento:
+            raise ErroNegocio("Informe a data de vencimento.")
+        valor = _valor_positivo(dados.get("valor"), "Valor da parcela")
+        parcela = ParcelaNotaFiscal(nota_fiscal_id=nota.id, data_vencimento=vencimento, valor=valor)
+        db.session.add(parcela)
+        _renumerar_parcelas(nota)
+        registrar_log("criar", "parcelas_nota_fiscal", parcela.id,
+                      f"NF {nota.numero} · venc. {vencimento.isoformat()} · R$ {valor:.2f}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível salvar a parcela: {e.__class__.__name__}."}), 400
+    db.session.refresh(nota)
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_extras.post("/api/notas_fiscais/<int:nota_id>/parcelas/gerar")
+@editar_tela("estoque")
+def gerar_parcelas_nota(nota_id):
+    """Divide o valor da nota em N parcelas com intervalo fixo de dias.
+
+    Sem `valor_total`, usa o total dos itens lançados. O centavo que sobra
+    da divisão vai para a última parcela.
+    """
+    from datetime import timedelta
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    dados = request.get_json(silent=True) or {}
+    try:
+        _nota_aceita_parcelas(nota)
+        if nota.parcelas:
+            raise ErroNegocio("Esta nota já tem parcelas. Remova-as antes de gerar de novo.")
+        try:
+            quantidade = int(dados.get("quantidade") or 1)
+            intervalo = int(dados.get("intervalo_dias") or 30)
+        except (TypeError, ValueError):
+            raise ErroNegocio("Quantidade de parcelas e intervalo precisam ser números inteiros.")
+        if not 1 <= quantidade <= 48:
+            raise ErroNegocio("A quantidade de parcelas deve ficar entre 1 e 48.")
+        if not 0 <= intervalo <= 365:
+            raise ErroNegocio("O intervalo deve ficar entre 0 e 365 dias.")
+        primeiro = _data_nf(dados.get("primeiro_vencimento"), "Primeiro vencimento")
+        if not primeiro:
+            raise ErroNegocio("Informe a data do primeiro vencimento.")
+        total = dados.get("valor_total")
+        total = _valor_positivo(total, "Valor total") if total not in (None, "") else nota.valor_total
+        if not total or total <= 0:
+            raise ErroNegocio("A nota ainda não tem valor. Lance os itens antes de gerar as "
+                              "parcelas ou informe o valor total.")
+
+        base = round(total / quantidade, 2)
+        for n in range(quantidade):
+            valor = base if n < quantidade - 1 else round(total - base * (quantidade - 1), 2)
+            db.session.add(ParcelaNotaFiscal(
+                nota_fiscal_id=nota.id, numero=n + 1, valor=valor,
+                data_vencimento=primeiro + timedelta(days=intervalo * n)))
+        registrar_log("criar", "parcelas_nota_fiscal", nota.id,
+                      f"NF {nota.numero} · {quantidade}x · R$ {total:.2f}")
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Não foi possível gerar as parcelas: {e.__class__.__name__}."}), 400
+    db.session.refresh(nota)
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_extras.delete("/api/notas_fiscais/<int:nota_id>/parcelas/<int:parcela_id>")
+@editar_tela("estoque")
+def remover_parcela_nota(nota_id, parcela_id):
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    parcela = db.session.get(ParcelaNotaFiscal, parcela_id)
+    if parcela is None or parcela.nota_fiscal_id != nota.id:
+        return jsonify({"erro": "Esta parcela não pertence a esta nota fiscal."}), 404
+    try:
+        _nota_aceita_parcelas(nota)
+        db.session.delete(parcela)
+        registrar_log("excluir", "parcelas_nota_fiscal", parcela_id, f"NF {nota.numero}")
+        db.session.flush()
+        _renumerar_parcelas(nota)
+        db.session.commit()
+    except ErroNegocio as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    db.session.refresh(nota)
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_extras.post("/api/notas_fiscais/<int:nota_id>/parcelas/<int:parcela_id>/pagar")
+@editar_tela("estoque")
+def pagar_parcela_nota(nota_id, parcela_id):
+    """Marca a parcela como paga (ou desfaz) — paga sai da lista lateral."""
+    nota = db.get_or_404(NotaFiscal, nota_id)
+    parcela = db.session.get(ParcelaNotaFiscal, parcela_id)
+    if parcela is None or parcela.nota_fiscal_id != nota.id:
+        return jsonify({"erro": "Esta parcela não pertence a esta nota fiscal."}), 404
+    parcela.pago = not bool(parcela.pago)
+    parcela.data_pagamento = hoje() if parcela.pago else None
+    parcela.pago_por = session.get("usuario_nome", "sistema") if parcela.pago else None
+    registrar_log("editar", "parcelas_nota_fiscal", parcela.id,
+                  f"NF {nota.numero} · parcela {parcela.numero} · pago={parcela.pago}")
+    db.session.commit()
+    db.session.refresh(nota)
+    return jsonify(nota.to_dict(com_itens=True))
+
+
+@bp_extras.get("/api/parcelas_nota/a_vencer")
+@visualizar_tela("estoque")
+def parcelas_a_vencer():
+    """Alimenta o painel lateral "Boletos a vencer".
+
+    Por período (é o que o painel usa): `inicio` e `fim` (AAAA-MM-DD) trazem
+    todas as parcelas não pagas com vencimento dentro do intervalo, da mais
+    antiga para a mais nova. Com `vencidas=1`, entram também as que já venceram
+    antes do início do período e continuam sem pagamento.
+
+    Por data única (compatibilidade): `data` (padrão: hoje) e `modo`:
+      - "ate": vencimento até a data (inclui vencidas);
+      - "na":  só as que vencem exatamente na data.
+    """
+    try:
+        inicio = _data_nf(request.args.get("inicio"), "Data inicial")
+        fim = _data_nf(request.args.get("fim"), "Data final")
+        data = _data_nf(request.args.get("data"), "Data")
+    except ErroNegocio as e:
+        return jsonify({"erro": str(e)}), 400
+
+    base = hoje()
+    q = (ParcelaNotaFiscal.query.join(NotaFiscal)
+         .filter(ParcelaNotaFiscal.pago.is_(False), NotaFiscal.status != "Cancelada"))
+
+    if inicio or fim:
+        if inicio and fim and inicio > fim:
+            return jsonify({"erro": "A data inicial não pode ser maior que a data final."}), 400
+        incluir_vencidas = request.args.get("vencidas") in ("1", "true", "on")
+        if fim:
+            q = q.filter(ParcelaNotaFiscal.data_vencimento <= fim)
+        if inicio:
+            if incluir_vencidas:
+                q = q.filter(db.or_(ParcelaNotaFiscal.data_vencimento >= inicio,
+                                    ParcelaNotaFiscal.data_vencimento < base))
+            else:
+                q = q.filter(ParcelaNotaFiscal.data_vencimento >= inicio)
+        modo = "periodo"
+    else:
+        data = data or base
+        modo = "na" if request.args.get("modo") == "na" else "ate"
+        q = q.filter(ParcelaNotaFiscal.data_vencimento == data) if modo == "na" \
+            else q.filter(ParcelaNotaFiscal.data_vencimento <= data)
+
+    # Totais sobre tudo que casa com o filtro; a lista é limitada só para não pesar a tela.
+    limite = 500
+    total_parcelas = q.count()
+    parcelas = q.order_by(ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id).limit(limite).all()
+    soma = (q.with_entities(db.func.coalesce(db.func.sum(ParcelaNotaFiscal.valor), 0)).scalar()) or 0
+
+    itens = []
+    for p in parcelas:
+        d = p.to_dict()
+        d["dias"] = (p.data_vencimento - base).days
+        d["vencida"] = p.data_vencimento < base
+        itens.append(d)
+    return jsonify({
+        "modo": modo,
+        "inicio": inicio.isoformat() if inicio else None,
+        "fim": fim.isoformat() if fim else None,
+        "data": data.isoformat() if data else None,
+        "qtd": total_parcelas,
+        "exibidas": len(itens),
+        "total": round(float(soma), 2),
+        "itens": itens,
+    })
 
 
 # ========================================================== notificações

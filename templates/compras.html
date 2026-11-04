@@ -39,11 +39,14 @@
             <label class="input-group-text" for="ocQtd">Qtde</label>
             <input type="number" step="any" min="0.01" class="form-control" id="ocQtd"
                    style="max-width:90px" value="1">
+            <label class="input-group-text" for="ocValor">R$ unit.</label>
+            <input type="number" step="0.01" min="0" class="form-control" id="ocValor"
+                   style="max-width:110px" placeholder="0,00">
             <button class="btn btn-primario" type="button" id="ocAdicionar">
               <i class="fa-solid fa-plus me-1"></i> Adicionar item
             </button>
           </div>
-          <p class="form-text mt-0">Digite a descrição e a quantidade do item. Não há busca nem seleção de peças do estoque.</p>
+          <p class="form-text mt-0">Digite a descrição, a quantidade e, se já souber, o valor unitário estimado do item.</p>
         </div>
 
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 mb-2">
@@ -54,6 +57,40 @@
         </div>
         <div id="ocListaOrcamentos" class="mb-3"></div>
         <div id="ocListaItens"></div>
+
+        <hr class="my-3">
+        <div id="ocBlocoOrcamentos">
+          <h6 class="mb-2"><i class="fa-solid fa-file-invoice-dollar me-1"></i> Orçamentos de fornecedores</h6>
+          <div id="ocFormOrcamento" class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label mb-0" for="ocOrcFornecedor">Fornecedor</label>
+              <select class="form-select" id="ocOrcFornecedor"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label mb-0" for="ocOrcNome">… ou digite o nome</label>
+              <input class="form-control" id="ocOrcNome" maxlength="120" autocomplete="off"
+                     placeholder="Fornecedor ainda não cadastrado">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label mb-0" for="ocOrcValor">Valor do orçamento (R$) <span style="color:var(--alerta)">*</span></label>
+              <input type="number" step="0.01" min="0" class="form-control" id="ocOrcValor" placeholder="0,00">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label mb-0" for="ocOrcPrazo">Prazo de entrega</label>
+              <input class="form-control" id="ocOrcPrazo" maxlength="60" placeholder="Ex.: 5 dias úteis">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label mb-0" for="ocOrcObs">Observação</label>
+              <input class="form-control" id="ocOrcObs" maxlength="200" placeholder="Ex.: frete incluso">
+            </div>
+            <div class="col-12 text-end">
+              <button class="btn btn-primario" type="button" id="ocOrcAdicionar">
+                <i class="fa-solid fa-plus me-1"></i> Incluir orçamento de fornecedor
+              </button>
+            </div>
+          </div>
+          <div id="ocListaOrcamentos"></div>
+        </div>
       </div>
       <div class="modal-footer justify-content-between flex-wrap gap-2">
         <div id="ocTotais" class="num"></div>
@@ -235,6 +272,22 @@ let ordemAtual = null;
 function limparFormularioItem() {
   document.getElementById('ocDescricao').value = '';
   document.getElementById('ocQtd').value = 1;
+  document.getElementById('ocValor').value = '';
+  document.getElementById('ocOrcFornecedor').value = '';
+  ['ocOrcNome', 'ocOrcValor', 'ocOrcPrazo', 'ocOrcObs'].forEach(id => document.getElementById(id).value = '');
+}
+
+/* Fornecedores do cadastro para o select do orçamento — carregados uma vez. */
+let opcoesFornecedoresCarregadas = false;
+async function carregarFornecedoresOrcamento() {
+  if (opcoesFornecedoresCarregadas) return;
+  try {
+    const lista = await SGMF.opcoes('fornecedores', 'nome');
+    document.getElementById('ocOrcFornecedor').innerHTML =
+      '<option value="">— selecione —</option>' +
+      lista.map(o => `<option value="${SGMF.esc(o.valor)}">${SGMF.esc(o.texto)}</option>`).join('');
+    opcoesFornecedoresCarregadas = true;
+  } catch (e) { /* sem lista, ainda dá para digitar o nome */ }
 }
 
 async function abrirItensCompra(ordemId) {
@@ -247,6 +300,7 @@ async function abrirItensCompra(ordemId) {
   document.getElementById('ocSubtitulo').textContent =
     `${ordemAtual.solicitante || 'sem solicitante'} · ${ordemAtual.setor || 'sem setor'}` +
     ` · solicitada em ${SGMF.data(ordemAtual.data_solicitacao)} · ${ordemAtual.status}`;
+  await carregarFornecedoresOrcamento();
   limparFormularioItem();
   renderizarItensCompra();
   await carregarOrcamentosCompra();
@@ -285,7 +339,7 @@ function renderizarItensCompra() {
     area.innerHTML = `<div class="list-group">${itens.map(i => `
       <div class="list-group-item d-flex align-items-center justify-content-between gap-2 py-2">
         <div style="min-width:0"><strong>${SGMF.esc(i.descricao)}</strong>
-          <span class="d-block" style="font-size:11.5px;color:#6B7C8A">Qtde: ${SGMF.numero(i.quantidade, 2)} ${SGMF.esc(i.unidade || '')}</span>
+          <span class="d-block" style="font-size:11.5px;color:#6B7C8A">Qtde: ${SGMF.numero(i.quantidade, 2)} ${SGMF.esc(i.unidade || '')} · Valor unit.: ${i.valor_unitario ? SGMF.moeda(i.valor_unitario) : 'sem preço'}${i.valor_unitario ? ` · Subtotal: ${SGMF.moeda(i.valor_total)}` : ''}</span>
           ${i.observacao ? `<span class="d-block" style="font-size:11.5px;color:#6B7C8A">${SGMF.esc(i.observacao)}</span>` : ''}</div>
         <button class="btn btn-outline-success btn-sm" data-entregue-item-oc="${i.id}" title="Marcar como entregue">
           <i class="fa-solid fa-check me-1"></i> Entregue
@@ -293,7 +347,9 @@ function renderizarItensCompra() {
       </div>`).join('')}</div>`;
   }
 
-  document.getElementById('ocTotais').innerHTML = `${itens.length} item(ns)`;
+  document.getElementById('ocTotais').innerHTML =
+    `${itens.length} item(ns) · Valor estimado: <strong>${SGMF.moeda(ordemAtual.valor_total)}</strong>`;
+  renderizarOrcamentos();
 
   document.querySelectorAll('[data-entregue-item-oc]').forEach(b => b.onclick = async () => {
     if (!await SGMF.confirmar('Marcar como entregue?', 'O item será retirado desta lista.', 'Entregue')) return;
@@ -313,14 +369,102 @@ document.getElementById('ocAdicionar').onclick = async () => {
   const quantidade = Number(document.getElementById('ocQtd').value);
   if (!quantidade || quantidade <= 0) return SGMF.aviso('Informe uma quantidade válida.');
 
+  const valorTexto = document.getElementById('ocValor').value;
+  const valor_unitario = valorTexto === '' ? 0 : Number(valorTexto);
+  if (isNaN(valor_unitario) || valor_unitario < 0) return SGMF.aviso('Informe um valor unitário válido.');
+
   const botao = document.getElementById('ocAdicionar');
   botao.disabled = true;
   try {
-    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/itens`, { descricao, quantidade });
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/itens`, { descricao, quantidade, valor_unitario });
     SGMF.sucesso('Item adicionado');
     document.getElementById('ocDescricao').value = '';
     document.getElementById('ocQtd').value = 1;
+    document.getElementById('ocValor').value = '';
     document.getElementById('ocDescricao').focus();
+    renderizarItensCompra();
+    telaCompras.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+  finally { botao.disabled = false; }
+};
+
+/* ------------------------------------------ orçamentos de fornecedores */
+function renderizarOrcamentos() {
+  const aberta = ['Pendente', 'Aprovada'].includes(ordemAtual.status);
+  document.getElementById('ocFormOrcamento').style.display = aberta ? '' : 'none';
+
+  const orcs = ordemAtual.orcamentos || [];
+  const menor = orcs.length > 1 ? Math.min(...orcs.map(o => o.valor_total)) : null;
+  const area = document.getElementById('ocListaOrcamentos');
+  if (!orcs.length) {
+    area.innerHTML = `<div class="form-text">Nenhum orçamento incluído ainda.</div>`;
+    return;
+  }
+  area.innerHTML = `<div class="list-group">${orcs.map(o => `
+    <div class="list-group-item py-2 ${o.escolhido ? 'list-group-item-success' : ''}">
+      <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+        <div style="min-width:0">
+          <strong>${SGMF.esc(o.fornecedor_nome)}</strong>
+          ${o.escolhido ? SGMF.etiqueta('Escolhido', 'verde') : ''}
+          ${menor !== null && o.valor_total === menor ? SGMF.etiqueta('Menor preço', 'azul') : ''}
+          <span class="d-block" style="font-size:11.5px;color:#6B7C8A">
+            ${o.prazo_entrega ? 'Prazo: ' + SGMF.esc(o.prazo_entrega) + ' · ' : ''}${o.observacao ? SGMF.esc(o.observacao) + ' · ' : ''}incluído por ${SGMF.esc(o.criado_por) || '—'}
+          </span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <strong class="num">${SGMF.moeda(o.valor_total)}</strong>
+          ${aberta ? `
+            <button class="btn btn-outline-success btn-sm" data-escolher-orc="${o.id}"
+                    title="${o.escolhido ? 'Desfazer escolha' : 'Escolher este orçamento'}">
+              <i class="fa-solid fa-${o.escolhido ? 'rotate-left' : 'check'}"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm" data-remover-orc="${o.id}" title="Remover orçamento">
+              <i class="fa-solid fa-trash"></i>
+            </button>` : ''}
+        </div>
+      </div>
+    </div>`).join('')}</div>`;
+
+  area.querySelectorAll('[data-escolher-orc]').forEach(b => b.onclick = async () => {
+    try {
+      ordemAtual = await SGMF.post(
+        `/api/ordens_compra/${ordemAtual.id}/orcamentos-fornecedor/${b.dataset.escolherOrc}/escolher`, {});
+      SGMF.sucesso('Orçamento atualizado');
+      renderizarItensCompra();
+      telaCompras.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+  area.querySelectorAll('[data-remover-orc]').forEach(b => b.onclick = async () => {
+    if (!await SGMF.confirmar('Remover este orçamento?', 'Ele sai da lista desta ordem.', 'Remover')) return;
+    try {
+      ordemAtual = await SGMF.post(
+        `/api/ordens_compra/${ordemAtual.id}/orcamentos-fornecedor/${b.dataset.removerOrc}/remover`, {});
+      SGMF.sucesso('Orçamento removido');
+      renderizarItensCompra();
+      telaCompras.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+document.getElementById('ocOrcAdicionar').onclick = async () => {
+  const fornecedor_id = document.getElementById('ocOrcFornecedor').value || null;
+  const fornecedor_nome = document.getElementById('ocOrcNome').value.trim();
+  if (!fornecedor_id && !fornecedor_nome) return SGMF.aviso('Escolha o fornecedor ou digite o nome dele.');
+
+  const valor_total = Number(document.getElementById('ocOrcValor').value);
+  if (!valor_total || valor_total <= 0) return SGMF.aviso('Informe o valor do orçamento.');
+
+  const botao = document.getElementById('ocOrcAdicionar');
+  botao.disabled = true;
+  try {
+    ordemAtual = await SGMF.post(`/api/ordens_compra/${ordemAtual.id}/orcamentos-fornecedor`, {
+      fornecedor_id, fornecedor_nome, valor_total,
+      prazo_entrega: document.getElementById('ocOrcPrazo').value.trim(),
+      observacao: document.getElementById('ocOrcObs').value.trim()
+    });
+    SGMF.sucesso('Orçamento incluído');
+    document.getElementById('ocOrcFornecedor').value = '';
+    ['ocOrcNome', 'ocOrcValor', 'ocOrcPrazo', 'ocOrcObs'].forEach(id => document.getElementById(id).value = '');
     renderizarItensCompra();
     telaCompras.carregar();
   } catch (e) { SGMF.falha(e.message); }
@@ -449,6 +593,19 @@ async function imprimirCompra(ordemId) {
       </tr>`).join('')
     : `<tr><td colspan="5" style="text-align:center;color:#888">Nenhum item lançado nesta ordem.</td></tr>`;
 
+  const orcamentos = oc.orcamentos || [];
+  const blocoOrcamentos = orcamentos.length ? `
+    <h3>Orçamentos de fornecedores</h3>
+    <table class="itens">
+      <thead><tr><th>Fornecedor</th><th>Prazo</th><th>Observação</th>
+      <th class="text-end">Valor</th><th>Situação</th></tr></thead>
+      <tbody>${orcamentos.map(o => `<tr>
+        <td>${SGMF.esc(o.fornecedor_nome)}</td><td>${SGMF.esc(o.prazo_entrega) || '—'}</td>
+        <td>${SGMF.esc(o.observacao) || '—'}</td>
+        <td class="text-end num">${SGMF.moeda(o.valor_total)}</td>
+        <td>${o.escolhido ? 'Escolhido' : ''}</td></tr>`).join('')}</tbody>
+    </table>` : '';
+
   const doc = janela.document;
   doc.title = `${oc.identificacao} · SGMF Pro`;
 
@@ -503,6 +660,7 @@ async function imprimirCompra(ordemId) {
       <tbody>${linhaItens}</tbody>
     </table>
     <div class="total-geral">Valor estimado: <strong>${SGMF.moeda(oc.valor_total)}</strong></div>
+    ${blocoOrcamentos}
     ${oc.observacao ? `<h3>Observação</h3><div class="texto-livre">${SGMF.esc(oc.observacao)}</div>` : ''}
 
     <div class="assinaturas">
