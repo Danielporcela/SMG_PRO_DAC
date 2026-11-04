@@ -471,13 +471,16 @@ def finalizar_nota_fiscal(nota_id):
         nota.data_entrada = hoje()
         registrar_log("finalizar", "notas_fiscais", nota.id, f"NF {nota.numero}")
         db.session.commit()
+        resultado = nota.to_dict(com_itens=True)
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     except Exception as e:
         db.session.rollback()
-        return jsonify({"erro": f"Não foi possível finalizar: {e.__class__.__name__}."}), 400
-    return jsonify(nota.to_dict(com_itens=True))
+        current_app.logger.exception("Falha ao finalizar a nota fiscal %s", nota_id)
+        return jsonify({"erro": f"Não foi possível finalizar a nota ({e.__class__.__name__}). "
+                                "O detalhe técnico está no log do servidor."}), 500
+    return jsonify(resultado)
 
 
 # ========================================================== notificações
