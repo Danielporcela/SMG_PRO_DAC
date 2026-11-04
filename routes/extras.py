@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
-                    NotaFiscal, OrdemCompra, OrdemServico, ParcelaNotaFiscal, Peca)
+                    NotaFiscal, NotaFiscalUniforme, OrdemCompra, OrdemServico, ParcelaNotaFiscal, ParcelaNotaFiscalUniforme, Peca)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
@@ -682,6 +682,34 @@ def parcelas_a_vencer():
         d["dias"] = (p.data_vencimento - base).days
         d["vencida"] = p.data_vencimento < base
         itens.append(d)
+    # Boletos das notas de uniformes compartilham a mesma tela e os mesmos filtros.
+    qu = (ParcelaNotaFiscalUniforme.query.join(NotaFiscalUniforme)
+          .filter(ParcelaNotaFiscalUniforme.pago.is_(False), NotaFiscalUniforme.status != "Cancelada"))
+    if inicio or fim:
+        if fim:
+            qu = qu.filter(ParcelaNotaFiscalUniforme.data_vencimento <= fim)
+        if inicio:
+            if incluir_vencidas:
+                qu = qu.filter(db.or_(ParcelaNotaFiscalUniforme.data_vencimento >= inicio,
+                                      ParcelaNotaFiscalUniforme.data_vencimento < base))
+            else:
+                qu = qu.filter(ParcelaNotaFiscalUniforme.data_vencimento >= inicio)
+    else:
+        qu = qu.filter(ParcelaNotaFiscalUniforme.data_vencimento == data) if modo == "na" \
+             else qu.filter(ParcelaNotaFiscalUniforme.data_vencimento <= data)
+    parcelas_uniformes = qu.order_by(ParcelaNotaFiscalUniforme.data_vencimento,
+                                     ParcelaNotaFiscalUniforme.id).all()
+    itens_uniformes = []
+    for parcela in parcelas_uniformes:
+        d = parcela.to_dict()
+        d["dias"] = (parcela.data_vencimento - base).days
+        d["vencida"] = parcela.data_vencimento < base
+        itens_uniformes.append(d)
+    itens.extend(itens_uniformes)
+    itens.sort(key=lambda x: (x.get("data_vencimento") or "", x.get("id") or 0))
+    total_parcelas += len(itens_uniformes)
+    soma += sum(float(x.get("valor") or 0) for x in itens_uniformes)
+
     return jsonify({
         "modo": modo,
         "inicio": inicio.isoformat() if inicio else None,

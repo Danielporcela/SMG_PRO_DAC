@@ -113,6 +113,19 @@
           </div>
         </div>
 
+        <div class="cartao mb-3" style="border:1px solid var(--borda)">
+          <div class="cartao-topo"><h3 style="font-size:15px"><i class="fa-solid fa-barcode me-2"></i>Boletos / vencimentos</h3></div>
+          <div class="cartao-corpo">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-4"><label class="form-label" for="nfUniBoletoData">Data de vencimento</label><input type="date" class="form-control" id="nfUniBoletoData"></div>
+              <div class="col-md-4"><label class="form-label" for="nfUniBoletoValor">Valor da parcela (R$)</label><input type="number" min="0.01" step="0.01" class="form-control" id="nfUniBoletoValor"></div>
+              <div class="col-md-4"><button type="button" class="btn btn-contorno w-100" id="nfUniAdicionarBoleto"><i class="fa-solid fa-plus me-1"></i>Adicionar vencimento</button></div>
+            </div>
+            <div class="form-text mt-2">Informe cada boleto da nota. Os vencimentos serão enviados automaticamente para a tela “Boletos a vencer”.</div>
+            <div id="nfUniBoletos" class="mt-2"></div>
+          </div>
+        </div>
+
         <div class="cartao" style="border:1px solid var(--borda)">
           <div class="cartao-topo">
             <h3 style="font-size:15px"><i class="fa-solid fa-shirt me-2"></i>Uniformes e quantidades por tamanho</h3>
@@ -734,6 +747,7 @@ document.getElementById('botaoImprimirEntregas').addEventListener('click', () =>
 
 /* ------------------------------------------------------- notas fiscais */
 let linhasNotaUniforme = [];
+let boletosNotaUniforme = [];
 
 async function preencherSelectFornecedorNotaUniforme() {
   const lista = await SGMF.opcoes('fornecedores');
@@ -795,6 +809,10 @@ function renderLinhasNotaUniforme() {
 
 function abrirModalNotaUniforme() {
   linhasNotaUniforme = [];
+  boletosNotaUniforme = [];
+  renderBoletosNotaUniforme();
+  document.getElementById('nfUniBoletoData').value = '';
+  document.getElementById('nfUniBoletoValor').value = '';
   document.getElementById('nfUniNumero').value = '';
   document.getElementById('nfUniSerie').value = '';
   document.getElementById('nfUniFornecedor').value = '';
@@ -833,6 +851,31 @@ document.getElementById('nfUniAdicionarItem')?.addEventListener('click', async (
   renderLinhasNotaUniforme();
 });
 
+function renderBoletosNotaUniforme() {
+  const area = document.getElementById('nfUniBoletos');
+  if (!boletosNotaUniforme.length) {
+    area.innerHTML = '<div class="text-muted small">Nenhum boleto informado.</div>';
+    return;
+  }
+  area.innerHTML = `<table class="table table-sm mb-0"><thead><tr><th>Vencimento</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>${boletosNotaUniforme.map((b, i) => `<tr><td>${SGMF.data(b.data_vencimento)}</td><td class="text-end">${SGMF.moeda(b.valor)}</td><td class="text-end"><button type="button" class="btn btn-contorno btn-icone" data-nfuni-boleto-remover="${i}" title="Remover"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+  area.querySelectorAll('[data-nfuni-boleto-remover]').forEach(btn => btn.onclick = () => {
+    boletosNotaUniforme.splice(Number(btn.dataset.nfuniBoletoRemover), 1);
+    renderBoletosNotaUniforme();
+  });
+}
+
+document.getElementById('nfUniAdicionarBoleto')?.addEventListener('click', () => {
+  const data_vencimento = document.getElementById('nfUniBoletoData').value;
+  const valor = Number(document.getElementById('nfUniBoletoValor').value);
+  if (!data_vencimento) return SGMF.aviso('Informe a data de vencimento do boleto.');
+  if (!Number.isFinite(valor) || valor <= 0) return SGMF.aviso('Informe um valor válido para o boleto.');
+  boletosNotaUniforme.push({ data_vencimento, valor });
+  boletosNotaUniforme.sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento));
+  renderBoletosNotaUniforme();
+  document.getElementById('nfUniBoletoData').value = '';
+  document.getElementById('nfUniBoletoValor').value = '';
+});
+
 document.getElementById('nfUniSalvar')?.addEventListener('click', async () => {
   const numero = document.getElementById('nfUniNumero').value.trim();
   const fornecedor_id = document.getElementById('nfUniFornecedor').value;
@@ -848,6 +891,7 @@ document.getElementById('nfUniSalvar')?.addEventListener('click', async () => {
       fornecedor_id: Number(fornecedor_id),
       data_emissao: document.getElementById('nfUniData').value,
       observacao: document.getElementById('nfUniObservacao').value,
+      parcelas: boletosNotaUniforme,
       itens: linhasNotaUniforme.map(l => ({
         item_uniforme_id: l.item_uniforme_id,
         tamanho: l.tamanho,

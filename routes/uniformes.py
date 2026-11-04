@@ -13,7 +13,7 @@ from sqlalchemy import or_
 from extensions import db
 from models import (ROTULOS_TIPO_TAMANHO, TAMANHOS_UNIFORME, EntregaUniforme,
                     Funcionario, Fornecedor, ItemNotaFiscalUniforme,
-                    ItemUniforme, MovimentoUniforme, NotaFiscalUniforme,
+                    ItemUniforme, MovimentoUniforme, NotaFiscalUniforme, ParcelaNotaFiscalUniforme,
                     garantir_saldos, normalizar_tipo_tamanho,
                     proximo_codigo_item_uniforme, recalcular_total_uniforme,
                     saldo_do_tamanho)
@@ -281,6 +281,21 @@ def criar_nota_fiscal_uniforme():
             ))
         if not nota.itens:
             raise ErroNegocio("Lance ao menos um uniforme/tamanho na nota fiscal.")
+
+        parcelas = dados.get("parcelas") or []
+        for idx, parcela in enumerate(parcelas, 1):
+            vencimento = ler_data(parcela.get("data_vencimento"), "data de vencimento")
+            if not vencimento:
+                raise ErroNegocio(f"Informe a data de vencimento da parcela {idx}.")
+            try:
+                valor_parcela = float(str(parcela.get("valor") or 0).replace(",", "."))
+            except (TypeError, ValueError):
+                raise ErroNegocio(f"Valor inválido na parcela {idx}.")
+            if valor_parcela <= 0:
+                raise ErroNegocio(f"Informe um valor maior que zero na parcela {idx}.")
+            db.session.add(ParcelaNotaFiscalUniforme(
+                nota_fiscal_uniforme_id=nota.id, numero=idx,
+                data_vencimento=vencimento, valor=round(valor_parcela, 2)))
 
         registrar_log("criar", "notas_fiscais_uniforme", nota.id, f"NF {nota.numero}")
         db.session.commit()

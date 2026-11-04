@@ -1687,6 +1687,9 @@ class NotaFiscalUniforme(db.Model):
     fornecedor = db.relationship("Fornecedor")
     itens = db.relationship("ItemNotaFiscalUniforme", backref="nota",
                             cascade="all, delete-orphan", lazy="selectin")
+    parcelas = db.relationship("ParcelaNotaFiscalUniforme", backref="nota",
+                               cascade="all, delete-orphan", lazy="selectin",
+                               order_by="ParcelaNotaFiscalUniforme.data_vencimento")
 
     @property
     def valor_total(self):
@@ -1711,10 +1714,37 @@ class NotaFiscalUniforme(db.Model):
             "quantidade_total": self.quantidade_total,
             "qtd_itens": len(self.itens),
             "identificacao": f"NF {self.numero}" + (f"/{self.serie}" if self.serie else ""),
+            "qtd_parcelas": len(self.parcelas),
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
+            d["parcelas"] = [p.to_dict() for p in self.parcelas]
         return d
+
+
+class ParcelaNotaFiscalUniforme(db.Model):
+    """Boleto/parcela vinculado a uma nota fiscal de uniformes."""
+    __tablename__ = "parcelas_nota_fiscal_uniforme"
+    id = db.Column(db.Integer, primary_key=True)
+    nota_fiscal_uniforme_id = db.Column(db.Integer, db.ForeignKey("notas_fiscais_uniforme.id"), nullable=False, index=True)
+    numero = db.Column(db.Integer, default=1)
+    data_vencimento = db.Column(db.Date, nullable=False, index=True)
+    valor = db.Column(db.Float, default=0)
+    pago = db.Column(db.Boolean, default=False, nullable=False)
+    data_pagamento = db.Column(db.Date)
+    pago_por = db.Column(db.String(120))
+
+    def to_dict(self):
+        nota = self.nota
+        return {"id": self.id, "nota_fiscal_id": self.nota_fiscal_uniforme_id,
+                "numero": self.numero, "total_parcelas": len(nota.parcelas) if nota else 1,
+                "data_vencimento": self.data_vencimento.isoformat() if self.data_vencimento else None,
+                "valor": self.valor or 0, "pago": bool(self.pago),
+                "data_pagamento": self.data_pagamento.isoformat() if self.data_pagamento else None,
+                "pago_por": self.pago_por,
+                "nota": (f"NF Uniformes {nota.numero}" if nota else None),
+                "fornecedor_nome": nota.fornecedor.nome if nota and nota.fornecedor else None,
+                "origem": "uniformes", "parcela_id": self.id}
 
 
 class ItemNotaFiscalUniforme(db.Model):
