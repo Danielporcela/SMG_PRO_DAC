@@ -1840,6 +1840,9 @@ class OrdemCompra(db.Model):
     itens = db.relationship("ItemOrdemCompra", backref="ordem_compra",
                             cascade="all, delete-orphan", lazy="selectin")
     anexos = db.relationship("Anexo", cascade="all, delete-orphan", lazy="selectin")
+    orcamentos = db.relationship("OrcamentoCompra", backref="ordem_compra",
+                                 cascade="all, delete-orphan", lazy="selectin",
+                                 order_by="OrcamentoCompra.valor_total")
 
     @property
     def valor_total(self):
@@ -1872,7 +1875,47 @@ class OrdemCompra(db.Model):
         }
         if com_itens:
             d["itens"] = [i.to_dict() for i in self.itens]
+            d["orcamentos"] = [o.to_dict() for o in self.orcamentos]
         return d
+
+
+class OrcamentoCompra(db.Model):
+    """Orçamento simples de um fornecedor para a ordem (valor total + prazo).
+
+    O fornecedor pode ser do cadastro (`fornecedor_id`) ou só um nome
+    digitado (`fornecedor_nome`). Só um orçamento por ordem fica `escolhido`.
+    """
+    __tablename__ = "orcamentos_ordem_compra"
+    id = db.Column(db.Integer, primary_key=True)
+    ordem_compra_id = db.Column(db.Integer, db.ForeignKey("ordens_compra.id"),
+                                nullable=False, index=True)
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey("fornecedores.id"))
+    fornecedor_nome = db.Column(db.String(120))
+    valor_total = db.Column(db.Float)
+    prazo_entrega = db.Column(db.String(60))
+    observacao = db.Column(db.String(200))
+    escolhido = db.Column(db.Boolean, default=False, nullable=False)
+    criado_por = db.Column(db.String(120))
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    fornecedor = db.relationship("Fornecedor")
+
+    @property
+    def nome_fornecedor(self):
+        if self.fornecedor is not None:
+            return self.fornecedor.nome
+        return self.fornecedor_nome or "Fornecedor"
+
+    def to_dict(self):
+        return {
+            "id": self.id, "ordem_compra_id": self.ordem_compra_id,
+            "fornecedor_id": self.fornecedor_id,
+            "fornecedor_nome": self.nome_fornecedor,
+            "valor_total": round(self.valor_total or 0, 2),
+            "prazo_entrega": self.prazo_entrega, "observacao": self.observacao,
+            "escolhido": bool(self.escolhido), "criado_por": self.criado_por,
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+        }
 
 
 class ItemOrdemCompra(db.Model):
