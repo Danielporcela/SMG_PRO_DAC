@@ -29,6 +29,20 @@ def _consultar_com_nova_tentativa(consulta):
         return consulta()
 
 
+def _recalcular_rapido(combustivel, **kwargs):
+    """Recalcula o kardex de um combustível sem estourar o tempo da requisição.
+
+    O recálculo regrava TODOS os abastecimentos do combustível. Sem estas duas
+    proteções, cada abastecimento fazia uma consulta ao banco (que ainda
+    descarregava a sessão inteira por causa do autoflush) e a gravação da NF
+    passava do tempo do servidor, devolvendo erro 500 sem mensagem.
+    Mesma técnica já usada na importação de abastecimentos.
+    """
+    from services.calculos import historico_em_memoria
+    with db.session.no_autoflush, historico_em_memoria():
+        return recalcular_estoque_combustivel(combustivel, **kwargs)
+
+
 def _data(valor, nome="data", obrigatoria=False):
     if not valor:
         if obrigatoria:
@@ -97,7 +111,7 @@ def criar_nota():
         db.session.add(nota)
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
-        recalcular_estoque_combustivel(nota.combustivel, permitir_negativo=True)
+        _recalcular_rapido(nota.combustivel, permitir_negativo=True)
         registrar_log("criar", "notas_combustivel", nota.id, f"NF {nota.numero_nf}")
         db.session.commit()
         return jsonify(nota.to_dict()), 201
@@ -118,9 +132,9 @@ def editar_nota(nota_id):
         _aplicar(nota, request.get_json(silent=True) or {})
         db.session.flush()
         ativar_controle(nota.combustivel, nota.data_entrada or nota.data)
-        recalcular_estoque_combustivel(nota.combustivel, permitir_negativo=True)
+        _recalcular_rapido(nota.combustivel, permitir_negativo=True)
         if antigo != nota.combustivel:
-            recalcular_estoque_combustivel(antigo, permitir_negativo=True)
+            _recalcular_rapido(antigo, permitir_negativo=True)
         registrar_log("editar", "notas_combustivel", nota.id, f"NF {nota.numero_nf}")
         db.session.commit()
         return jsonify(nota.to_dict())
@@ -142,7 +156,7 @@ def excluir_nota(nota_id):
         db.session.delete(nota)
         db.session.flush()
         # Não permite apagar uma entrada se isso fizer qualquer saída histórica ficar sem saldo.
-        recalcular_estoque_combustivel(combustivel)
+        _recalcular_rapido(combustivel)
         registrar_log("excluir", "notas_combustivel", nota_id, f"NF {numero}")
         db.session.commit()
         return jsonify({"ok": True})
