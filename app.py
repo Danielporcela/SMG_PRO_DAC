@@ -105,6 +105,8 @@ def criar_app(config=Config):
                                                      garantir_lavagens_financeiro,
                                                      garantir_notas_fiscais_uniforme,
                                                      garantir_ordens_compra,
+                                                     garantir_orcamentos_compra,
+                                                     garantir_parcelas_nota_fiscal,
                                                      garantir_pecas_serial,
                                                      garantir_servicos_terceiros_financeiros,
                                                      garantir_ultimo_acesso_usuario,
@@ -117,6 +119,8 @@ def criar_app(config=Config):
         garantir_consumo_diario()
         garantir_estoque_combustivel()
         garantir_ordens_compra()
+        garantir_orcamentos_compra()
+        garantir_parcelas_nota_fiscal()
         garantir_pecas_serial()
         garantir_campos_notas_fiscais_pecas()
         garantir_itens_os_servicos_terceiros()

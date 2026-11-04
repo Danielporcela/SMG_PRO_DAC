@@ -599,3 +599,32 @@ def garantir_ferramentas_veiculo():
         return
     if UsoFerramentaVeiculo.__tablename__ not in tabelas:
         UsoFerramentaVeiculo.__table__.create(engine, checkfirst=True)
+
+
+def garantir_orcamentos_compra():
+    """Cria a tabela de orçamentos de fornecedor das ordens de compra.
+
+    Mesmo cuidado de garantir_ordens_compra(): não depende de a migration
+    ter rodado no Postgres do Render.
+    """
+    from models import OrcamentoCompra
+
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    # Banco totalmente novo: db.create_all() cria tudo depois.
+    if "ordens_compra" not in tabelas or "fornecedores" not in tabelas:
+        return
+    if "orcamentos_ordem_compra" not in tabelas:
+        OrcamentoCompra.__table__.create(engine, checkfirst=True)
+
+
+def garantir_parcelas_nota_fiscal():
+    """Cria a tabela de parcelas (boletos) das notas fiscais de entrada."""
+    from models import ParcelaNotaFiscal
+
+    engine = db.engine
+    tabelas = set(inspect(engine).get_table_names())
+    if "notas_fiscais" not in tabelas:
+        return   # banco novo: db.create_all() cria tudo depois
+    if "parcelas_nota_fiscal" not in tabelas:
+        ParcelaNotaFiscal.__table__.create(engine, checkfirst=True)

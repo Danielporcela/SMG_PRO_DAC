@@ -91,6 +91,50 @@
       <div class="modal-body">
         <div id="itensNotaLista" class="mb-3"></div>
 
+        <div id="parcelasNota" class="cartao mb-3">
+          <div class="cartao-corpo">
+            <h6 class="mb-1"><i class="fa-solid fa-barcode me-1"></i> Boleto — datas de vencimento</h6>
+            <p class="form-text mt-0 mb-2">Se a nota é paga em boleto, lance aqui cada vencimento. As parcelas
+              não pagas aparecem em <strong>Boletos a vencer</strong>, no menu lateral.</p>
+            <div id="parcelasLista"></div>
+            <div id="parcelasGerar" class="row g-2 align-items-end mb-2">
+              <div class="col-6 col-md-2">
+                <label class="form-label mb-0" style="font-size:11.5px" for="parcQtd">Nº de parcelas</label>
+                <input type="number" min="1" max="48" class="form-control form-control-sm" id="parcQtd" value="1">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label mb-0" style="font-size:11.5px" for="parcPrimeiro">1º vencimento</label>
+                <input type="date" class="form-control form-control-sm" id="parcPrimeiro">
+              </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label mb-0" style="font-size:11.5px" for="parcIntervalo">Intervalo (dias)</label>
+                <input type="number" min="0" max="365" class="form-control form-control-sm" id="parcIntervalo" value="30">
+              </div>
+              <div class="col-6 col-md-5">
+                <button class="btn btn-contorno btn-sm w-100" type="button" id="parcGerar"
+                        title="Divide o valor total da nota entre as parcelas">
+                  <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Gerar parcelas pelo total da nota
+                </button>
+              </div>
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-6 col-md-4">
+                <label class="form-label mb-0" style="font-size:11.5px" for="parcVenc">Vencimento</label>
+                <input type="date" class="form-control form-control-sm" id="parcVenc">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label mb-0" style="font-size:11.5px" for="parcValor">Valor (R$)</label>
+                <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="parcValor">
+              </div>
+              <div class="col-12 col-md-5">
+                <button class="btn btn-primario btn-sm w-100" type="button" id="parcAdicionar">
+                  <i class="fa-solid fa-plus me-1"></i> Adicionar vencimento
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="itensNotaFormulario" class="cartao">
           <div class="cartao-corpo">
             <h6 class="mb-3">Lançar item</h6>
@@ -596,6 +640,9 @@ async function abrirItensNota(notaResumo) {
   document.getElementById('itensNotaFormulario').style.display = aberta ? '' : 'none';
   document.getElementById('notaFinalizar').style.display = aberta ? '' : 'none';
   limparFormularioItem();
+  ['parcPrimeiro', 'parcVenc', 'parcValor'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('parcQtd').value = 1;
+  document.getElementById('parcIntervalo').value = 30;
 
   renderizarItensNota();
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalItensNota')).show();
@@ -604,6 +651,7 @@ async function abrirItensNota(notaResumo) {
 function renderizarItensNota() {
   const area = document.getElementById('itensNotaLista');
   const aberta = notaAtual.status === 'Aberta';
+  renderizarParcelas();
   if (!notaAtual.itens.length) {
     area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
       <strong>Nenhum item lançado</strong>Use o formulário abaixo para lançar peças desta nota.</div>`;
@@ -630,6 +678,92 @@ function renderizarItensNota() {
     } catch (e) { SGMF.falha(e.message); }
   });
 }
+
+/* ------------------------------------------- boleto: vencimentos da nota
+   Vale para nota Aberta ou Finalizada (não mexe no estoque); só a nota
+   Cancelada fica sem o bloco. As parcelas não pagas alimentam o painel
+   "Boletos a vencer" do menu lateral. */
+function atualizarPainelVencimentos() {
+  if (window.atualizarVencimentosLateral) window.atualizarVencimentosLateral();
+}
+
+function renderizarParcelas() {
+  const cartao = document.getElementById('parcelasNota');
+  if (!notaAtual || notaAtual.status === 'Cancelada') { cartao.style.display = 'none'; return; }
+  cartao.style.display = '';
+
+  const parcelas = notaAtual.parcelas || [];
+  const hojeIso = SGMF.hoje();
+  const soma = parcelas.reduce((s, p) => s + (p.valor || 0), 0);
+  const divergente = parcelas.length && Math.abs(soma - (notaAtual.valor_total || 0)) > 0.009;
+
+  document.getElementById('parcelasGerar').style.display = parcelas.length ? 'none' : '';
+  document.getElementById('parcelasLista').innerHTML = !parcelas.length ? '' : `
+    <table class="table table-sm align-middle mb-2" style="font-size:13px">
+      <thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-end">Valor</th><th>Situação</th><th></th></tr></thead>
+      <tbody>${parcelas.map(p => {
+        const situacao = p.pago
+          ? SGMF.etiqueta('Paga' + (p.data_pagamento ? ' em ' + SGMF.data(p.data_pagamento) : ''), 'verde')
+          : (p.data_vencimento < hojeIso ? SGMF.etiqueta('Vencida', 'vermelha') : SGMF.etiqueta('A vencer', 'ambar'));
+        return `<tr>
+          <td class="num">${p.numero}/${parcelas.length}</td>
+          <td>${SGMF.data(p.data_vencimento)}</td>
+          <td class="text-end num"><strong>${SGMF.moeda(p.valor)}</strong></td>
+          <td>${situacao}</td>
+          <td class="text-end text-nowrap">
+            <button class="btn btn-outline-success btn-sm" data-pagar-parcela="${p.id}"
+                    title="${p.pago ? 'Desfazer pagamento' : 'Marcar como paga'}">
+              <i class="fa-solid fa-${p.pago ? 'rotate-left' : 'check'}"></i></button>
+            <button class="btn btn-outline-danger btn-sm" data-remover-parcela="${p.id}" title="Remover vencimento">
+              <i class="fa-solid fa-trash"></i></button>
+          </td></tr>`;
+      }).join('')}</tbody></table>
+    <div class="mb-2" style="font-size:12.5px;${divergente ? 'color:var(--alerta);font-weight:600' : 'color:#6B7C8A'}">
+      Soma das parcelas: ${SGMF.moeda(soma)} · Total da nota: ${SGMF.moeda(notaAtual.valor_total)}
+      ${divergente ? ' — os valores não batem, confira.' : ''}</div>`;
+
+  document.querySelectorAll('[data-pagar-parcela]').forEach(b => b.onclick = async () => {
+    try {
+      notaAtual = await SGMF.post(`/api/notas_fiscais/${notaAtual.id}/parcelas/${b.dataset.pagarParcela}/pagar`, {});
+      renderizarParcelas(); atualizarPainelVencimentos();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+  document.querySelectorAll('[data-remover-parcela]').forEach(b => b.onclick = async () => {
+    try {
+      notaAtual = await SGMF.del(`/api/notas_fiscais/${notaAtual.id}/parcelas/${b.dataset.removerParcela}`);
+      SGMF.sucesso('Vencimento removido');
+      renderizarParcelas(); atualizarPainelVencimentos();
+    } catch (e) { SGMF.falha(e.message); }
+  });
+}
+
+document.getElementById('parcAdicionar').onclick = async () => {
+  const data_vencimento = document.getElementById('parcVenc').value;
+  const valor = Number(document.getElementById('parcValor').value);
+  if (!data_vencimento) return SGMF.aviso('Informe a data de vencimento.');
+  if (!valor || valor <= 0) return SGMF.aviso('Informe o valor da parcela.');
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais/${notaAtual.id}/parcelas`, { data_vencimento, valor });
+    SGMF.sucesso('Vencimento lançado');
+    document.getElementById('parcVenc').value = '';
+    document.getElementById('parcValor').value = '';
+    renderizarParcelas(); atualizarPainelVencimentos();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+document.getElementById('parcGerar').onclick = async () => {
+  const primeiro_vencimento = document.getElementById('parcPrimeiro').value;
+  if (!primeiro_vencimento) return SGMF.aviso('Informe a data do primeiro vencimento.');
+  try {
+    notaAtual = await SGMF.post(`/api/notas_fiscais/${notaAtual.id}/parcelas/gerar`, {
+      quantidade: Number(document.getElementById('parcQtd').value) || 1,
+      intervalo_dias: Number(document.getElementById('parcIntervalo').value) || 0,
+      primeiro_vencimento
+    });
+    SGMF.sucesso('Parcelas geradas');
+    renderizarParcelas(); atualizarPainelVencimentos();
+  } catch (e) { SGMF.falha(e.message); }
+};
 
 /* Preenche a peça escolhida com os dados fiscais/custo já cadastrados nela,
    se os campos ainda estiverem vazios — economiza redigitação. */
