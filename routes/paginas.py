@@ -135,7 +135,11 @@ def importacao():
 # Telas exclusivas do administrador — fora da matriz de permissões.
 _tela("/usuarios", "usuarios.html", "usuarios")
 _tela("/auditoria", "auditoria.html", "auditoria")
-_tela("/auditoria_estoque_os", "auditoria_estoque_os.html", "auditoria_estoque_os")
+@bp_paginas.get("/auditoria_estoque_os")
+def auditoria_estoque_os():
+    """Aba "Auditoria de estoque das OS" retirada do menu: volta para o painel."""
+    return redirect(url_for("paginas.dashboard"))
+
 _tela("/notificacoes", "notificacoes.html", "notificacoes")
 
 
