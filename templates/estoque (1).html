@@ -1,0 +1,438 @@
+{% extends "lista.html" %}
+{% block titulo %}Estoque de peças{% endblock %}
+{% block cabecalho %}Estoque de peças{% endblock %}
+{% block descricao %}Módulo 11 — entradas, saídas e baixa automática quando a peça é aplicada em uma OS.{% endblock %}
+{% block rotulo_novo %}Nova peça{% endblock %}
+
+{% block antes_tabela %}
+<div class="instrumentos mb-3" id="resumoEstoque"></div>
+
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <label class="form-label mb-1" for="campoConsultaHistorico">
+      <i class="fa-solid fa-clock-rotate-left me-1" style="color:var(--petroleo)"></i>
+      Consultar histórico de movimentação de uma peça
+    </label>
+    <div class="input-group">
+      <input class="form-control" id="campoConsultaHistorico" list="listaPecasHistorico"
+             autocomplete="off" placeholder="Digite o código ou a descrição da peça e escolha na lista">
+      <button class="btn btn-primario" type="button" id="botaoConsultaHistorico">
+        <i class="fa-solid fa-magnifying-glass me-1"></i>Ver histórico
+      </button>
+    </div>
+    <datalist id="listaPecasHistorico"></datalist>
+  </div>
+</div>
+
+<!-- Opções do campo Grupo: preenchidas pelo cadastro Cadastros > Grupos de peças.
+     Como é um <datalist>, a pessoa pode escolher da lista OU digitar um grupo
+     novo na hora, sem travar o cadastro da peça. -->
+<datalist id="listaGrupos"></datalist>
+
+<!-- Opções do campo Marca: marcas padrão + as já usadas em outras peças.
+     Também é um <datalist>: escolhe da lista ou digita uma marca nova. -->
+<datalist id="listaMarcas"></datalist>
+{% endblock %}
+
+{% block depois_tabela %}
+
+<div class="cartao mt-3">
+  <div class="cartao-topo">
+    <h3><i class="fa-solid fa-right-left me-2" style="color:var(--petroleo)"></i>Últimas movimentações</h3>
+    <a class="btn btn-contorno btn-sm ms-auto" href="/relatorios/movimentos.xlsx">
+      <i class="fa-solid fa-file-excel me-1"></i> Exportar
+    </a>
+  </div>
+  <div class="cartao-corpo p-0"><div id="listaMovimentos"></div></div>
+</div>
+
+<div class="modal fade" id="modalHistoricoPeca" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <div>
+          <h5 class="modal-title display mb-0">Histórico da peça</h5>
+          <small id="historicoPecaTitulo" style="color:var(--hi-vis)"></small>
+        </div>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="historicoPecaConteudo">
+          <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando histórico…</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalMovimento" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Movimentar estoque</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" id="movPeca"></p>
+        <input type="hidden" id="movPecaId">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="movTipo">Operação</label>
+            <select class="form-select" id="movTipo">
+              <option value="entrada">Entrada</option>
+              <option value="saida">Saída</option>
+              <option value="ajuste">Ajuste de saldo</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="movQtd">Quantidade</label>
+            <input type="number" step="any" class="form-control" id="movQtd">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="movCusto">Custo unitário (R$)</label>
+            <input type="number" step="any" class="form-control" id="movCusto">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="movDoc">Nota / documento</label>
+            <input class="form-control" id="movDoc">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="movObs">Observação</label>
+            <input class="form-control" id="movObs">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="movSalvar">Registrar movimento</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ================================================== grupos cadastrados
+   A lista vem da tela Cadastros > Grupos de peças (/api/grupos/nomes).
+   Se o módulo de grupos ainda não estiver publicado, cai na lista antiga do
+   core.js (SGMF.GRUPOS) — a tela continua funcionando do mesmo jeito. */
+let nomesGruposCadastrados = [];   // só o que está de fato no cadastro
+async function carregarGruposCadastrados() {
+  let nomes = [];
+  try {
+    const resposta = await fetch('/api/grupos/nomes');
+    if (resposta.ok) nomes = await resposta.json();
+  } catch (e) { nomes = []; }
+  nomesGruposCadastrados = Array.isArray(nomes) ? nomes : [];
+  /* O <datalist> mostra o cadastro; enquanto o cadastro estiver vazio,
+     mostra a lista antiga do core.js só para o campo não ficar sem opções. */
+  let opcoesLista = nomesGruposCadastrados;
+  if (!opcoesLista.length && Array.isArray(SGMF.GRUPOS)) opcoesLista = SGMF.GRUPOS;
+  const lista = document.getElementById('listaGrupos');
+  if (lista) {
+    lista.innerHTML = opcoesLista.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
+  }
+}
+carregarGruposCadastrados();
+
+/* ============================================================== marcas
+   Lista do campo Marca (/api/pecas/marcas): marcas mais comuns + as que já
+   foram gravadas em peças. Recarrega a cada abertura do formulário. */
+async function carregarMarcas() {
+  let nomes = [];
+  try {
+    const resposta = await fetch('/api/pecas/marcas');
+    if (resposta.ok) nomes = await resposta.json();
+  } catch (e) { nomes = []; }
+  const lista = document.getElementById('listaMarcas');
+  if (lista && Array.isArray(nomes)) {
+    lista.innerHTML = nomes.map(n => `<option value="${SGMF.esc(n)}"></option>`).join('');
+  }
+}
+carregarMarcas();
+
+/* ======================================= botão "+" ao lado do campo Grupo
+   Cadastra na hora o grupo digitado (ex.: Acessórios, Arrefecimento,
+   Lataria), sem sair da tela da peça: grava em Cadastros > Grupos de peças
+   e o nome já fica disponível para as próximas peças. */
+async function cadastrarGrupoDoCampo() {
+  const campo = document.getElementById('campo_grupo');
+  const nome = (campo.value || '').trim();
+  if (!nome) {
+    SGMF.aviso('Digite o nome do novo grupo no campo Grupo (ex.: Acessórios, Arrefecimento, Lataria) e clique no + de novo.');
+    campo.focus();
+    return;
+  }
+  const jaExiste = nomesGruposCadastrados.find(
+    n => (n || '').trim().toLowerCase() === nome.toLowerCase());
+  if (jaExiste) {
+    campo.value = jaExiste;   // aproveita a grafia já cadastrada
+    SGMF.sucesso(`O grupo "${jaExiste}" já estava na lista`);
+    return;
+  }
+  const botao = document.getElementById('botaoNovoGrupoPeca');
+  if (botao) botao.disabled = true;
+  try {
+    const criado = await SGMF.post('/api/grupos', { nome: nome });
+    campo.value = criado.nome;
+    SGMF.sucesso(`Grupo "${criado.nome}" cadastrado`);
+    await carregarGruposCadastrados();
+  } catch (e) {
+    SGMF.falha(e.message);
+  } finally {
+    if (botao) botao.disabled = false;
+  }
+}
+
+async function abrirHistoricoPeca(peca) {
+  const titulo = document.getElementById('historicoPecaTitulo');
+  const area = document.getElementById('historicoPecaConteudo');
+  titulo.textContent = `${peca.codigo} · ${peca.descricao}`;
+  area.innerHTML = `<div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando histórico…</div>`;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHistoricoPeca')).show();
+
+  try {
+    const movimentos = await SGMF.get(`/api/movimentos?peca_id=${encodeURIComponent(peca.id)}`);
+    if (!movimentos.length) {
+      area.innerHTML = `<div class="vazio"><i class="fa-solid fa-clock-rotate-left"></i>
+        <strong>Nenhuma movimentação registrada</strong>Esta peça ainda não possui movimentações no histórico.</div>`;
+      return;
+    }
+    const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+    area.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0" style="font-size:13px">
+      <thead><tr>
+        <th class="ps-3">Data</th><th>Tipo</th><th class="text-end">Quantidade</th>
+        <th class="text-end">Valor</th><th>Grupo de custo</th><th>Documento</th><th>Nº da OS</th><th>Observação</th><th>Responsável</th>
+      </tr></thead>
+      <tbody>${movimentos.map(m => `<tr>
+        <td class="ps-3 num">${SGMF.data(m.data)}</td>
+        <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
+        <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+        <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+        <td>${SGMF.esc(m.grupo_consumo_nome) || 'Frota / não informado'}</td>
+        <td>${SGMF.esc(m.documento) || '—'}</td>
+        <td class="num">${m.ordem_servico_numero
+          ? `<strong class="text-nowrap">${SGMF.esc(m.ordem_servico_numero)}</strong>`
+          : '—'}</td>
+        <td>${SGMF.esc(m.observacao) || '—'}</td>
+        <td><strong>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</strong></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>Não foi possível carregar o histórico</strong>${SGMF.esc(e.message)}</div>`;
+  }
+}
+
+/* ============================ campo "Consultar histórico de uma peça"
+   Lista as peças já carregadas na tela (código · descrição). Ao escolher
+   uma e clicar em "Ver histórico" (ou apertar Enter), abre a janela com
+   todas as movimentações daquela peça. */
+function preencherListaPecasHistorico(pecas) {
+  const lista = document.getElementById('listaPecasHistorico');
+  if (!lista) return;
+  lista.innerHTML = pecas.map(p =>
+    `<option value="${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)}"></option>`).join('');
+}
+
+function consultarHistoricoDoCampo() {
+  const campo = document.getElementById('campoConsultaHistorico');
+  const texto = (campo.value || '').trim().toLowerCase();
+  if (!texto) {
+    SGMF.aviso('Digite o código ou a descrição da peça e escolha uma opção da lista.');
+    campo.focus();
+    return;
+  }
+  const pecas = telaEstoque.dados();
+  let achadas = pecas.filter(p => `${p.codigo} · ${p.descricao}`.toLowerCase() === texto);
+  if (!achadas.length) achadas = pecas.filter(p => (p.codigo || '').toLowerCase() === texto);
+  if (!achadas.length) {
+    achadas = pecas.filter(p => `${p.codigo} ${p.descricao} ${p.referencia || ''}`
+      .toLowerCase().includes(texto));
+  }
+  if (!achadas.length) {
+    SGMF.aviso('Nenhuma peça encontrada com esse código ou descrição.');
+    return;
+  }
+  if (achadas.length > 1) {
+    SGMF.aviso(`${achadas.length} peças combinam com a busca. Escolha uma na lista que aparece ao digitar.`);
+    return;
+  }
+  abrirHistoricoPeca(achadas[0]);
+}
+
+document.getElementById('botaoConsultaHistorico')
+  .addEventListener('click', consultarHistoricoDoCampo);
+document.getElementById('campoConsultaHistorico')
+  .addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); consultarHistoricoDoCampo(); }
+  });
+
+const telaEstoque = SGMF.tela({
+  recurso: 'pecas',
+  tela: 'estoque',
+  titulo: 'peça',
+  campos: [
+    { nome: 'codigo', rotulo: 'Código', col: 3, exemplo: 'Gerado automaticamente' },
+    { nome: 'referencia', rotulo: 'Referência', col: 3, exemplo: 'Nº do fabricante/fornecedor' },
+    { nome: 'marca', rotulo: 'Marca', col: 3, exemplo: 'Selecione ou digite a marca',
+      ajuda: 'Escolha uma marca da lista ou digite uma nova.' },
+    { nome: 'descricao', rotulo: 'Descrição', col: 6, obrigatorio: true, exemplo: 'Filtro de óleo motor MWM' },
+    { nome: 'unidade', rotulo: 'Unidade', tipo: 'select', col: 3, padrao: 'UN',
+      opcoes: ['UN', 'PC', 'L', 'KG', 'M', 'JG', 'CX'] },
+    { nome: 'grupo', rotulo: 'Grupo', col: 4, exemplo: 'Elétrica, Arrefecimento…',
+      ajuda: 'Escolha um grupo, ou digite um novo e clique no + para incluí-lo na lista.' },
+    { nome: 'fornecedor_id', rotulo: 'Fornecedor', tipo: 'ref', recurso: 'fornecedores', col: 5 },
+    { nome: 'localizacao', rotulo: 'Localização', col: 3, exemplo: 'Prateleira A3' },
+    { nome: 'quantidade_inicial', rotulo: 'Saldo inicial', tipo: 'number', col: 4, somenteNovo: true,
+      ajuda: 'Lançado como entrada. Depois use "Movimentar".' },
+    { nome: 'custo_unitario', rotulo: 'Custo unitário (R$)', tipo: 'moeda', col: 4 },
+    { nome: 'estoque_minimo', rotulo: 'Estoque mínimo', tipo: 'number', col: 4,
+      ajuda: 'Abaixo disso o sistema avisa para repor.' }
+  ],
+  /* O Código é sempre gerado pelo sistema (0001, 0002...) — o campo fica
+     travado na tela; quem se digita é só a Referência do fabricante/
+     fornecedor. Em peça nova o campo mostra o texto de exemplo até salvar;
+     na edição mostra o código já atribuído, também travado. */
+  aoAbrirFormulario: () => {
+    const campoCodigo = document.getElementById('campo_codigo');
+    if (campoCodigo) campoCodigo.disabled = true;
+
+    /* Grupo: liga o campo ao <datalist> e busca a lista de novo, para um grupo
+       cadastrado agora há pouco já aparecer sem precisar recarregar a página. */
+    const campoMarca = document.getElementById('campo_marca');
+    if (campoMarca) {
+      campoMarca.setAttribute('list', 'listaMarcas');
+      campoMarca.setAttribute('autocomplete', 'off');
+    }
+    carregarMarcas();
+
+    const campoGrupo = document.getElementById('campo_grupo');
+    if (campoGrupo) {
+      campoGrupo.setAttribute('list', 'listaGrupos');
+      campoGrupo.setAttribute('autocomplete', 'off');
+
+      /* Botão "+" colado no campo: cadastra o grupo digitado na hora.
+         O formulário é montado uma vez só, então o botão é criado na
+         primeira abertura — nas seguintes ele já está lá. */
+      if (!document.getElementById('botaoNovoGrupoPeca')) {
+        const moldura = document.createElement('div');
+        moldura.className = 'input-group';
+        campoGrupo.parentNode.insertBefore(moldura, campoGrupo);
+        moldura.appendChild(campoGrupo);
+        moldura.insertAdjacentHTML('beforeend',
+          `<button class="btn btn-contorno" type="button" id="botaoNovoGrupoPeca"
+                   title="Cadastrar este grupo na lista de grupos">
+             <i class="fa-solid fa-plus"></i>
+           </button>`);
+        document.getElementById('botaoNovoGrupoPeca')
+          .addEventListener('click', cadastrarGrupoDoCampo);
+      }
+    }
+    carregarGruposCadastrados();
+  },
+  colunas: [
+    { campo: 'codigo', rotulo: 'Código', classe: 'num' },
+    { campo: 'referencia', rotulo: 'Referência', classe: 'num', render: v => v || '—' },
+    { campo: 'marca', rotulo: 'Marca', render: v => v || '—' },
+    { campo: 'descricao', rotulo: 'Descrição' },
+    { campo: 'grupo', rotulo: 'Grupo' },
+    { campo: 'quantidade', rotulo: 'Saldo', classe: 'num text-end',
+      render: (v, i) => `<strong>${SGMF.numero(v, 2)}</strong> ${i.unidade}` },
+    { campo: 'estoque_minimo', rotulo: 'Mínimo', classe: 'num text-end', render: v => SGMF.numero(v, 2) },
+    { campo: 'custo_unitario', rotulo: 'Custo unit.', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'valor_total', rotulo: 'Valor em estoque', classe: 'num text-end', render: v => SGMF.moeda(v) },
+    { campo: 'localizacao', rotulo: 'Local' },
+    { campo: 'abaixo_minimo', rotulo: 'Situação',
+      render: v => v ? SGMF.etiqueta('Repor', 'vermelha') : SGMF.etiqueta('Normal', 'verde') },
+    { campo: 'id', rotulo: 'Histórico', classe: 'text-center',
+      render: v => `<button class="btn btn-contorno btn-sm" data-historico="${v}" title="Ver histórico">
+        <i class="fa-solid fa-clock-rotate-left me-1"></i>Histórico</button>` }
+  ],
+  acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
+                           <i class="fa-solid fa-right-left"></i></button>`,
+  aoRenderizar: (linhas) => {
+    preencherListaPecasHistorico(linhas);
+    const valor = linhas.reduce((s, p) => s + (p.valor_total || 0), 0);
+    const repor = linhas.filter(p => p.abaixo_minimo).length;
+    document.getElementById('resumoEstoque').innerHTML = `
+      <div class="medidor"><div class="rotulo">Itens cadastrados</div><div class="valor num">${linhas.length}</div></div>
+      <div class="medidor"><div class="rotulo">Valor em estoque</div><div class="valor num" style="font-size:20px">${SGMF.moeda(valor)}</div></div>
+      <div class="medidor ${repor ? 'critico' : 'ok'}"><div class="rotulo">Abaixo do mínimo</div><div class="valor num">${repor}</div><div class="nota">${repor ? 'Providencie a compra' : 'Estoque saudável'}</div></div>`;
+
+    const areaTabela = document.getElementById('areaTabela');
+    if (areaTabela && !areaTabela.dataset.movLigado) {
+      areaTabela.dataset.movLigado = '1';
+      areaTabela.addEventListener('click', (e) => {
+        const historico = e.target.closest('[data-historico]');
+        if (historico) {
+          const pecaHistorico = telaEstoque.dados().find(p => p.id == historico.dataset.historico);
+          if (pecaHistorico) abrirHistoricoPeca(pecaHistorico);
+          return;
+        }
+
+        const b = e.target.closest('[data-mov]');
+        if (!b) return;
+        const peca = telaEstoque.dados().find(p => p.id == b.dataset.mov);
+        if (!peca) return;
+        document.getElementById('movPecaId').value = peca.id;
+        document.getElementById('movPeca').innerHTML =
+          `<strong>${SGMF.esc(peca.codigo)}</strong> · ${SGMF.esc(peca.descricao)}<br>
+           <span class="text-muted">Saldo atual: ${SGMF.numero(peca.quantidade, 2)} ${SGMF.esc(peca.unidade || '')}</span>`;
+        document.getElementById('movQtd').value = '';
+        document.getElementById('movCusto').value = peca.custo_unitario || '';
+        document.getElementById('movDoc').value = '';
+        document.getElementById('movObs').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalMovimento')).show();
+      });
+    }
+    carregarMovimentos();
+  }
+});
+
+document.getElementById('movSalvar').onclick = async () => {
+  try {
+    await SGMF.post('/api/movimentos', {
+      peca_id: Number(document.getElementById('movPecaId').value),
+      tipo: document.getElementById('movTipo').value,
+      quantidade: Number(document.getElementById('movQtd').value),
+      custo_unitario: Number(document.getElementById('movCusto').value) || 0,
+      documento: document.getElementById('movDoc').value,
+      observacao: document.getElementById('movObs').value
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalMovimento')).hide();
+    SGMF.sucesso('Movimento registrado');
+    SGMF.limparCache('pecas');
+    telaEstoque.carregar();
+  } catch (e) { SGMF.falha(e.message); }
+};
+
+async function carregarMovimentos() {
+  const dados = await SGMF.get('/api/movimentos');
+  const area = document.getElementById('listaMovimentos');
+  if (!dados.length) {
+    area.innerHTML = `<div class="vazio"><i class="fa-solid fa-box-open"></i>
+      <strong>Nenhuma movimentação registrada</strong>Entradas e saídas aparecem aqui.</div>`;
+    return;
+  }
+  const cor = { entrada: 'verde', saida: 'ambar', ajuste: 'azul' };
+  area.innerHTML = `<table class="table table-sm mb-0" style="font-size:13px">
+    <thead><tr><th class="ps-3">Data</th><th>Peça</th><th>Tipo</th>
+    <th class="text-end">Qtde</th><th class="text-end">Valor</th><th>Grupo de custo</th><th>Documento</th><th>Nº da OS</th><th>Responsável</th></tr></thead>
+    <tbody>${dados.slice(0, 15).map(m => `<tr>
+      <td class="ps-3 num">${SGMF.data(m.data)}</td>
+      <td>${SGMF.esc(m.peca_descricao) || '—'}</td>
+      <td>${SGMF.etiqueta(m.tipo, cor[m.tipo] || 'cinza')}</td>
+      <td class="text-end num">${SGMF.numero(m.quantidade, 2)}</td>
+      <td class="text-end num">${SGMF.moeda(m.valor_total)}</td>
+      <td>${SGMF.esc(m.grupo_consumo_nome) || 'Frota / não informado'}</td>
+      <td>${SGMF.esc(m.documento || m.observacao) || '—'}</td>
+      <td class="num">${SGMF.esc(m.ordem_servico_numero) || '—'}</td>
+      <td>${SGMF.esc(m.usuario_nome || 'Responsável não registrado')}</td></tr>`).join('')}</tbody></table>`;
+}
+</script>
+{% endblock %}

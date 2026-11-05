@@ -7,6 +7,23 @@
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoEstoque"></div>
 
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <label class="form-label mb-1" for="campoConsultaHistorico">
+      <i class="fa-solid fa-clock-rotate-left me-1" style="color:var(--petroleo)"></i>
+      Consultar histórico de movimentação de uma peça
+    </label>
+    <div class="input-group">
+      <input class="form-control" id="campoConsultaHistorico" list="listaPecasHistorico"
+             autocomplete="off" placeholder="Digite o código ou a descrição da peça e escolha na lista">
+      <button class="btn btn-primario" type="button" id="botaoConsultaHistorico">
+        <i class="fa-solid fa-magnifying-glass me-1"></i>Ver histórico
+      </button>
+    </div>
+    <datalist id="listaPecasHistorico"></datalist>
+  </div>
+</div>
+
 <!-- Opções do campo Grupo: preenchidas pelo cadastro Cadastros > Grupos de peças.
      Como é um <datalist>, a pessoa pode escolher da lista OU digitar um grupo
      novo na hora, sem travar o cadastro da peça. -->
@@ -211,6 +228,50 @@ async function abrirHistoricoPeca(peca) {
   }
 }
 
+/* ============================ campo "Consultar histórico de uma peça"
+   Lista as peças já carregadas na tela (código · descrição). Ao escolher
+   uma e clicar em "Ver histórico" (ou apertar Enter), abre a janela com
+   todas as movimentações daquela peça. */
+function preencherListaPecasHistorico(pecas) {
+  const lista = document.getElementById('listaPecasHistorico');
+  if (!lista) return;
+  lista.innerHTML = pecas.map(p =>
+    `<option value="${SGMF.esc(p.codigo)} · ${SGMF.esc(p.descricao)}"></option>`).join('');
+}
+
+function consultarHistoricoDoCampo() {
+  const campo = document.getElementById('campoConsultaHistorico');
+  const texto = (campo.value || '').trim().toLowerCase();
+  if (!texto) {
+    SGMF.aviso('Digite o código ou a descrição da peça e escolha uma opção da lista.');
+    campo.focus();
+    return;
+  }
+  const pecas = telaEstoque.dados();
+  let achadas = pecas.filter(p => `${p.codigo} · ${p.descricao}`.toLowerCase() === texto);
+  if (!achadas.length) achadas = pecas.filter(p => (p.codigo || '').toLowerCase() === texto);
+  if (!achadas.length) {
+    achadas = pecas.filter(p => `${p.codigo} ${p.descricao} ${p.referencia || ''}`
+      .toLowerCase().includes(texto));
+  }
+  if (!achadas.length) {
+    SGMF.aviso('Nenhuma peça encontrada com esse código ou descrição.');
+    return;
+  }
+  if (achadas.length > 1) {
+    SGMF.aviso(`${achadas.length} peças combinam com a busca. Escolha uma na lista que aparece ao digitar.`);
+    return;
+  }
+  abrirHistoricoPeca(achadas[0]);
+}
+
+document.getElementById('botaoConsultaHistorico')
+  .addEventListener('click', consultarHistoricoDoCampo);
+document.getElementById('campoConsultaHistorico')
+  .addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); consultarHistoricoDoCampo(); }
+  });
+
 const telaEstoque = SGMF.tela({
   recurso: 'pecas',
   tela: 'estoque',
@@ -295,6 +356,7 @@ const telaEstoque = SGMF.tela({
   acoesLinha: (item) => `<button class="btn btn-contorno btn-icone" data-mov="${item.id}" title="Movimentar">
                            <i class="fa-solid fa-right-left"></i></button>`,
   aoRenderizar: (linhas) => {
+    preencherListaPecasHistorico(linhas);
     const valor = linhas.reduce((s, p) => s + (p.valor_total || 0), 0);
     const repor = linhas.filter(p => p.abaixo_minimo).length;
     document.getElementById('resumoEstoque').innerHTML = `
