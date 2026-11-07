@@ -41,19 +41,11 @@
       .venc-corpo { padding: 0 10px 10px; }
       .venc-corpo .form-control, .venc-corpo .form-select { font-size: 12.5px; }
       .venc-lista { max-height: 320px; overflow-y: auto; margin-top: 8px; }
-      .venc-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 4px; border-radius: 6px;
+      .venc-item { display: block; text-decoration: none; padding: 6px 8px; margin-bottom: 4px; border-radius: 6px;
                    background: rgba(255,255,255,.06); color: #DCE6EE; font-size: 12px; line-height: 1.35; }
       .venc-item:hover { background: rgba(255,255,255,.12); color: #fff; }
-      .venc-item .venc-info { flex: 1; min-width: 0; }
       .venc-item .venc-linha { display: flex; justify-content: space-between; gap: 8px; }
-      .venc-item .venc-sub { display: block; color: #9FB2C0; font-size: 11px; }
-      .venc-ver { flex: none; border: 1px solid rgba(255,255,255,.28); border-radius: 6px; background: rgba(255,255,255,.1);
-                  color: #fff; font-size: 11px; font-weight: 600; padding: 4px 8px; cursor: pointer; }
-      .venc-ver:hover { background: rgba(255,255,255,.22); }
-      .venc-prod { width: 100%; font-size: 13px; text-align: left; margin-top: 10px; }
-      .venc-prod th { background: #f1f4f7; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid #d5dce3; }
-      .venc-prod td { padding: 6px 8px; border-bottom: 1px solid #e6ebf0; vertical-align: top; }
-      .venc-prod .num { text-align: right; white-space: nowrap; }
+      .venc-item .venc-sub { color: #9FB2C0; font-size: 11px; }
       .venc-item.vencida { border-left: 3px solid #E5484D; }
       .venc-item.hoje { border-left: 3px solid #F5A524; }
       .venc-item.futura { border-left: 3px solid #3FB58A; }
@@ -83,15 +75,19 @@
     {% if pode('ferramentas_caminhoes') %}<a href="{{ url_for('paginas.ferramentas_caminhoes') }}" class="{{ 'ativo' if pagina == 'ferramentas_caminhoes' }}"><i class="fa-solid fa-trowel"></i> Ferramentas dos caminhões</a>{% endif %}
     {% if (pode('estoque') or pode('manutencao')) and not is_cco %}<a href="/pesquisa-pecas" class="{{ 'ativo' if pagina == 'busca_pecas' }}"><i class="fa-solid fa-magnifying-glass"></i> Pesquisa de peças</a>{% endif %}
 
-    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('ferramentas') %}
+    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('uniformes') or pode('ferramentas') or pode('importacao') %}
     <div class="menu-titulo">Cadastros</div>
     {% if pode('veiculos') %}<a href="{{ url_for('paginas.veiculos') }}" class="{{ 'ativo' if pagina == 'veiculos' }}"><i class="fa-solid fa-truck-front"></i> Veículos</a>{% endif %}
     {% if pode('motoristas') %}<a href="{{ url_for('paginas.motoristas') }}" class="{{ 'ativo' if pagina == 'motoristas' }}"><i class="fa-solid fa-id-card"></i> Motoristas</a>{% endif %}
     {% if pode('fornecedores') %}<a href="{{ url_for('paginas.fornecedores') }}" class="{{ 'ativo' if pagina == 'fornecedores' }}"><i class="fa-solid fa-warehouse"></i> Oficinas e postos</a>{% endif %}
     {% if pode('estoque') %}<a href="{{ url_for('paginas.estoque') }}" class="{{ 'ativo' if pagina == 'estoque' }}"><i class="fa-solid fa-boxes-stacked"></i> Estoque de peças</a>{% endif %}
+    {% if pode('veiculos') or pode('motoristas') or pode('fornecedores') or pode('estoque') or pode('funcionarios') or pode('pneus') or pode('combustivel') or pode('manutencao') %}<a href="{{ url_for('paginas.cadastros_manuais') }}" class="{{ 'ativo' if pagina == 'cadastros_manuais' }}"><i class="fa-solid fa-pen-to-square"></i> Lançamentos manuais</a>{% endif %}
     {% if pode('funcionarios') %}<a href="{{ url_for('paginas.funcionarios') }}" class="{{ 'ativo' if pagina == 'funcionarios' }}"><i class="fa-solid fa-users"></i> Funcionários</a>{% endif %}
     {% if pode('uniformes') %}<a href="{{ url_for('paginas.uniformes') }}" class="{{ 'ativo' if pagina == 'uniformes' }}"><i class="fa-solid fa-shirt"></i> Uniformes</a>{% endif %}
     {% if pode('ferramentas') %}<a href="{{ url_for('paginas.ferramentas') }}" class="{{ 'ativo' if pagina == 'ferramentas' }}"><i class="fa-solid fa-toolbox"></i> Ferramentas mecânicos</a>{% endif %}
+    {% if pode('importacao') %}
+    <a href="{{ url_for('paginas.importacao') }}" class="{{ 'ativo' if pagina == 'importacao' }}"><i class="fa-solid fa-file-import"></i> Importar planilha</a>
+    {% endif %}
     {% endif %}
 
     {% if pode('orcamento') or pode('ranking') or pode('relatorios') or session.perfil == 'admin' %}
@@ -102,6 +98,7 @@
     {% if session.perfil == 'admin' %}
     <a href="{{ url_for('paginas.usuarios') }}" class="{{ 'ativo' if pagina == 'usuarios' }}"><i class="fa-solid fa-users-gear"></i> Usuários</a>
     <a href="{{ url_for('paginas.auditoria') }}" class="{{ 'ativo' if pagina == 'auditoria' }}"><i class="fa-solid fa-clipboard-list"></i> Auditoria</a>
+    <a href="{{ url_for('paginas.auditoria_estoque_os') }}" class="{{ 'ativo' if pagina == 'auditoria_estoque_os' }}"><i class="fa-solid fa-boxes-stacked"></i> Auditoria de estoque das OS</a>
     <a href="{{ url_for('paginas.notificacoes') }}" class="{{ 'ativo' if pagina == 'notificacoes' }}"><i class="fa-solid fa-envelope"></i> Avisos por e-mail</a>
     {% endif %}
     {% endif %}
@@ -216,14 +213,10 @@
         const classe = p.vencida ? 'vencida' : (p.dias === 0 ? 'hoje' : 'futura');
         const prazo = p.vencida ? 'vencida há ' + Math.abs(p.dias) + ' d'
                     : (p.dias === 0 ? 'vence hoje' : 'em ' + p.dias + ' d');
-        return `<div class="venc-item ${classe}">
-          <div class="venc-info">
-            <span class="venc-linha"><strong>${dataBR(p.data_vencimento)}</strong><strong>${moeda(p.valor)}</strong></span>
-            <span class="venc-sub">${esc(p.fornecedor_nome) || '—'} · ${esc(p.nota)} · parc. ${p.numero}/${p.total_parcelas} · ${prazo}</span>
-          </div>
-          <button type="button" class="venc-ver" data-nota="${p.nota_fiscal_id}"
-                  title="Ver os produtos desta nota"><i class="fa-solid fa-eye"></i> Ver</button>
-        </div>`;
+        return `<a class="venc-item ${classe}" href="/notas-fiscais" title="Abrir lançamento de notas">
+          <span class="venc-linha"><strong>${dataBR(p.data_vencimento)}</strong><strong>${moeda(p.valor)}</strong></span>
+          <span class="venc-sub">${esc(p.fornecedor_nome) || '—'} · ${esc(p.nota)} · parc. ${p.numero}/${p.total_parcelas} · ${prazo}</span>
+        </a>`;
       }).join('') : '<div class="venc-total">Nenhuma parcela a vencer nesta seleção.</div>';
       el('vencTotal').textContent = dados.qtd ? dados.qtd + ' parcela(s) · total ' + moeda(dados.total) : '';
     } catch (e) {
@@ -231,53 +224,6 @@
     }
   }
   window.atualizarVencimentosLateral = carregar;
-
-  /* Botão "Ver": abre os produtos da nota para o financeiro tirar dúvidas. */
-  const qtdBR = (v) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
-  async function verProdutosNota(notaId) {
-    Swal.fire({ title: 'Carregando…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-    let nota;
-    try {
-      const resp = await fetch('/api/notas_fiscais/' + encodeURIComponent(notaId),
-                               { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-      if (!resp.ok) throw new Error('falha');
-      nota = await resp.json();
-    } catch (e) {
-      Swal.fire({ icon: 'error', title: 'Não foi possível carregar a nota', confirmButtonText: 'Fechar' });
-      return;
-    }
-    const itens = nota.itens || [];
-    const linhas = itens.length ? itens.map((i) => {
-      const nome = i.peca_descricao || i.descricao || '—';
-      const extra = i.descricao && i.peca_descricao && !i.peca_descricao.includes(i.descricao)
-        ? `<div style="color:#6b7a88;font-size:12px">${esc(i.descricao)}</div>` : '';
-      return `<tr><td>${esc(nome)}${extra}</td><td class="num">${qtdBR(i.quantidade)}</td>
-              <td class="num">${moeda(i.valor_unitario)}</td><td class="num">${moeda(i.valor_total)}</td></tr>`;
-    }).join('') : '<tr><td colspan="4" style="text-align:center;color:#6b7a88">Esta nota não tem produtos lançados.</td></tr>';
-    const emissao = nota.data_emissao ? ' · emissão ' + dataBR(nota.data_emissao) : '';
-    await Swal.fire({
-      width: 'min(860px, 95vw)',
-      title: esc(nota.identificacao),
-      html: `<div style="text-align:left;font-size:13px">
-               <strong>${esc(nota.fornecedor_nome) || '—'}</strong>${emissao} · status: ${esc(nota.status)}
-               ${nota.observacao ? '<div style="color:#6b7a88">' + esc(nota.observacao) + '</div>' : ''}
-               <div style="overflow-x:auto"><table class="venc-prod">
-                 <thead><tr><th>Produto</th><th class="num">Qtd</th><th class="num">Valor unit.</th><th class="num">Total</th></tr></thead>
-                 <tbody>${linhas}</tbody>
-                 <tfoot><tr><td colspan="3" class="num"><strong>Total da nota</strong></td>
-                   <td class="num"><strong>${moeda(nota.valor_total)}</strong></td></tr></tfoot>
-               </table></div>
-             </div>`,
-      showCancelButton: true,
-      confirmButtonText: 'Fechar',
-      cancelButtonText: 'Abrir em Lançamento de notas',
-      reverseButtons: true,
-    }).then((r) => { if (r.dismiss === Swal.DismissReason.cancel) window.location.href = '/notas-fiscais'; });
-  }
-  el('vencLista').addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.venc-ver');
-    if (btn) verProdutosNota(btn.dataset.nota);
-  });
 
   el('vencToggle').onclick = () => {
     const aberto = corpo.classList.toggle('d-none') === false;
