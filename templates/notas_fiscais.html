@@ -687,34 +687,6 @@ function atualizarPainelVencimentos() {
   if (window.atualizarVencimentosLateral) window.atualizarVencimentosLateral();
 }
 
-/* Botão "Ver" ao lado do boleto: mostra os produtos da nota a que o boleto
-   pertence, para o financeiro tirar dúvidas sem sair da tela. */
-function verProdutosDoBoleto(parcela) {
-  if (!notaAtual || !parcela) return;
-  const itens = notaAtual.itens || [];
-  const linhas = itens.length ? itens.map(i => `<tr>
-      <td>${SGMF.esc(i.peca_descricao || i.descricao || '—')}</td>
-      <td class="text-end">${SGMF.numero(i.quantidade, 2)}</td>
-      <td class="text-end">${SGMF.moeda(i.valor_unitario)}</td>
-      <td class="text-end"><strong>${SGMF.moeda(i.valor_total)}</strong></td></tr>`).join('')
-    : '<tr><td colspan="4" class="text-center text-muted">Esta nota não tem produtos lançados.</td></tr>';
-  Swal.fire({
-    width: 'min(820px, 95vw)',
-    title: SGMF.esc(notaAtual.identificacao),
-    html: `<div style="text-align:left;font-size:13px">
-      <div><strong>${SGMF.esc(notaAtual.fornecedor_nome) || '—'}</strong> · Emissão ${SGMF.data(notaAtual.data_emissao)}</div>
-      <div class="mb-2" style="color:#6B7C8A">Boleto ${parcela.numero}/${(notaAtual.parcelas || []).length}
-        · vence em ${SGMF.data(parcela.data_vencimento)} · ${SGMF.moeda(parcela.valor)}</div>
-      <div style="overflow-x:auto"><table class="table table-sm align-middle mb-0" style="font-size:13px">
-        <thead><tr><th>Produto</th><th class="text-end">Qtde</th><th class="text-end">Valor unit.</th><th class="text-end">Total</th></tr></thead>
-        <tbody>${linhas}</tbody>
-        <tfoot><tr><td colspan="3" class="text-end"><strong>Total da nota</strong></td>
-          <td class="text-end"><strong>${SGMF.moeda(notaAtual.valor_total)}</strong></td></tr></tfoot>
-      </table></div></div>`,
-    confirmButtonText: 'Fechar'
-  });
-}
-
 function renderizarParcelas() {
   const cartao = document.getElementById('parcelasNota');
   if (!notaAtual || notaAtual.status === 'Cancelada') { cartao.style.display = 'none'; return; }
@@ -739,9 +711,6 @@ function renderizarParcelas() {
           <td class="text-end num"><strong>${SGMF.moeda(p.valor)}</strong></td>
           <td>${situacao}</td>
           <td class="text-end text-nowrap">
-            <button class="btn btn-outline-primary btn-sm" data-ver-parcela="${p.id}"
-                    title="Ver os produtos desta nota">
-              <i class="fa-solid fa-eye me-1"></i>Ver</button>
             <button class="btn btn-outline-success btn-sm" data-pagar-parcela="${p.id}"
                     title="${p.pago ? 'Desfazer pagamento' : 'Marcar como paga'}">
               <i class="fa-solid fa-${p.pago ? 'rotate-left' : 'check'}"></i></button>
@@ -752,9 +721,6 @@ function renderizarParcelas() {
     <div class="mb-2" style="font-size:12.5px;${divergente ? 'color:var(--alerta);font-weight:600' : 'color:#6B7C8A'}">
       Soma das parcelas: ${SGMF.moeda(soma)} · Total da nota: ${SGMF.moeda(notaAtual.valor_total)}
       ${divergente ? ' — os valores não batem, confira.' : ''}</div>`;
-
-  document.querySelectorAll('[data-ver-parcela]').forEach(b => b.onclick = () =>
-    verProdutosDoBoleto(parcelas.find(x => x.id == b.dataset.verParcela)));
 
   document.querySelectorAll('[data-pagar-parcela]').forEach(b => b.onclick = async () => {
     try {
@@ -888,6 +854,17 @@ document.getElementById('filtroBuscaNota').addEventListener('input', renderizarN
 document.getElementById('botaoImprimirNotas').addEventListener('click', () =>
   SGMF.imprimir('tabelaNotas', 'Notas fiscais de entrada'));
 
-Promise.all([preencherSelectFornecedor(), preencherSelectPeca(), carregarNotasFiscais()]);
+/* Vindo de "Boletos a vencer" (botão Ver): /notas-fiscais?nota=ID abre direto
+   a nota daquela compra, com os produtos e os boletos. */
+async function abrirNotaDoEndereco() {
+  const id = new URLSearchParams(location.search).get('nota');
+  if (!id || !/^\d+$/.test(id)) return;
+  history.replaceState(null, '', location.pathname);
+  try { await abrirItensNota({ id: Number(id) }); }
+  catch (e) { SGMF.falha(e.message || 'Não foi possível abrir esta nota.'); }
+}
+
+Promise.all([preencherSelectFornecedor(), preencherSelectPeca(), carregarNotasFiscais()])
+  .then(abrirNotaDoEndereco);
 </script>
 {% endblock %}

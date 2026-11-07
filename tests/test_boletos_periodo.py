@@ -84,4 +84,30 @@ def test_pagina_de_boletos_exige_login(cliente):
 def test_menu_lateral_tem_link_direto_para_a_pagina_de_boletos(logado):
     html = logado.get("/").data.decode("utf-8")
     assert 'href="/boletos"' in html
-    assert 'id="vencContador"' in html
+    # O menu mostra só o texto "Boletos a vencer": sem o painel/lista lateral.
+    assert "Boletos a vencer" in html
+    assert 'id="vencLateral"' not in html
+    assert 'id="vencContador"' not in html
+
+
+def test_pagina_de_boletos_tem_atalhos_e_botao_ver_para_a_nota(logado):
+    html = logado.get("/boletos").data.decode("utf-8")
+    for dias in ("7", "15", "30"):
+        assert f'data-atalho="{dias}"' in html
+    assert 'id="filtroInicio"' in html and 'id="filtroFim"' in html  # escolher datas
+    assert "/notas-fiscais?nota=" in html                           # botão Ver
+
+
+def test_parcela_informa_a_nota_para_o_botao_ver(logado, base):
+    nota = _nota_com_parcelas(logado, base["oficina"]["id"], "105", [("2099-11-05", 10)])
+
+    dados = _consultar(logado, inicio="2099-11-01", fim="2099-11-30")
+
+    assert dados["itens"][0]["nota_fiscal_id"] == nota["id"]
+    # É esse id que a tela de notas abre ao receber ?nota=<id>.
+    assert logado.get(f"/api/notas_fiscais/{nota['id']}").status_code == 200
+
+
+def test_tela_de_notas_abre_a_nota_recebida_no_endereco(logado):
+    html = logado.get("/notas-fiscais?nota=1").data.decode("utf-8")
+    assert "abrirNotaDoEndereco" in html

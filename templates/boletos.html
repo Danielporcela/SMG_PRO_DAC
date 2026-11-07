@@ -36,6 +36,7 @@
     <button type="button" class="btn btn-contorno btn-sm" data-atalho="mes">Este mês</button>
     <button type="button" class="btn btn-contorno btn-sm" data-atalho="proximo">Próximo mês</button>
     <button type="button" class="btn btn-contorno btn-sm" data-atalho="7">Próximos 7 dias</button>
+    <button type="button" class="btn btn-contorno btn-sm" data-atalho="15">Próximos 15 dias</button>
     <button type="button" class="btn btn-contorno btn-sm" data-atalho="30">Próximos 30 dias</button>
   </div>
 
@@ -109,7 +110,7 @@
     area.innerHTML = `<table id="tabelaBoletos" class="table table-hover align-middle mb-0" style="width:100%">
       <thead><tr>
         <th>Vencimento</th><th>Situação</th><th>Fornecedor</th><th>Nota</th>
-        <th class="text-center">Parcela</th><th class="text-end">Valor</th>
+        <th class="text-center">Parcela</th><th class="text-end">Valor</th><th class="col-acao"></th>
       </tr></thead>
       <tbody>${itens.map((p) => `<tr>
         <td><strong>${SGMF.data(p.data_vencimento)}</strong></td>
@@ -118,10 +119,14 @@
         <td>${SGMF.esc(p.nota) || '—'}</td>
         <td class="text-center">${p.numero}/${p.total_parcelas}</td>
         <td class="text-end">${SGMF.moeda(p.valor)}</td>
+        <td class="col-acao text-end text-nowrap">
+          <a class="btn btn-outline-primary btn-sm" href="/notas-fiscais?nota=${encodeURIComponent(p.nota_fiscal_id)}"
+             title="Abrir a nota desta compra"><i class="fa-solid fa-eye me-1"></i>Ver</a>
+        </td>
       </tr>`).join('')}</tbody>
       <tfoot><tr>
         <th colspan="5" class="text-end">Total (${itens.length} parcela${itens.length > 1 ? 's' : ''})</th>
-        <th class="text-end">${SGMF.moeda(total)}</th>
+        <th class="text-end">${SGMF.moeda(total)}</th><th class="col-acao"></th>
       </tr></tfoot>
     </table>`;
   }
@@ -169,7 +174,10 @@
     b.addEventListener('click', () => atalho(b.dataset.atalho)));
   el('botaoImprimirBoletos').addEventListener('click', () => {
     if (!document.getElementById('tabelaBoletos')) return SGMF.aviso('Não há boletos para imprimir neste período.');
-    SGMF.imprimir('tabelaBoletos', 'Boletos a vencer');
+    // O botão Ver não deve sair no papel: imprime uma cópia sem a coluna de ações.
+    const copia = document.getElementById('tabelaBoletos').cloneNode(true);
+    copia.querySelectorAll('.col-acao').forEach((c) => c.remove());
+    SGMF.imprimir(copia, 'Boletos a vencer');
   });
 
   carregar();
