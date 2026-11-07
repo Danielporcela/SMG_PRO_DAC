@@ -96,6 +96,7 @@ def test_pagina_de_boletos_tem_atalhos_e_botao_ver_para_a_nota(logado):
         assert f'data-atalho="{dias}"' in html
     assert 'id="filtroInicio"' in html and 'id="filtroFim"' in html  # escolher datas
     assert "/notas-fiscais?nota=" in html                           # botão Ver
+    assert "&voltar=" in html                                       # para retornar depois
 
 
 def test_parcela_informa_a_nota_para_o_botao_ver(logado, base):
@@ -111,3 +112,5 @@ def test_parcela_informa_a_nota_para_o_botao_ver(logado, base):
 def test_tela_de_notas_abre_a_nota_recebida_no_endereco(logado):
     html = logado.get("/notas-fiscais?nota=1").data.decode("utf-8")
     assert "abrirNotaDoEndereco" in html
+    # Ao fechar a nota aberta pelo Ver, volta para a tela de boletos.
+    assert "hidden.bs.modal" in html and "voltar" in html

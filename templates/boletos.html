@@ -120,7 +120,7 @@
         <td class="text-center">${p.numero}/${p.total_parcelas}</td>
         <td class="text-end">${SGMF.moeda(p.valor)}</td>
         <td class="col-acao text-end text-nowrap">
-          <a class="btn btn-outline-primary btn-sm" href="/notas-fiscais?nota=${encodeURIComponent(p.nota_fiscal_id)}"
+          <a class="btn btn-outline-primary btn-sm" href="/notas-fiscais?nota=${encodeURIComponent(p.nota_fiscal_id)}&voltar=${encodeURIComponent(location.pathname + location.search)}"
              title="Abrir a nota desta compra"><i class="fa-solid fa-eye me-1"></i>Ver</a>
         </td>
       </tr>`).join('')}</tbody>

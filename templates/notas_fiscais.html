@@ -857,11 +857,22 @@ document.getElementById('botaoImprimirNotas').addEventListener('click', () =>
 /* Vindo de "Boletos a vencer" (botão Ver): /notas-fiscais?nota=ID abre direto
    a nota daquela compra, com os produtos e os boletos. */
 async function abrirNotaDoEndereco() {
-  const id = new URLSearchParams(location.search).get('nota');
+  const params = new URLSearchParams(location.search);
+  const id = params.get('nota');
   if (!id || !/^\d+$/.test(id)) return;
+  // Só aceita voltar para a própria tela de boletos (evita redirecionar para outro site).
+  const voltar = params.get('voltar') || '';
+  const destino = /^\/boletos(\?[^#]*)?$/.test(voltar) ? voltar : '';
   history.replaceState(null, '', location.pathname);
-  try { await abrirItensNota({ id: Number(id) }); }
-  catch (e) { SGMF.falha(e.message || 'Não foi possível abrir esta nota.'); }
+  try {
+    await abrirItensNota({ id: Number(id) });
+    // Ao fechar a nota aberta pelo botão Ver, retorna para "Boletos a vencer"
+    // com o mesmo período que estava na tela.
+    if (destino) {
+      document.getElementById('modalItensNota').addEventListener('hidden.bs.modal',
+        () => { window.location.href = destino; }, { once: true });
+    }
+  } catch (e) { SGMF.falha(e.message || 'Não foi possível abrir esta nota.'); }
 }
 
 Promise.all([preencherSelectFornecedor(), preencherSelectPeca(), carregarNotasFiscais()])
