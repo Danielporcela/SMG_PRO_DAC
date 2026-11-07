@@ -14,15 +14,20 @@ class AuditoriaEstoqueOSStaticTests(unittest.TestCase):
         self.assertIn("/api/auditoria_estoque_os", fonte)
         self.assertIn("regularizar", fonte)
 
-    def test_aba_foi_retirada_do_menu(self):
+    def test_tela_administrativa_existe_mas_nao_tem_botao_no_menu(self):
         pagina = (ROOT / "routes" / "paginas.py").read_text(encoding="utf-8")
         menu = (ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+        template = ROOT / "templates" / "auditoria_estoque_os.html"
+        self.assertTrue(template.exists(), "Falta a tela de auditoria de estoque")
         self.assertIn("auditoria_estoque_os", pagina)
+        # O botão foi retirado do menu lateral; a tela segue acessível pelo endereço.
         self.assertNotIn("auditoria_estoque_os", menu)
 
     def test_painel_expoe_contador_de_pendencias(self):
         indicadores = (ROOT / "services" / "indicadores.py").read_text(encoding="utf-8")
+        painel = (ROOT / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn('"os_estoque_pendentes"', indicadores)
+        self.assertIn("os_estoque_pendentes", painel)
 
 
 if __name__ == "__main__":
