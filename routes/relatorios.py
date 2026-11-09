@@ -202,81 +202,140 @@ def montar_dados(relatorio):
                   for m in q.order_by(MovimentoEstoque.data).all()]
 
     elif relatorio == "consumo_turnos":
-        # Inclui todo o histórico no período solicitado. O horário somente
-        # existe nos lançamentos novos; nunca atribuímos turnos fictícios.
+        # O turno é definido pelo horário em que a OS foi aberta.
+        # Para movimentos vinculados a uma OS, a data do filtro também é
+        # a data_abertura da OS (não a data em que o estoque foi baixado).
         from sqlalchemy import and_, or_
-        q = MovimentoEstoque.query.filter(
-            MovimentoEstoque.tipo == "saida",
-            or_(
-                and_(MovimentoEstoque.data_hora.isnot(None),
-                     MovimentoEstoque.data_hora >= datetime.combine(inicio, time.min),
-                     MovimentoEstoque.data_hora < datetime.combine(fim + timedelta(days=1), time.min)),
-                and_(MovimentoEstoque.data_hora.is_(None),
-                     MovimentoEstoque.data.between(inicio, fim)),
-            ),
-        )
+
         peca_id = request.args.get("peca_id", type=int)
+        q = (MovimentoEstoque.query
+             .outerjoin(OrdemServico,
+                        MovimentoEstoque.ordem_servico_id == OrdemServico.id)
+             .filter(
+                 MovimentoEstoque.tipo == "saida",
+                 or_(
+                     and_(OrdemServico.id.isnot(None),
+                          OrdemServico.data_abertura.between(inicio, fim)),
+                     and_(OrdemServico.id.is_(None),
+                          MovimentoEstoque.data.between(inicio, fim)),
+                 )))
         if peca_id:
             q = q.filter(MovimentoEstoque.peca_id == peca_id)
         if grupo:
             q = q.join(Peca, MovimentoEstoque.peca_id == Peca.id).filter(Peca.grupo == grupo)
-        movimentos = q.order_by(MovimentoEstoque.data, MovimentoEstoque.id).all()
-        nomes_turnos = {1: "1º turno (06:01–14:20)",
-                        2: "2º turno (14:21–22:00)",
-                        3: "3º turno (22:01–06:00)"}
-        totais = {1: {}, 2: {}, 3: {}}
+
+        movimentos = q.order_by(
+            db.func.coalesce(OrdemServico.data_abertura, MovimentoEstoque.data),
+            OrdemServico.hora_inicio, MovimentoEstoque.id
+        ).all()
+
+        nomes_turnos = {
+            1: "1º turno (06:01–14:20)",
+            2: "2º turno (14:21–22:00)",
+            3: "3º turno (22:01–06:00)",
+        }
+        totais_pecas = {1: {}, 2: {}, 3: {}}
         valores = {1: 0.0, 2: 0.0, 3: 0.0}
         quantidades = {1: 0.0, 2: 0.0, 3: 0.0}
-        historico = []
-        historico_quantidade = historico_valor = 0.0
         detalhes = []
+        sem_os = []
+        sem_horario = []
+        qtd_sem_os = valor_sem_os = 0.0
+        qtd_sem_horario = valor_sem_horario = 0.0
+
         for m in movimentos:
+            os_obj = m.ordem_servico
             peca = m.peca
-            nome_peca = f"{peca.codigo} - {peca.descricao}" if peca else "Peça não identificada"
+            nome_peca = (f"{peca.codigo} - {peca.descricao}"
+                         if peca else "Peça não identificada")
             qtd = float(m.quantidade or 0)
             custo = float(m.custo_unitario or 0)
             total = qtd * custo
-            os_numero = (m.ordem_servico.numero if m.ordem_servico and m.ordem_servico.numero
+            os_numero = (os_obj.numero if os_obj and os_obj.numero
                          else m.ordem_servico_numero or "—")
-            if m.data_hora is None:
-                historico_quantidade += qtd
-                historico_valor += total
-                historico.append([m.data.strftime("%d/%m/%Y") if m.data else "Sem data",
-                                  "Histórico sem horário", nome_peca,
-                                  peca.grupo if peca else "—", round(qtd, 2),
-                                  peca.unidade if peca else "—", round(custo, 2),
-                                  round(total, 2), os_numero,
-                                  m.usuario_nome or "—", m.documento or "—"])
+            data_os = os_obj.data_abertura if os_obj else m.data
+            hora_os = os_obj.hora_inicio if os_obj else None
+
+            linha_base = [
+                (data_os.strftime("%d/%m/%Y") if data_os else "Sem data"),
+                (hora_os.strftime("%H:%M") if hora_os else "—"),
+                nome_peca, peca.grupo if peca else "—", round(qtd, 2),
+                peca.unidade if peca else "—", round(custo, 2),
+                round(total, 2), os_numero, m.usuario_nome or "—",
+                m.documento or "—"
+            ]
+
+            if not os_obj:
+                qtd_sem_os += qtd
+                valor_sem_os += total
+                sem_os.append(["SAÍDA SEM OS", "Não classificada", *linha_base])
                 continue
-            minutos = m.data_hora.hour * 60 + m.data_hora.minute
+
+            if not data_os or not hora_os:
+                qtd_sem_horario += qtd
+                valor_sem_horario += total
+                sem_horario.append(["OS SEM HORÁRIO", "Não classificada", *linha_base])
+                continue
+
+            minutos = hora_os.hour * 60 + hora_os.minute
             if 361 <= minutos <= 860:
                 turno = 1
             elif 861 <= minutos <= 1320:
                 turno = 2
             else:
+                # Inclui 22:01–23:59 e 00:00–06:00.
                 turno = 3
-            totais[turno][nome_peca] = totais[turno].get(nome_peca, 0.0) + qtd
+
+            totais_pecas[turno][nome_peca] = (
+                totais_pecas[turno].get(nome_peca, 0.0) + qtd
+            )
             valores[turno] += total
             quantidades[turno] += qtd
-            detalhes.append([m.data_hora.strftime("%d/%m/%Y %H:%M"), nomes_turnos[turno],
-                             nome_peca, peca.grupo if peca else "—", round(qtd, 2),
-                             peca.unidade if peca else "—", round(custo, 2),
-                             round(total, 2), os_numero, m.usuario_nome or "—",
-                             m.documento or "—"])
+            detalhes.append([
+                data_os.strftime("%d/%m/%Y"),
+                hora_os.strftime("%H:%M"),
+                nome_peca, nomes_turnos[turno],
+                round(qtd, 2), peca.unidade if peca else "—",
+                round(custo, 2), round(total, 2), os_numero,
+                m.usuario_nome or "—", m.documento or "—"
+            ])
+
         resumo = []
         for turno in (1, 2, 3):
-            resumo.append(["TOTAL DO TURNO", nomes_turnos[turno], "Todas as peças", "",
-                           round(quantidades[turno], 2), "", "", round(valores[turno], 2), "", "", ""])
-            for nome_peca, qtd in sorted(totais[turno].items(), key=lambda x: x[0].casefold()):
-                resumo.append(["RESUMO POR PEÇA", nomes_turnos[turno], nome_peca, "",
-                               round(qtd, 2), "", "", "", "", "", ""])
-        if historico:
-            resumo.append(["TOTAL HISTÓRICO", "Sem horário", f"{len(historico)} saídas não classificáveis",
-                           "", round(historico_quantidade, 2), "", "",
-                           round(historico_valor, 2), "", "", ""])
-        cab = ["Tipo de registro / Data e hora", "Turno", "Peça", "Grupo", "Quantidade", "Un.",
-               "Custo unit. R$", "Total R$", "OS", "Responsável", "Documento"]
-        linhas = resumo + detalhes + historico
+            resumo.append([
+                "TOTAL DO TURNO", nomes_turnos[turno], "Todas as peças", "",
+                round(quantidades[turno], 2), "", "", round(valores[turno], 2),
+                "", "", ""
+            ])
+            for nome_peca, qtd in sorted(
+                    totais_pecas[turno].items(),
+                    key=lambda item: item[0].casefold()):
+                resumo.append([
+                    "RESUMO POR PEÇA", nomes_turnos[turno], nome_peca, "",
+                    round(qtd, 2), "", "", "", "", "", ""
+                ])
+
+        if sem_horario:
+            resumo.append([
+                "OS SEM HORÁRIO", "Não classificada",
+                f"{len(sem_horario)} saída(s) vinculada(s) a OS sem hora de abertura",
+                "", round(qtd_sem_horario, 2), "", "",
+                round(valor_sem_horario, 2), "", "", ""
+            ])
+        if sem_os:
+            resumo.append([
+                "SAÍDA SEM OS", "Não classificada",
+                f"{len(sem_os)} saída(s) sem OS vinculada",
+                "", round(qtd_sem_os, 2), "", "",
+                round(valor_sem_os, 2), "", "", ""
+            ])
+
+        cab = [
+            "Tipo de registro / Data da OS", "Horário de abertura da OS",
+            "Peça", "Turno / Classificação", "Quantidade", "Un.",
+            "Custo unit. R$", "Total R$", "OS", "Responsável", "Documento"
+        ]
+        linhas = resumo + detalhes + sem_horario + sem_os
 
     elif relatorio == "lubrificantes":
         # Entradas e saídas de óleos, fluidos (hidráulico, freio, ATF), graxas e
