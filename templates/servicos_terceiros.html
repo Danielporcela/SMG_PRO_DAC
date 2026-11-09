@@ -3,7 +3,11 @@
 {% block cabecalho %}Serviços de terceiros{% endblock %}
 {% block descricao %}Despesas externas entram nos gastos imediatamente pela data deste lançamento, mesmo que a OS tenha sido aberta em outro mês.{% endblock %}
 {% block rotulo_novo %}Lançar serviço terceiro{% endblock %}
-{% block acoes %}{% include "_filtro_periodo.html" %}{% endblock %}
+{% block acoes %}{% include "_filtro_periodo.html" %}
+<button type="button" class="btn btn-contorno" id="botaoCadastrarServico">
+  <i class="fa-solid fa-screwdriver-wrench me-1"></i> Cadastrar serviço executado
+</button>
+{% endblock %}
 
 {% block antes_tabela %}
 <div class="instrumentos mb-3" id="resumoTerceiros"></div>
@@ -12,6 +16,39 @@
   <strong>Como funciona:</strong> ao salvar, o valor já entra em <strong>Manutenção</strong> e em
   <strong>Gasto total</strong> do período pela data informada. A OS é opcional e serve apenas para
   identificar onde o serviço foi aplicado.
+</div>
+{% endblock %}
+
+{% block depois_tabela %}
+<div class="modal fade" id="modalServicosExecutados" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content" style="border-radius:6px">
+      <div class="modal-header" style="background:var(--petroleo);color:#fff">
+        <h5 class="modal-title display">Serviços executados pela oficina</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="novoServicoExecutado">Novo serviço</label>
+        <div class="input-group mb-1">
+          <input type="text" class="form-control" id="novoServicoExecutado" maxlength="120" autocomplete="off"
+                 placeholder="Ex.: Conserto de soldador">
+          <button type="button" class="btn btn-primario" id="adicionarServicoExecutado">
+            <i class="fa-solid fa-plus me-1"></i> Adicionar
+          </button>
+        </div>
+        <div class="form-text mb-3" style="font-size:11.5px">
+          Esta lista alimenta o campo “Serviço executado” do lançamento. Remover um item daqui não apaga
+          lançamentos já feitos.
+        </div>
+        <div id="listaServicosExecutados">
+          <div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando…</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-contorno" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -37,8 +74,9 @@ const telaTerceiros = SGMF.tela({
     { nome: 'grupo', rotulo: 'Tipo / grupo', tipo: 'select', col: 6, padrao: 'Serviços de terceiros',
       opcoes: ['Serviços de terceiros', 'Motor', 'Transmissão', 'Freios', 'Suspensão', 'Elétrica',
                'Hidráulica', 'Arrefecimento', 'Pneus', 'Funilaria', 'Tornearia', 'Outros'] },
-    { nome: 'descricao', rotulo: 'Serviço executado', tipo: 'textarea', linhas: 2, col: 8, obrigatorio: true,
-      exemplo: 'Ex.: conserto da caixa de câmbio' },
+    { nome: 'descricao', rotulo: 'Serviço executado', tipo: 'combo', opcoes: [], col: 8, obrigatorio: true,
+      exemplo: 'Escolha um serviço cadastrado ou digite (ex.: Conserto de soldador)',
+      ajuda: 'Os serviços cadastrados aparecem ao clicar no campo. Para incluir um novo na lista, use o botão “Cadastrar serviço executado”.' },
     { nome: 'valor', rotulo: 'Valor total (R$)', tipo: 'moeda', col: 4, obrigatorio: true },
     { nome: 'valor_pecas', rotulo: 'Peças do posto (R$)', tipo: 'moeda', col: 4 },
     { nome: 'valor_mao_obra', rotulo: 'Mão de obra (R$)', tipo: 'moeda', col: 4 },
@@ -59,6 +97,7 @@ const telaTerceiros = SGMF.tela({
     { campo: 'documento', rotulo: 'Documento', render: v => v || '—' },
     { campo: 'valor', rotulo: 'Despesa', classe: 'num text-end', render: v => `<strong>${SGMF.moeda(v)}</strong>` }
   ],
+  aoAbrirFormulario: () => { carregarServicosExecutados(); },
   aoRenderizar: (linhas) => {
     const total = linhas.reduce((s, x) => s + (x.valor || 0), 0);
     const veiculos = new Set(linhas.map(x => x.veiculo_id).filter(Boolean)).size;
@@ -69,6 +108,81 @@ const telaTerceiros = SGMF.tela({
         <div class="valor num" style="font-size:20px">${SGMF.moeda(total)}</div></div>`;
   }
 });
+
+/* ---------------------------------------- Cadastro de serviços executados */
+async function carregarServicosExecutados() {
+  let servicos = [];
+  try {
+    servicos = await SGMF.get('/api/servicos-executados');
+  } catch (e) {
+    document.getElementById('listaServicosExecutados').innerHTML =
+      '<div class="vazio">Não foi possível carregar os serviços.</div>';
+    return;
+  }
+  // Sugestões do campo "Serviço executado" no formulário de lançamento.
+  const sugestoes = document.getElementById('campo_descricao_lista');
+  if (sugestoes) {
+    sugestoes.innerHTML = servicos.filter(s => s.ativo)
+      .map(s => `<option value="${SGMF.esc(s.nome)}"></option>`).join('');
+  }
+  // Lista exibida no modal de cadastro.
+  const area = document.getElementById('listaServicosExecutados');
+  area.innerHTML = servicos.length
+    ? `<table class="table table-sm align-middle mb-0"><tbody>${servicos.map(s => `
+        <tr><td>${SGMF.esc(s.nome)}</td>
+            <td class="text-end" style="width:48px">
+              <button type="button" class="btn btn-contorno btn-icone" data-excluir-servico="${s.id}"
+                      data-nome="${SGMF.esc(s.nome)}" title="Remover da lista">
+                <i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}
+      </tbody></table>`
+    : '<div class="vazio">Nenhum serviço cadastrado ainda.</div>';
+}
+
+async function adicionarServicoExecutado() {
+  const campo = document.getElementById('novoServicoExecutado');
+  const nome = campo.value.trim();
+  if (!nome) return SGMF.aviso('Digite o nome do serviço executado.');
+  const botao = document.getElementById('adicionarServicoExecutado');
+  botao.disabled = true;
+  try {
+    await SGMF.post('/api/servicos-executados', { nome, ativo: true });
+    campo.value = '';
+    SGMF.sucesso('Serviço cadastrado');
+    await carregarServicosExecutados();
+  } catch (e) {
+    SGMF.falha(e.message);   // ex.: serviço já cadastrado
+  } finally {
+    botao.disabled = false;
+    campo.focus();
+  }
+}
+
+(function iniciarCadastroServicos() {
+  const botaoAbrir = document.getElementById('botaoCadastrarServico');
+  if (!botaoAbrir) return;
+  if (!SGMF.podeEditar('manutencao')) { botaoAbrir.remove(); return; }
+
+  const modal = document.getElementById('modalServicosExecutados');
+  botaoAbrir.onclick = () => {
+    carregarServicosExecutados();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  };
+  modal.addEventListener('shown.bs.modal', () => document.getElementById('novoServicoExecutado').focus());
+  document.getElementById('adicionarServicoExecutado').onclick = adicionarServicoExecutado;
+  document.getElementById('novoServicoExecutado').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); adicionarServicoExecutado(); }
+  });
+  document.getElementById('listaServicosExecutados').addEventListener('click', async (e) => {
+    const botao = e.target.closest('[data-excluir-servico]');
+    if (!botao) return;
+    // SGMF.del já pede a senha do administrador, como nas demais exclusões do sistema.
+    try {
+      await SGMF.del(`/api/servicos-executados/${botao.dataset.excluirServico}`);
+      SGMF.sucesso('Serviço removido da lista');
+      await carregarServicosExecutados();
+    } catch (err) { SGMF.falha(err.message); }   // cancelamento da senha não exibe aviso
+  });
+})();
 
 // Ao entrar pelo botão lateral (?novo=1), abre diretamente o formulário de lançamento.
 if (new URLSearchParams(window.location.search).get('novo') === '1') {

@@ -7,6 +7,7 @@ from extensions import db
 from models import CARGOS_SUGERIDOS, TELAS_SISTEMA, BloqueioAcesso, Usuario
 from services.crud import login_obrigatorio, perfil_obrigatorio, registrar_crud
 from services.login_seguranca import bloqueado, ip_cliente, registrar_tentativa
+from services.relatorio_acesso import registrar_acesso
 from services.tempo import agora
 
 bp_auth = Blueprint("auth", __name__)
@@ -45,6 +46,7 @@ def login():
     # cada clique só para saber se a tela está liberada.
     session["permissoes"] = usuario.permissoes_mapa()
     session["permissoes_versao"] = usuario.permissoes_versao
+    registrar_acesso(usuario, ip)  # alimenta o Relatório de acesso
     return jsonify({"ok": True, "usuario": usuario.to_dict()})
 
 

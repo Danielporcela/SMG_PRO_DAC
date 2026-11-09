@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block titulo %}Relatório de acesso{% endblock %}
+{% block cabecalho %}Relatório de acesso{% endblock %}
+{% block descricao %}Quem entrou no sistema na data escolhida: quantidade de acessos, data e horário.{% endblock %}
+{% block acoes %}
+<label for="filtroData" class="me-2 mb-0" style="font-size:13px">Data</label>
+<input type="date" class="form-control form-control-sm" id="filtroData" value="{{ hoje }}" max="{{ hoje }}" style="width:160px">
+{% endblock %}
+
+{% block conteudo %}
+<div class="cartao mb-3">
+  <div class="cartao-corpo">
+    <div id="resumoTotais" class="mb-3" style="font-size:14px"></div>
+    <h6 class="mb-2">Acessos por usuário</h6>
+    <div id="areaResumo"><div class="vazio"><i class="fa-solid fa-spinner fa-spin"></i>Carregando…</div></div>
+  </div>
+</div>
+
+<div class="cartao">
+  <div class="cartao-corpo">
+    <h6 class="mb-2">Cada acesso (data e horário)</h6>
+    <div id="areaDetalhe"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tabResumo = null, tabDetalhe = null;
+const IDIOMA = {
+  search: 'Buscar:', lengthMenu: 'Mostrar _MENU_ registros',
+  info: '_START_ a _END_ de _TOTAL_ registros', infoEmpty: 'Nenhum registro',
+  zeroRecords: 'Nada encontrado', emptyTable: 'Nenhum acesso registrado nesta data.',
+  paginate: { first: 'Primeira', last: 'Última', next: 'Próxima', previous: 'Anterior' }
+};
+
+async function carregar() {
+  const data = document.getElementById('filtroData').value;
+  const r = await SGMF.get('/api/relatorio-acesso?data=' + encodeURIComponent(data));
+
+  document.getElementById('resumoTotais').innerHTML =
+    `<strong>${r.total_usuarios}</strong> usuário(s) · <strong>${r.total_acessos}</strong> acesso(s) em ` +
+    `<strong>${data.split('-').reverse().join('/')}</strong>`;
+
+  if (tabResumo) { tabResumo.destroy(); tabResumo = null; }
+  if (tabDetalhe) { tabDetalhe.destroy(); tabDetalhe = null; }
+
+  document.getElementById('areaResumo').innerHTML = `
+    <table id="tabelaResumo" class="table table-hover align-middle" style="width:100%">
+      <thead><tr><th>Usuário</th><th>E-mail</th><th class="num">Qtd. de acessos</th>
+      <th>Primeiro acesso</th><th>Último acesso</th></tr></thead>
+      <tbody>${r.resumo.map(x => `<tr>
+        <td>${SGMF.esc(x.usuario)}</td><td>${SGMF.esc(x.email)}</td>
+        <td class="num">${x.quantidade}</td><td class="num">${x.primeiro}</td><td class="num">${x.ultimo}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+  document.getElementById('areaDetalhe').innerHTML = `
+    <table id="tabelaDetalhe" class="table table-hover align-middle" style="width:100%">
+      <thead><tr><th>Usuário</th><th>Data</th><th>Horário</th><th>IP</th></tr></thead>
+      <tbody>${r.acessos.map(x => `<tr>
+        <td>${SGMF.esc(x.usuario)}</td><td class="num">${x.data}</td>
+        <td class="num">${x.horario}</td><td>${SGMF.esc(x.ip) || '—'}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+  tabResumo = new DataTable('#tabelaResumo', { order: [[2, 'desc']], pageLength: 25, language: IDIOMA });
+  tabDetalhe = new DataTable('#tabelaDetalhe', { order: [[2, 'desc']], pageLength: 25, language: IDIOMA });
+}
+
+document.getElementById('filtroData').addEventListener('change', () => {
+  carregar().catch(e => SGMF.falha(e.message));
+});
+carregar().catch(e => SGMF.falha(e.message));
+</script>
+{% endblock %}

@@ -628,3 +628,12 @@ def garantir_parcelas_nota_fiscal():
         return   # banco novo: db.create_all() cria tudo depois
     if "parcelas_nota_fiscal" not in tabelas:
         ParcelaNotaFiscal.__table__.create(engine, checkfirst=True)
+
+
+def garantir_servicos_executados():
+    """Cria a tabela do cadastro de serviços executados, se ainda não existir."""
+    from models import ServicoExecutado
+
+    engine = db.engine
+    if "servicos_executados" not in set(inspect(engine).get_table_names()):
+        ServicoExecutado.__table__.create(engine, checkfirst=True)

@@ -10,7 +10,8 @@ from sqlalchemy.orm import joinedload
 from extensions import db
 from models import (Abastecimento, ConsumoDiario, Fornecedor, GrupoConsumo, ItemOS,
                     ItemOSPecaSerial, Lavagem, LogAuditoria, Motorista, MovimentoEstoque,
-                    Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoTerceiro, Usuario,
+                    Orcamento, OrdemServico, Peca, PecaSerial, Pneu, ServicoExecutado,
+                    ServicoTerceiro, Usuario,
                     Veiculo, proximo_codigo_peca)
 from services import indicadores
 from services.estoque_combustivel import recalcular_estoque_combustivel
@@ -128,6 +129,27 @@ registrar_crud(
     obrigatorios=("data", "veiculo_id", "prestador", "descricao", "valor"),
     tela="manutencao", antes_salvar=_validar_servico_terceiro,
     filtrar=_filtrar_servicos_terceiros)
+
+
+# ------------------------------------- Cadastro: serviços executados pela oficina
+def _validar_servico_executado(obj, dados, anterior):
+    nome = " ".join((obj.nome or "").split())
+    if not nome:
+        raise ErroNegocio("Informe o nome do serviço executado.")
+    obj.nome = nome
+    repetido = (ServicoExecutado.query
+                .filter(func.lower(ServicoExecutado.nome) == nome.lower())
+                .filter(ServicoExecutado.id != (obj.id or 0))
+                .first())
+    if repetido:
+        raise ErroNegocio(f"O serviço \"{repetido.nome}\" já está cadastrado.")
+
+
+registrar_crud(
+    bp_api, "servicos-executados", ServicoExecutado,
+    campos={"nome": "str", "ativo": "bool"},
+    ordem=ServicoExecutado.nome, obrigatorios=("nome",),
+    tela="manutencao", antes_salvar=_validar_servico_executado)
 
 
 # ---------------------------------------------------- Lançamento financeiro: lavagem

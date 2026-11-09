@@ -17,7 +17,8 @@ bp_paginas = Blueprint("paginas", __name__)
 # Telas de administração do sistema (login de outras pessoas, auditoria,
 # avisos por e-mail): continuam exclusivas de quem tem perfil "admin",
 # fora da matriz de permissões por tela.
-TELAS_SOMENTE_ADMIN = {"usuarios", "auditoria", "auditoria_estoque_os", "notificacoes"}
+TELAS_SOMENTE_ADMIN = {"usuarios", "auditoria", "auditoria_estoque_os", "notificacoes",
+                       "relatorio_acesso"}
 
 
 def _usuario_logado():
@@ -135,6 +136,7 @@ def importacao():
 # Telas exclusivas do administrador — fora da matriz de permissões.
 _tela("/usuarios", "usuarios.html", "usuarios")
 _tela("/auditoria", "auditoria.html", "auditoria")
+_tela("/relatorio-acesso", "relatorio_acesso.html", "relatorio_acesso")
 @bp_paginas.get("/auditoria_estoque_os")
 def auditoria_estoque_os():
     """Aba "Auditoria de estoque das OS" retirada do menu: volta para o painel."""

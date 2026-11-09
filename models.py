@@ -1034,6 +1034,26 @@ class ServicoTerceiro(db.Model):
         }
 
 
+class ServicoExecutado(db.Model):
+    """Cadastro dos serviços que a oficina executa (ex.: Conserto de soldador).
+
+    É só uma lista de apoio: o lançamento de serviço de terceiro continua
+    guardando o serviço como TEXTO em `ServicoTerceiro.descricao`. Assim,
+    nenhum lançamento antigo é afetado, o campo segue aceitando um texto
+    digitado à mão e excluir um item desta lista nunca apaga histórico.
+    """
+    __tablename__ = "servicos_executados"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    ativo = db.Column(db.Boolean, default=True, nullable=False)
+    criado_em = db.Column(db.DateTime, default=_agora)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome, "ativo": bool(self.ativo),
+                "identificacao": self.nome}
+
+
 # Soma dos serviços de "Posto de Molas" lançados para cada OS, calculada pelo
 # próprio banco junto com a consulta da OS (evita 1 consulta por OS ao ler
 # OrdemServico.custo_total). Definida aqui porque depende de ServicoTerceiro.
@@ -2073,6 +2093,22 @@ class BloqueioAcesso(db.Model):
                 "criado_em": self.criado_em.isoformat() if self.criado_em else None,
                 "liberado": self.liberado, "liberado_por": self.liberado_por,
                 "liberado_em": self.liberado_em.isoformat() if self.liberado_em else None}
+
+
+class AcessoLogin(db.Model):
+    """Um registro por login bem-sucedido (alimenta o Relatório de acesso).
+
+    `momento` fica em horário local da empresa, sem timezone, e `data` é
+    guardada à parte para o filtro por dia ser uma comparação simples.
+    """
+    __tablename__ = "acessos_login"
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), index=True)
+    usuario_nome = db.Column(db.String(120))
+    email = db.Column(db.String(160))
+    ip = db.Column(db.String(64))
+    data = db.Column(db.Date, index=True, nullable=False)
+    momento = db.Column(db.DateTime, nullable=False)
 
 
 # ============================================================================

@@ -74,6 +74,7 @@ def criar_app(config=Config):
     from routes.ferramentas import bp_ferramentas
     from routes.ferramentas_caminhoes import bp_ferramentas_caminhoes
     from routes.rastreio_pecas import bp_rastreio_pecas
+    from routes.relatorio_acesso import bp_relatorio_acesso
 
     app.register_blueprint(bp_auth)
     app.register_blueprint(bp_auth_senha)
@@ -94,6 +95,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_combustivel_estoque)
     app.register_blueprint(bp_relatorios_compras)
     app.register_blueprint(bp_rastreio_pecas)
+    app.register_blueprint(bp_relatorio_acesso)
 
     # Compatibilidade com bancos criados antes do módulo de compras.
     # Evita ProgrammingError quando a aplicação já possui a tela, mas o
@@ -111,6 +113,7 @@ def criar_app(config=Config):
                                                      garantir_parcelas_nota_fiscal,
                                                      garantir_pecas_serial,
                                                      garantir_servicos_terceiros_financeiros,
+                                                     garantir_servicos_executados,
                                                      garantir_ultimo_acesso_usuario,
                                                      garantir_usuario_movimentos_estoque,
                                                      garantir_numero_os_movimentos_estoque,
@@ -128,6 +131,7 @@ def criar_app(config=Config):
         garantir_campos_notas_fiscais_pecas()
         garantir_itens_os_servicos_terceiros()
         garantir_servicos_terceiros_financeiros()
+        garantir_servicos_executados()
         garantir_lavagens_financeiro()
         garantir_notas_fiscais_uniforme()
         garantir_usuario_movimentos_estoque()
@@ -139,6 +143,8 @@ def criar_app(config=Config):
         garantir_campos_controle_pneus()
         garantir_ferramentas()
         garantir_ferramentas_veiculo()
+        from services.relatorio_acesso import garantir_tabela_acessos_login
+        garantir_tabela_acessos_login()
 
     # O script de "posição do pneu na OS" (routes/correcao_os.py) é
     # carregado só pela própria tela de Ordens de serviço
