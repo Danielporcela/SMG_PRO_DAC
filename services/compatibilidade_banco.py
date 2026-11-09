@@ -637,3 +637,17 @@ def garantir_servicos_executados():
     engine = db.engine
     if "servicos_executados" not in set(inspect(engine).get_table_names()):
         ServicoExecutado.__table__.create(engine, checkfirst=True)
+
+
+def garantir_horario_movimentos_estoque():
+    """Adiciona o horário real dos movimentos sem inventar hora para o histórico."""
+    engine = db.engine
+    insp = inspect(engine)
+    if "movimentos_estoque" not in set(insp.get_table_names()):
+        return
+    existentes = {c["name"] for c in inspect(engine).get_columns("movimentos_estoque")}
+    if "data_hora" not in existentes:
+        tipo = "TIMESTAMP" if engine.dialect.name == "postgresql" else "DATETIME"
+        with engine.begin() as conn:
+            conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "data_hora" {tipo}'))
+

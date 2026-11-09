@@ -20,6 +20,8 @@
         <select class="form-select" id="rFornecedor"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rGrupo">Grupo (peças)</label>
         <select class="form-select" id="rGrupo"><option value="">Todos</option></select></div>
+      <div class="col-md-3"><label class="form-label" for="rPeca">Peça específica</label>
+        <select class="form-select" id="rPeca"><option value="">Todas as peças</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rGrupoConsumo">Grupo de consumo</label>
         <select class="form-select" id="rGrupoConsumo"><option value="">Todos</option></select></div>
       <div class="col-md-2"><label class="form-label" for="rStatusPeca">Impressão de peças</label>
@@ -100,7 +102,9 @@ const RELATORIOS = [
   { id: 'estoque', nome: 'Posição de estoque', icone: 'fa-boxes-stacked',
     texto: 'Inventário completo, itens para repor, estoque OK ou impressão por grupo.' },
   { id: 'movimentos', nome: 'Movimentação de estoque', icone: 'fa-right-left',
-    texto: 'Entradas, saídas e ajustes do período. Aceita o filtro de grupo.' }
+    texto: 'Entradas, saídas e ajustes do período. Aceita o filtro de grupo.' },
+  { id: 'consumo_turnos', nome: 'Consumo de peças por turno', icone: 'fa-clock', destaque: true,
+    texto: 'Compara as saídas reais de peças nos três turnos, com quantidade, custo, peça, OS e responsável. Registra o horário exato das novas baixas.' }
 ];
 
 function parametros() {
@@ -109,7 +113,7 @@ function parametros() {
     fim: document.getElementById('rFim').value
   });
   ['rVeiculo:veiculo_id', 'rMotorista:motorista_id', 'rFornecedor:fornecedor_id',
-   'rGrupo:grupo', 'rGrupoConsumo:grupo_consumo_id', 'rStatusPeca:status_peca'].forEach(par => {
+   'rGrupo:grupo', 'rPeca:peca_id', 'rGrupoConsumo:grupo_consumo_id', 'rStatusPeca:status_peca'].forEach(par => {
     const [campo, chave] = par.split(':');
     const v = document.getElementById(campo).value;
     if (v) p.set(chave, v);
@@ -315,6 +319,7 @@ if (botaoRestaurar) {
     preencher('rMotorista', 'motoristas'),
     preencher('rFornecedor', 'fornecedores'),
     preencher('rGrupoConsumo', 'grupos-consumo'),
+    preencher('rPeca', 'pecas'),
     preencherGrupos()
   ]);
 })();

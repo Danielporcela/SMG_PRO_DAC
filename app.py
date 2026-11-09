@@ -116,6 +116,7 @@ def criar_app(config=Config):
                                                      garantir_servicos_executados,
                                                      garantir_ultimo_acesso_usuario,
                                                      garantir_usuario_movimentos_estoque,
+                                                     garantir_horario_movimentos_estoque,
                                                      garantir_numero_os_movimentos_estoque,
                                                      garantir_grupos_consumo,
                                                      garantir_ferramentas,
@@ -135,6 +136,7 @@ def criar_app(config=Config):
         garantir_lavagens_financeiro()
         garantir_notas_fiscais_uniforme()
         garantir_usuario_movimentos_estoque()
+        garantir_horario_movimentos_estoque()
         garantir_numero_os_movimentos_estoque()
         garantir_grupos_consumo()
         garantir_campos_execucao_os()

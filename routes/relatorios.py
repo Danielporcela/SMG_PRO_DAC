@@ -1,7 +1,7 @@
 """Exportação de relatórios em PDF, Excel e CSV com filtros de período."""
 import csv
 import io
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from flask import Blueprint, jsonify, request, send_file
 from openpyxl import Workbook
@@ -34,6 +34,7 @@ TITULOS = {
     "pneus_movimentos": "Movimentação de pneus",
     "estoque": "Posição de estoque",
     "movimentos": "Movimentação de estoque",
+    "consumo_turnos": "Consumo de peças por turno",
     "lubrificantes": "Óleos e fluidos",
     "custos": "Custos por veículo",
     "custos_grupos": "Custos por grupo de consumo",
@@ -199,6 +200,73 @@ def montar_dados(relatorio):
                    round((m.quantidade or 0) * (m.custo_unitario or 0), 2),
                    m.documento or "—"]
                   for m in q.order_by(MovimentoEstoque.data).all()]
+
+    elif relatorio == "consumo_turnos":
+        # O relatório usa data_hora, gravada no instante da baixa. Movimentos
+        # históricos sem horário ficam explicitamente fora da comparação por turno.
+        q = (MovimentoEstoque.query
+             .filter(MovimentoEstoque.tipo == "saida",
+                     MovimentoEstoque.data.between(inicio, fim),
+                     MovimentoEstoque.data_hora.isnot(None)))
+        peca_id = request.args.get("peca_id", type=int)
+        if peca_id:
+            q = q.filter(MovimentoEstoque.peca_id == peca_id)
+        if grupo:
+            q = q.join(Peca, MovimentoEstoque.peca_id == Peca.id).filter(Peca.grupo == grupo)
+        movimentos = q.order_by(MovimentoEstoque.data_hora, MovimentoEstoque.id).all()
+        nomes_turnos = {1: "1º turno (06:01–14:20)",
+                        2: "2º turno (14:21–22:00)",
+                        3: "3º turno (22:01–06:00)"}
+        totais = {1: {}, 2: {}, 3: {}}
+        valores = {1: 0.0, 2: 0.0, 3: 0.0}
+        quantidades = {1: 0.0, 2: 0.0, 3: 0.0}
+        linhas = []
+        for m in movimentos:
+            hora = m.data_hora.time()
+            minutos = hora.hour * 60 + hora.minute
+            if 6 * 60 + 1 <= minutos <= 14 * 60 + 20:
+                turno = 1
+            elif 14 * 60 + 21 <= minutos <= 22 * 60:
+                turno = 2
+            else:
+                turno = 3
+            peca = m.peca
+            nome_peca = (f"{peca.codigo} - {peca.descricao}" if peca else "Peça não identificada")
+            qtd = float(m.quantidade or 0)
+            custo = float(m.custo_unitario or 0)
+            total = qtd * custo
+            chave = nome_peca
+            totais[turno][chave] = totais[turno].get(chave, 0.0) + qtd
+            valores[turno] += total
+            quantidades[turno] += qtd
+            os_numero = (m.ordem_servico.numero if m.ordem_servico and m.ordem_servico.numero
+                         else m.ordem_servico_numero or "—")
+            linhas.append([m.data_hora.strftime("%d/%m/%Y %H:%M"), nomes_turnos[turno],
+                           nome_peca, peca.grupo if peca else "—",
+                           round(qtd, 2), peca.unidade if peca else "—",
+                           round(custo, 2), round(total, 2),
+                           os_numero, m.usuario_nome or "—", m.documento or "—"])
+        # Acrescenta uma síntese por turno e peça antes do detalhamento cronológico.
+        resumo = []
+        for turno in (1, 2, 3):
+            resumo.append(["TOTAL DO TURNO", nomes_turnos[turno], "Todas as peças", "",
+                           round(quantidades[turno], 2), "", "", round(valores[turno], 2), "", "", ""])
+            for nome_peca, qtd in sorted(totais[turno].items(), key=lambda x: x[0].casefold()):
+                resumo.append(["RESUMO POR PEÇA", nomes_turnos[turno], nome_peca, "",
+                               round(qtd, 2), "", "", "", "", "", ""])
+        cab = ["Tipo de registro / Data e hora", "Turno", "Peça", "Grupo", "Quantidade", "Un.",
+               "Custo unit. R$", "Total R$", "OS", "Responsável", "Documento"]
+        # Registros antigos sem data_hora não podem ser atribuídos a um turno.
+        sem_horario = (MovimentoEstoque.query
+                       .filter(MovimentoEstoque.tipo == "saida",
+                               MovimentoEstoque.data.between(inicio, fim),
+                               MovimentoEstoque.data_hora.is_(None)).count())
+        if sem_horario:
+            resumo.append(["AVISO", "Histórico",
+                           f"{sem_horario} saída(s) antiga(s) sem horário; não classificadas",
+                           "", "", "", "", "", "", "", ""])
+        # Síntese comparativa no início e, em seguida, cada baixa individual.
+        linhas = resumo + linhas
 
     elif relatorio == "lubrificantes":
         # Entradas e saídas de óleos, fluidos (hidráulico, freio, ATF), graxas e
@@ -482,7 +550,9 @@ def exportar_pdf(relatorio):
     corpo = linhas if linhas else [[mensagem_vazia] + [""] * (len(cab) - 1)]
     dados = [[_celula(c, st_cab) for c in cab]]
     for linha in corpo:
-        total = bool(linha) and str(linha[0]) == "TOTAL"
+        total = bool(linha) and (str(linha[0]).startswith("TOTAL")
+                                 or str(linha[0]).startswith("RESUMO")
+                                 or str(linha[0]) == "AVISO")
         dados.append([_celula(c, st_tot if total else st_cel) for c in linha])
 
     # Larguras proporcionais ao conteúdo, ajustadas à largura útil da página
@@ -511,8 +581,13 @@ def exportar_pdf(relatorio):
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
+    if relatorio == "consumo_turnos":
+        quantidade_registros = sum(1 for l in linhas if l and str(l[0]) not in
+                                   ("TOTAL DO TURNO", "RESUMO POR PEÇA", "AVISO"))
+    else:
+        quantidade_registros = len([l for l in linhas if not (l and str(l[0]) == "TOTAL")])
     elementos += [tabela, Spacer(1, 10),
-                  Paragraph(f"{len([l for l in linhas if not (l and str(l[0]) == 'TOTAL')])} registro(s) · Sistema de Gestão de Manutenção de Frotas",
+                  Paragraph(f"{quantidade_registros} registro(s) · Sistema de Gestão de Manutenção de Frotas",
                             estilos["Italic"])]
     doc.build(elementos)
     saida.seek(0)
