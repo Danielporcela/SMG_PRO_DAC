@@ -5,7 +5,8 @@ from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
-                    NotaFiscal, NotaFiscalUniforme, OrdemCompra, OrdemServico, ParcelaNotaFiscal, ParcelaNotaFiscalUniforme, Peca)
+                    NotaFiscal, NotaFiscalCombustivel, NotaFiscalUniforme, OrdemCompra, OrdemServico,
+                    ParcelaNotaFiscal, ParcelaNotaFiscalUniforme, Peca, ServicoTerceiro)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
@@ -670,10 +671,8 @@ def parcelas_a_vencer():
         q = q.filter(ParcelaNotaFiscal.data_vencimento == data) if modo == "na" \
             else q.filter(ParcelaNotaFiscal.data_vencimento <= data)
 
-    # Totais sobre tudo que casa com o filtro; a lista é limitada só para não pesar a tela.
-    limite = 500
-    total_parcelas = q.count()
-    parcelas = q.order_by(ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id).limit(limite).all()
+    # A conferência financeira precisa exibir todos os registros do período.
+    parcelas = q.order_by(ParcelaNotaFiscal.data_vencimento, ParcelaNotaFiscal.id).all()
     soma = (q.with_entities(db.func.coalesce(db.func.sum(ParcelaNotaFiscal.valor), 0)).scalar()) or 0
 
     itens = []
@@ -706,16 +705,63 @@ def parcelas_a_vencer():
         d["vencida"] = parcela.data_vencimento < base
         itens_uniformes.append(d)
     itens.extend(itens_uniformes)
-    itens.sort(key=lambda x: (x.get("data_vencimento") or "", x.get("id") or 0))
-    total_parcelas += len(itens_uniformes)
-    soma += sum(float(x.get("valor") or 0) for x in itens_uniformes)
+
+    # Outras abas também registram despesas com vencimento. Elas entram no
+    # mesmo painel financeiro, sem criar cópias nem alterar os lançamentos de origem.
+    def dentro_do_periodo(vencimento):
+        if not vencimento:
+            return False
+        if inicio or fim:
+            if fim and vencimento > fim:
+                return False
+            if inicio and not incluir_vencidas and vencimento < inicio:
+                return False
+            return True
+        return vencimento == data if modo == "na" else vencimento <= data
+
+    servicos = (ServicoTerceiro.query
+                .filter(ServicoTerceiro.vencimento.isnot(None),
+                        ServicoTerceiro.status_financeiro != "Pago").all())
+    for servico in servicos:
+        if not dentro_do_periodo(servico.vencimento):
+            continue
+        venc = servico.vencimento
+        itens.append({
+            "id": servico.id, "nota_fiscal_id": None, "numero": 1,
+            "total_parcelas": 1, "data_vencimento": venc.isoformat(),
+            "valor": servico.valor or 0, "pago": False,
+            "nota": servico.identificacao if hasattr(servico, "identificacao") else
+                    f"{servico.descricao} · {servico.prestador}",
+            "fornecedor_nome": servico.prestador, "origem": "Serviços de terceiros",
+            "dias": (venc - base).days, "vencida": venc < base,
+        })
+
+    notas_combustivel = NotaFiscalCombustivel.query.filter(
+        NotaFiscalCombustivel.vencimento.isnot(None)).all()
+    for nota_comb in notas_combustivel:
+        if not dentro_do_periodo(nota_comb.vencimento):
+            continue
+        venc = nota_comb.vencimento
+        itens.append({
+            "id": nota_comb.id, "nota_fiscal_id": None, "numero": 1,
+            "total_parcelas": 1, "data_vencimento": venc.isoformat(),
+            "valor": nota_comb.valor_total or 0, "pago": False,
+            "nota": f"NF Combustível {nota_comb.numero_nf}",
+            "fornecedor_nome": nota_comb.fornecedor.nome if nota_comb.fornecedor else "—",
+            "origem": "Combustível", "dias": (venc - base).days,
+            "vencida": venc < base,
+        })
+
+    itens.sort(key=lambda x: (x.get("data_vencimento") or "", x.get("origem") or "", x.get("id") or 0))
+    total_parcelas = len(itens)
+    soma = sum(float(x.get("valor") or 0) for x in itens)
 
     return jsonify({
         "modo": modo,
         "inicio": inicio.isoformat() if inicio else None,
         "fim": fim.isoformat() if fim else None,
         "data": data.isoformat() if data else None,
-        "qtd": total_parcelas,
+        "qtd": len(itens),
         "exibidas": len(itens),
         "total": round(float(soma), 2),
         "itens": itens,

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block titulo %}Boletos a vencer{% endblock %}
 {% block cabecalho %}Boletos a vencer{% endblock %}
-{% block descricao %}Parcelas (boletos) das notas fiscais que ainda não foram pagas, por período de vencimento.{% endblock %}
+{% block descricao %}Conferência centralizada dos boletos e despesas com vencimento lançados nos módulos do sistema.{% endblock %}
 
 {% block conteudo %}
 <div class="cartao">
@@ -109,23 +109,23 @@
 
     area.innerHTML = `<table id="tabelaBoletos" class="table table-hover align-middle mb-0" style="width:100%">
       <thead><tr>
-        <th>Vencimento</th><th>Situação</th><th>Fornecedor</th><th>Nota</th>
+        <th>Vencimento</th><th>Situação</th><th>Origem</th><th>Fornecedor</th><th>Documento / Nota</th>
         <th class="text-center">Parcela</th><th class="text-end">Valor</th><th class="col-acao"></th>
       </tr></thead>
       <tbody>${itens.map((p) => `<tr>
         <td><strong>${SGMF.data(p.data_vencimento)}</strong></td>
         <td>${situacao(p)}</td>
+        <td>${SGMF.esc(p.origem || 'Notas fiscais / estoque')}</td>
         <td>${SGMF.esc(p.fornecedor_nome) || '—'}</td>
         <td>${SGMF.esc(p.nota) || '—'}</td>
-        <td class="text-center">${p.numero}/${p.total_parcelas}</td>
+        <td class="text-center">${p.numero || 1}/${p.total_parcelas || 1}</td>
         <td class="text-end">${SGMF.moeda(p.valor)}</td>
         <td class="col-acao text-end text-nowrap">
-          <a class="btn btn-outline-primary btn-sm" href="/notas-fiscais?nota=${encodeURIComponent(p.nota_fiscal_id)}&voltar=${encodeURIComponent(location.pathname + location.search)}"
-             title="Abrir a nota desta compra"><i class="fa-solid fa-eye me-1"></i>Ver</a>
+          ${p.nota_fiscal_id && p.origem !== 'uniformes' ? `<a class="btn btn-outline-primary btn-sm" href="/notas-fiscais?nota=${encodeURIComponent(p.nota_fiscal_id)}&voltar=${encodeURIComponent(location.pathname + location.search)}" title="Abrir a nota desta compra"><i class="fa-solid fa-eye me-1"></i>Ver</a>` : '—'}
         </td>
       </tr>`).join('')}</tbody>
       <tfoot><tr>
-        <th colspan="5" class="text-end">Total (${itens.length} parcela${itens.length > 1 ? 's' : ''})</th>
+        <th colspan="6" class="text-end">Total (${itens.length} parcela${itens.length > 1 ? 's' : ''})</th>
         <th class="text-end">${SGMF.moeda(total)}</th><th class="col-acao"></th>
       </tr></tfoot>
     </table>`;
