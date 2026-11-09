@@ -202,51 +202,67 @@ def montar_dados(relatorio):
                   for m in q.order_by(MovimentoEstoque.data).all()]
 
     elif relatorio == "consumo_turnos":
-        # O relatório usa data_hora, gravada no instante da baixa. Movimentos
-        # históricos sem horário ficam explicitamente fora da comparação por turno.
-        q = (MovimentoEstoque.query
-             .filter(MovimentoEstoque.tipo == "saida",
-                     MovimentoEstoque.data.between(inicio, fim),
-                     MovimentoEstoque.data_hora.isnot(None)))
+        # Inclui todo o histórico no período solicitado. O horário somente
+        # existe nos lançamentos novos; nunca atribuímos turnos fictícios.
+        from sqlalchemy import and_, or_
+        q = MovimentoEstoque.query.filter(
+            MovimentoEstoque.tipo == "saida",
+            or_(
+                and_(MovimentoEstoque.data_hora.isnot(None),
+                     MovimentoEstoque.data_hora >= datetime.combine(inicio, time.min),
+                     MovimentoEstoque.data_hora < datetime.combine(fim + timedelta(days=1), time.min)),
+                and_(MovimentoEstoque.data_hora.is_(None),
+                     MovimentoEstoque.data.between(inicio, fim)),
+            ),
+        )
         peca_id = request.args.get("peca_id", type=int)
         if peca_id:
             q = q.filter(MovimentoEstoque.peca_id == peca_id)
         if grupo:
             q = q.join(Peca, MovimentoEstoque.peca_id == Peca.id).filter(Peca.grupo == grupo)
-        movimentos = q.order_by(MovimentoEstoque.data_hora, MovimentoEstoque.id).all()
+        movimentos = q.order_by(MovimentoEstoque.data, MovimentoEstoque.id).all()
         nomes_turnos = {1: "1º turno (06:01–14:20)",
                         2: "2º turno (14:21–22:00)",
                         3: "3º turno (22:01–06:00)"}
         totais = {1: {}, 2: {}, 3: {}}
         valores = {1: 0.0, 2: 0.0, 3: 0.0}
         quantidades = {1: 0.0, 2: 0.0, 3: 0.0}
-        linhas = []
+        historico = []
+        historico_quantidade = historico_valor = 0.0
+        detalhes = []
         for m in movimentos:
-            hora = m.data_hora.time()
-            minutos = hora.hour * 60 + hora.minute
-            if 6 * 60 + 1 <= minutos <= 14 * 60 + 20:
-                turno = 1
-            elif 14 * 60 + 21 <= minutos <= 22 * 60:
-                turno = 2
-            else:
-                turno = 3
             peca = m.peca
-            nome_peca = (f"{peca.codigo} - {peca.descricao}" if peca else "Peça não identificada")
+            nome_peca = f"{peca.codigo} - {peca.descricao}" if peca else "Peça não identificada"
             qtd = float(m.quantidade or 0)
             custo = float(m.custo_unitario or 0)
             total = qtd * custo
-            chave = nome_peca
-            totais[turno][chave] = totais[turno].get(chave, 0.0) + qtd
-            valores[turno] += total
-            quantidades[turno] += qtd
             os_numero = (m.ordem_servico.numero if m.ordem_servico and m.ordem_servico.numero
                          else m.ordem_servico_numero or "—")
-            linhas.append([m.data_hora.strftime("%d/%m/%Y %H:%M"), nomes_turnos[turno],
-                           nome_peca, peca.grupo if peca else "—",
-                           round(qtd, 2), peca.unidade if peca else "—",
-                           round(custo, 2), round(total, 2),
-                           os_numero, m.usuario_nome or "—", m.documento or "—"])
-        # Acrescenta uma síntese por turno e peça antes do detalhamento cronológico.
+            if m.data_hora is None:
+                historico_quantidade += qtd
+                historico_valor += total
+                historico.append([m.data.strftime("%d/%m/%Y") if m.data else "Sem data",
+                                  "Histórico sem horário", nome_peca,
+                                  peca.grupo if peca else "—", round(qtd, 2),
+                                  peca.unidade if peca else "—", round(custo, 2),
+                                  round(total, 2), os_numero,
+                                  m.usuario_nome or "—", m.documento or "—"])
+                continue
+            minutos = m.data_hora.hour * 60 + m.data_hora.minute
+            if 361 <= minutos <= 860:
+                turno = 1
+            elif 861 <= minutos <= 1320:
+                turno = 2
+            else:
+                turno = 3
+            totais[turno][nome_peca] = totais[turno].get(nome_peca, 0.0) + qtd
+            valores[turno] += total
+            quantidades[turno] += qtd
+            detalhes.append([m.data_hora.strftime("%d/%m/%Y %H:%M"), nomes_turnos[turno],
+                             nome_peca, peca.grupo if peca else "—", round(qtd, 2),
+                             peca.unidade if peca else "—", round(custo, 2),
+                             round(total, 2), os_numero, m.usuario_nome or "—",
+                             m.documento or "—"])
         resumo = []
         for turno in (1, 2, 3):
             resumo.append(["TOTAL DO TURNO", nomes_turnos[turno], "Todas as peças", "",
@@ -254,19 +270,13 @@ def montar_dados(relatorio):
             for nome_peca, qtd in sorted(totais[turno].items(), key=lambda x: x[0].casefold()):
                 resumo.append(["RESUMO POR PEÇA", nomes_turnos[turno], nome_peca, "",
                                round(qtd, 2), "", "", "", "", "", ""])
+        if historico:
+            resumo.append(["TOTAL HISTÓRICO", "Sem horário", f"{len(historico)} saídas não classificáveis",
+                           "", round(historico_quantidade, 2), "", "",
+                           round(historico_valor, 2), "", "", ""])
         cab = ["Tipo de registro / Data e hora", "Turno", "Peça", "Grupo", "Quantidade", "Un.",
                "Custo unit. R$", "Total R$", "OS", "Responsável", "Documento"]
-        # Registros antigos sem data_hora não podem ser atribuídos a um turno.
-        sem_horario = (MovimentoEstoque.query
-                       .filter(MovimentoEstoque.tipo == "saida",
-                               MovimentoEstoque.data.between(inicio, fim),
-                               MovimentoEstoque.data_hora.is_(None)).count())
-        if sem_horario:
-            resumo.append(["AVISO", "Histórico",
-                           f"{sem_horario} saída(s) antiga(s) sem horário; não classificadas",
-                           "", "", "", "", "", "", "", ""])
-        # Síntese comparativa no início e, em seguida, cada baixa individual.
-        linhas = resumo + linhas
+        linhas = resumo + detalhes + historico
 
     elif relatorio == "lubrificantes":
         # Entradas e saídas de óleos, fluidos (hidráulico, freio, ATF), graxas e
@@ -583,7 +593,7 @@ def exportar_pdf(relatorio):
     ]))
     if relatorio == "consumo_turnos":
         quantidade_registros = sum(1 for l in linhas if l and str(l[0]) not in
-                                   ("TOTAL DO TURNO", "RESUMO POR PEÇA", "AVISO"))
+                                   ("TOTAL DO TURNO", "RESUMO POR PEÇA", "TOTAL HISTÓRICO", "AVISO"))
     else:
         quantidade_registros = len([l for l in linhas if not (l and str(l[0]) == "TOTAL")])
     elementos += [tabela, Spacer(1, 10),
