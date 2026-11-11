@@ -1232,23 +1232,27 @@ def controle_pneus_editar(pneu_id):
 
 # -------------------------------------------------------- Módulo 11: estoque
 def _verificar_peca_duplicada(obj, anterior):
-    """Bloqueia o cadastro/edição quando já existe outra peça com o mesmo
-    nome (descrição) ou o mesmo código. A comparação de nome ignora
-    maiúsculas/minúsculas e espaços nas pontas, para pegar duplicidade real
-    ('Filtro de óleo' vs 'filtro de óleo ').
+    """Permite repetir a descrição somente quando Referência estiver preenchida.
+
+    A comparação ignora maiúsculas/minúsculas e espaços nas pontas. O código
+    continua único, independentemente da referência informada.
     """
     from sqlalchemy import func
 
     descricao = (obj.descricao or "").strip()
+    referencia = (obj.referencia or "").strip()
+    obj.referencia = referencia or None
     if descricao:
-        conflito_desc = Peca.query.filter(func.lower(Peca.descricao) == descricao.lower())
+        conflito_desc = Peca.query.filter(
+            func.lower(func.trim(Peca.descricao)) == descricao.lower())
         if anterior is not None:
             conflito_desc = conflito_desc.filter(Peca.id != obj.id)
         conflito_desc = conflito_desc.first()
-        if conflito_desc:
+        if conflito_desc and not referencia:
             raise ErroNegocio(
-                f"Já existe uma peça cadastrada com este nome: '{conflito_desc.descricao}' "
-                f"(código {conflito_desc.codigo}). Verifique antes de cadastrar novamente.")
+                f"Já existe uma peça cadastrada com o nome '{conflito_desc.descricao}' "
+                f"(código {conflito_desc.codigo}). Para cadastrar outra peça com o mesmo nome, "
+                "preencha o campo Referência.")
 
     codigo = (obj.codigo or "").strip()
     if codigo:
@@ -1267,8 +1271,8 @@ def _antes_peca(obj, dados, anterior):
     ignorando qualquer valor enviado pela tela — o campo fica travado lá.
     Em edição, o código não muda.
 
-    Antes de gerar/gravar, verifica duplicidade de nome ou código para não
-    deixar duas peças cadastradas como a mesma coisa.
+    Antes de gerar/gravar, permite nome repetido somente com Referência
+    preenchida e mantém o código sempre único.
     """
     _verificar_peca_duplicada(obj, anterior)
     if anterior is None:
