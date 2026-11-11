@@ -40,6 +40,7 @@ TELAS_SISTEMA = [
     ("motoristas", "Motoristas", "Cadastros"),
     ("fornecedores", "Oficinas e postos", "Cadastros"),
     ("estoque", "Estoque de peças", "Cadastros"),
+    ("notas_fiscais", "Lançamento de notas", "Financeiro"),
     ("grupos", "Grupos de peças", "Cadastros"),
     ("importacao", "Importar planilha", "Cadastros"),
     ("orcamento", "Meta x realizado", "Gestão"),
@@ -76,7 +77,7 @@ CARGOS_SUGERIDOS = {
     "Almoxarifado": {
         "perfil": "restrito",
         "permissoes": {
-            "dashboard": "visualizar", "estoque": "editar", "fornecedores": "editar",
+            "dashboard": "visualizar", "estoque": "editar", "notas_fiscais": "editar", "fornecedores": "editar",
             "manutencao": "editar", "pneus": "visualizar", "veiculos": "visualizar",
             "importacao": "editar", "relatorios": "visualizar", "compras": "editar",
             "grupos": "editar", "grupos_consumo": "editar",
@@ -90,6 +91,7 @@ CARGOS_SUGERIDOS = {
         "perfil": "restrito",
         "permissoes": {
             "dashboard": "visualizar", "compras": "editar", "estoque": "visualizar",
+            "notas_fiscais": "visualizar",
             "fornecedores": "visualizar", "relatorios": "visualizar",
             "orcamento": "visualizar", "grupos_consumo": "visualizar",
         },
@@ -523,9 +525,6 @@ class MovimentoEstoque(db.Model):
     __tablename__ = "movimentos_estoque"
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Date, default=_hoje)
-    # Horário local exato do movimento: necessário para classificar consumo por turno.
-    # Registros antigos permanecem NULL e não recebem horário inventado.
-    data_hora = db.Column(db.DateTime, default=lambda: _agora().replace(tzinfo=None), index=True)
     peca_id = db.Column(db.Integer, db.ForeignKey("pecas.id"), nullable=False)
     tipo = db.Column(db.String(10), default="entrada")  # entrada | saida | ajuste
     quantidade = db.Column(db.Float, default=0)
@@ -544,7 +543,6 @@ class MovimentoEstoque(db.Model):
 
     def to_dict(self):
         return {"id": self.id, "data": self.data.isoformat() if self.data else None,
-                "data_hora": self.data_hora.isoformat(sep=" ", timespec="seconds") if self.data_hora else None,
                 "peca_id": self.peca_id,
                 "peca_descricao": f"{self.peca.codigo} · {self.peca.descricao}" if self.peca else None,
                 "tipo": self.tipo, "quantidade": self.quantidade,

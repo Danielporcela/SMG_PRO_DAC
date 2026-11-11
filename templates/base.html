@@ -31,7 +31,7 @@
     {% if pode('manutencao') and not is_cco %}<a href="{{ url_for('paginas.servicos_terceiros', novo=1) }}" class="{{ 'ativo' if pagina == 'servicos_terceiros' }}"><i class="fa-solid fa-plus-circle"></i> Lançar serviço terceiro</a>{% endif %}
     {% if pode('manutencao') and not is_cco %}<a href="{{ url_for('paginas.lavagem', novo=1) }}" class="{{ 'ativo' if pagina == 'lavagem' }}"><i class="fa-solid fa-soap"></i> Lavagem</a>{% endif %}
     {% if pode('compras') %}<a href="/compras" class="{{ 'ativo' if pagina == 'compras' }}"><i class="fa-solid fa-cart-shopping"></i> Ordens de compra</a>{% endif %}
-    {% if pode('estoque') %}<a href="{{ url_for('paginas.notas_fiscais') }}" class="{{ 'ativo' if pagina == 'notas_fiscais' }}"><i class="fa-solid fa-file-invoice"></i> Lançamento de notas</a>{% endif %}
+    {% if pode('notas_fiscais') %}<a href="{{ url_for('paginas.notas_fiscais') }}" class="{{ 'ativo' if pagina == 'notas_fiscais' }}"><i class="fa-solid fa-file-invoice"></i> Lançamento de notas</a>{% endif %}
     {% if pode('estoque') %}<a href="{{ url_for('paginas.boletos') }}" class="{{ 'ativo' if pagina == 'boletos' }}"><i class="fa-solid fa-barcode"></i> Boletos a vencer</a>{% endif %}
     {% if pode('combustivel') %}<a href="{{ url_for('paginas.combustivel') }}" class="{{ 'ativo' if pagina == 'combustivel' }}"><i class="fa-solid fa-gas-pump"></i> Abastecimentos</a>{% endif %}
     {% if pode('pneus') %}<a href="{{ url_for('paginas.pneus') }}" class="{{ 'ativo' if pagina == 'pneus' }}"><i class="fa-solid fa-circle-dot"></i> Pneus</a>{% endif %}

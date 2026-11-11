@@ -25,3 +25,4 @@ OneDrive/
 # as migrações FAZEM parte do projeto e devem ir para o repositório
 !migrations/
 !migrations/versions/
+SGMF_Pro_DAC/

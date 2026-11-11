@@ -104,12 +104,11 @@ _tela("/pneus", "pneus.html", "pneus")
 _tela("/grupos-consumo", "grupos_consumo.html", "grupos_consumo")
 _tela("/ferramentas-caminhoes", "ferramentas_caminhoes.html", "ferramentas_caminhoes")
 _tela("/estoque", "estoque.html", "estoque")
-# Lançamento de notas fiscais de entrada: tela própria no menu lateral, com a
-# mesma permissão do estoque (a API de notas já usa a tela "estoque").
+# Lançamento de notas fiscais possui permissão própria, independente do estoque.
 
 
 @bp_paginas.get("/notas-fiscais")
-@exige_tela("estoque")
+@exige_tela("notas_fiscais")
 def notas_fiscais():
     return render_template("notas_fiscais.html", pagina="notas_fiscais")
 
