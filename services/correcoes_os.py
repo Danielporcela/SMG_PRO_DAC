@@ -106,9 +106,15 @@ def _pneus_em_uso(veiculo_id):
 
 def posicoes_do_veiculo(veiculo_id: int | None):
     ocupados = _pneus_em_uso(veiculo_id)
+    veiculo = db.session.get(Veiculo, veiculo_id) if veiculo_id else None
+    # Caminhões com um eixo traseiro usam somente o eixo de tração.
+    # O eixo truck (segundo eixo traseiro) só aparece quando o cadastro
+    # do veículo informa eixos_traseiros = 2.
+    eixos_traseiros = int(getattr(veiculo, "eixos_traseiros", 1) or 1)
+    posicoes_veiculo = [p for p in POSICOES if p["eixo"] != EIXO_TRUCK or eixos_traseiros >= 2]
 
     retorno = []
-    for posicao in POSICOES:
+    for posicao in posicoes_veiculo:
         nome = posicao["valor"]
         atual = ocupados.get(nome)
         retorno.append({
@@ -138,11 +144,11 @@ def _montar_descricao(base, identificacao):
 
 
 def aplicar_posicao_pneu(item: ItemOS, posicao: str, numero_fogo: str | None = None):
-    """Registra a posição e baixa o pneu antigo daquela posição.
+    """Instala um pneu já cadastrado e disponível no estoque na posição da OS.
 
-    Não exclui registros. O pneu retirado permanece no banco como Descartado e
-    o ItemOS mantém a referência em pneu_substituido_id. Quando o número de
-    fogo é informado, o pneu novo entra em uso naquela posição.
+    Não cria pneus automaticamente: o número de fogo precisa existir no módulo
+    de pneus e estar com status Estoque. O pneu retirado volta ao estoque e fica
+    referenciado no histórico da OS.
     """
     valor = normalizar_posicao(posicao)
     if valor is None:
@@ -151,59 +157,55 @@ def aplicar_posicao_pneu(item: ItemOS, posicao: str, numero_fogo: str | None = N
         raise ValueError("O item selecionado não foi identificado como pneu.")
     if item.ordem is None or item.ordem.veiculo_id is None:
         raise ValueError("A ordem de serviço precisa estar vinculada a um veículo.")
-
-    # O fluxo de correção trabalha apenas com itens ainda sem posição. Isso
-    # evita alterar uma substituição histórica já registrada.
-    if item.posicao_pneu and normalizar_posicao(item.posicao_pneu) != valor:
-        raise ValueError("Este pneu já possui posição registrada na ordem de serviço.")
+    if item.pneu_id:
+        raise ValueError("Este item da OS já está vinculado a um pneu instalado.")
 
     fogo = str(numero_fogo or "").strip()
+    if not fogo:
+        raise ValueError("Selecione o número de fogo do pneu entregue pelo almoxarifado.")
+    pneu_novo = Pneu.query.filter(Pneu.numero_fogo == fogo).with_for_update().first()
+    if pneu_novo is None:
+        raise ValueError(f"O pneu {fogo} não está cadastrado no sistema. Cadastre-o no estoque antes de lançar na OS.")
+    if pneu_novo.status != "Estoque":
+        if pneu_novo.status == "Em uso":
+            raise ValueError(f"O pneu {fogo} já está instalado na frota {pneu_novo.veiculo.prefixo if pneu_novo.veiculo else ''}.")
+        raise ValueError(f"O pneu {fogo} não está disponível no estoque (status atual: {pneu_novo.status or 'não informado'}).")
+
     veiculo_id = item.ordem.veiculo_id
-
-    # 1. Pneu que sai desta posição
     pneu_antigo = _pneus_em_uso(veiculo_id).get(valor)
-    if pneu_antigo is not None and fogo and pneu_antigo.numero_fogo == fogo:
-        # É o mesmo pneu: não há substituição a registrar.
-        pneu_antigo = None
+    if pneu_antigo and pneu_antigo.id == pneu_novo.id:
+        raise ValueError("O pneu selecionado já ocupa esta posição.")
 
-    if pneu_antigo is not None:
+    # O pneu retirado permanece cadastrado e retorna ao estoque para avaliação.
+    if pneu_antigo:
         item.pneu_substituido_id = pneu_antigo.id
-        pneu_antigo.status = "Descartado"
-        # Mantemos veículo e posição no histórico do pneu antigo.
-        if pneu_antigo.data_medicao is None:
-            pneu_antigo.data_medicao = hoje()
+        pneu_antigo.status = "Estoque"
+        pneu_antigo.veiculo_id = None
+        pneu_antigo.posicao = None
 
-    # 2. Pneu que entra
-    pneu_novo = None
-    if fogo:
-        pneu_novo = Pneu.query.filter(Pneu.numero_fogo == fogo).first()
-        if pneu_novo is None:
-            pneu_novo = Pneu(numero_fogo=fogo, vida="Novo", sulco_mm=0, custo=0)
-            db.session.add(pneu_novo)
-        pneu_novo.veiculo_id = veiculo_id
-        pneu_novo.posicao = valor
-        pneu_novo.status = "Em uso"
-        pneu_novo.data_instalacao = hoje()
-        pneu_novo.data_medicao = hoje()
-        veiculo = db.session.get(Veiculo, veiculo_id)
-        if veiculo is not None:
-            pneu_novo.km_instalacao = veiculo.hodometro or 0
+    pneu_novo.veiculo_id = veiculo_id
+    pneu_novo.posicao = valor
+    pneu_novo.status = "Em uso"
+    pneu_novo.data_instalacao = hoje()
+    pneu_novo.data_medicao = hoje()
+    veiculo = db.session.get(Veiculo, veiculo_id)
+    if veiculo is not None:
+        pneu_novo.km_instalacao = veiculo.hodometro or 0
 
-    # 3. Item da ordem de serviço
     identificacao = montar_identificacao(valor, fogo)
+    item.pneu_id = pneu_novo.id
     item.posicao_pneu = valor
     item.descricao = _montar_descricao(item.descricao, identificacao)
-
     db.session.commit()
 
     return {
         "item_id": item.id,
         "ordem_servico_id": item.ordem_servico_id,
         "posicao": valor,
-        "numero_fogo": fogo or None,
+        "numero_fogo": fogo,
         "identificacao": identificacao,
         "descricao": item.descricao,
-        "pneu_id": pneu_novo.id if pneu_novo else None,
+        "pneu_id": pneu_novo.id,
         "pneu_substituido_id": pneu_antigo.id if pneu_antigo else None,
         "pneu_substituido": pneu_antigo.numero_fogo if pneu_antigo else None,
     }

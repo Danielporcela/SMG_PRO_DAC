@@ -122,7 +122,8 @@ def criar_app(config=Config):
                                                      garantir_ferramentas,
                                                      garantir_ferramentas_veiculo,
                                                      garantir_campos_ordens_servico,
-                                                     garantir_campos_controle_pneus)
+                                                     garantir_campos_controle_pneus,
+                                                     garantir_vinculo_pneu_item_os)
         garantir_consumo_diario()
         garantir_estoque_combustivel()
         garantir_ordens_compra()
@@ -143,6 +144,7 @@ def criar_app(config=Config):
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
         garantir_campos_controle_pneus()
+        garantir_vinculo_pneu_item_os()
         garantir_ferramentas()
         garantir_ferramentas_veiculo()
         from services.relatorio_acesso import garantir_tabela_acessos_login

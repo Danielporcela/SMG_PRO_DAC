@@ -62,7 +62,7 @@ def _antes_veiculo(obj, dados, anterior):
 registrar_crud(
     bp_api, "veiculos", Veiculo,
     campos={"prefixo": "str", "placa": "str", "marca": "str", "modelo": "str",
-            "ano": "int", "tipo": "str", "combustivel": "str", "centro_custo": "str",
+            "ano": "int", "tipo": "str", "eixos_traseiros": "int", "combustivel": "str", "centro_custo": "str",
             "setor": "str", "hodometro": "float", "horimetro": "float", "situacao": "str",
             "km_ultima_troca_oleo": "float", "intervalo_troca_oleo": "float",
             "data_ultima_preventiva": "date", "intervalo_preventiva_dias": "int",
@@ -653,7 +653,23 @@ def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
     try:
-        devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
+        # Se o item representa um pneu individual instalado, desfazemos a
+        # instalação antes de excluir a linha da OS: o pneu novo volta ao
+        # estoque e o pneu substituído retorna à posição anterior.
+        if getattr(item, "pneu_id", None):
+            from models import Pneu
+            pneu_novo = db.session.get(Pneu, item.pneu_id)
+            if pneu_novo:
+                pneu_novo.status = "Estoque"
+                pneu_novo.veiculo_id = None
+                pneu_novo.posicao = None
+            if item.pneu_substituido_id:
+                pneu_antigo = db.session.get(Pneu, item.pneu_substituido_id)
+                if pneu_antigo:
+                    pneu_antigo.status = "Em uso"
+                    pneu_antigo.veiculo_id = ordem.veiculo_id
+                    pneu_antigo.posicao = item.posicao_pneu
+        devolver_item_os(item)        # devolve também a peça-base ao estoque, se baixada
         db.session.delete(item)
         db.session.commit()
     except ErroNegocio as e:

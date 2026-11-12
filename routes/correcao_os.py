@@ -8,7 +8,7 @@ from __future__ import annotations
 from flask import Blueprint, Response, jsonify, request, session
 
 from extensions import db
-from models import ItemOS, OrdemServico
+from models import ItemOS, OrdemServico, Pneu
 from services.alertas import listar_alertas_ativos, sincronizar_estados
 from services.correcoes_os import (
     aplicar_posicao_pneu,
@@ -51,6 +51,8 @@ def pneus_pendentes():
              .filter(ItemOS.posicao_pneu.is_(None))
              .order_by(ItemOS.id.desc()).limit(100).all())
 
+    pneus_estoque = [{"id": p.id, "numero_fogo": p.numero_fogo, "marca": p.marca, "medida": p.medida}
+                     for p in Pneu.query.filter_by(status="Estoque").order_by(Pneu.numero_fogo).all()]
     dados = []
     for item in itens:
         if not eh_item_pneu(item):
@@ -66,6 +68,7 @@ def pneus_pendentes():
             "descricao": item.descricao or (item.peca.descricao if item.peca else "Pneu"),
             "peca_id": item.peca_id,
             "posicoes": posicoes_do_veiculo(os_obj.veiculo_id if os_obj else None),
+            "pneus_estoque": pneus_estoque,
         })
     return jsonify({"itens": dados, "total": len(dados)})
 
@@ -78,6 +81,9 @@ def definir_posicao(item_id):
     item = db.session.get(ItemOS, item_id)
     if item is None:
         return jsonify({"erro": "Item da ordem de serviço não encontrado."}), 404
+
+    if item.ordem and item.ordem.status == "Finalizada":
+        return jsonify({"erro": "A OS está finalizada e não aceita instalação de pneus."}), 400
 
     dados = request.get_json(silent=True) or request.form
     posicao = str(dados.get("posicao") or "").strip()
@@ -204,7 +210,7 @@ PATCH_JS = r'''
           <div class="modal-body">
             <p style="font-size:13px;color:var(--texto-suave)" class="mb-3">
               Escolha o eixo e a posição em que o pneu foi instalado e informe o número de fogo.
-              O pneu que estava nessa posição fica preservado no histórico como descartado.
+              O pneu retirado retorna ao estoque para avaliação; o número de fogo instalado precisa estar cadastrado e disponível.
             </p>
             <div id="${idModal}_lista"></div>
           </div>
@@ -243,10 +249,16 @@ PATCH_JS = r'''
       colPos.appendChild(sel);
 
       const colFogo = document.createElement('div'); colFogo.className = 'col-md-4';
-      colFogo.innerHTML = '<label class="form-label" style="font-size:12px">Nº de fogo do pneu</label>';
-      const fogo = document.createElement('input');
-      fogo.type = 'text'; fogo.className = 'form-control'; fogo.placeholder = 'ex.: 3456'; fogo.maxLength = 30;
+      colFogo.innerHTML = '<label class="form-label" style="font-size:12px">Pneu disponível no estoque · nº de fogo</label>';
+      const fogo = document.createElement('select'); fogo.className = 'form-select';
+      fogo.innerHTML = '<option value="">Selecione o pneu cadastrado</option>' +
+        (reg.pneus_estoque || []).map(p => `<option value="${escapar(p.numero_fogo)}">${escapar(p.numero_fogo)}${p.marca ? ' · ' + escapar(p.marca) : ''}${p.medida ? ' · ' + escapar(p.medida) : ''}</option>`).join('');
       colFogo.appendChild(fogo);
+      if (!(reg.pneus_estoque || []).length) {
+        const aviso = document.createElement('small'); aviso.className = 'text-danger d-block mt-1';
+        aviso.textContent = 'Não há pneus cadastrados com status Estoque. Cadastre/regularize o pneu antes de lançar na OS.';
+        colFogo.appendChild(aviso);
+      }
 
       const colBotao = document.createElement('div'); colBotao.className = 'col-md-2';
       const aplicar = document.createElement('button');
@@ -264,15 +276,16 @@ PATCH_JS = r'''
         previa.textContent = 'Pneu ' + sel.value.toLowerCase() + (numero ? ' — nº ' + numero : '');
       }
       sel.addEventListener('change', () => { msg.textContent = ''; atualizarPrevia(); });
-      fogo.addEventListener('input', () => { msg.textContent = ''; atualizarPrevia(); });
+      fogo.addEventListener('change', () => { msg.textContent = ''; atualizarPrevia(); });
 
       aplicar.onclick = async () => {
         if (!sel.value) { msg.style.color = '#b91c1c'; msg.textContent = 'Selecione uma posição.'; return; }
+        if (!fogo.value) { msg.style.color = '#b91c1c'; msg.textContent = 'Selecione um pneu já cadastrado e disponível no estoque.'; return; }
         aplicar.disabled = true;
         try {
           const r = await fetchOriginal(`/api/correcao_os/pneu/${reg.item_id}/posicao`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ posicao: sel.value, numero_fogo: fogo.value.trim() })
+            body: JSON.stringify({ posicao: sel.value, numero_fogo: fogo.value })
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.erro || 'Falha ao registrar a posição.');

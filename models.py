@@ -305,6 +305,7 @@ class Veiculo(db.Model):
     modelo = db.Column(db.String(60))
     ano = db.Column(db.Integer)
     tipo = db.Column(db.String(40))            # ônibus, caminhão, van, utilitário...
+    eixos_traseiros = db.Column(db.Integer, default=1, nullable=False)  # 1 = tração; 2 = tração + truck
     combustivel = db.Column(db.String(30), default="Diesel S10")
     centro_custo = db.Column(db.String(60))
     setor = db.Column(db.String(60))
@@ -340,7 +341,7 @@ class Veiculo(db.Model):
         return {
             "id": self.id, "prefixo": self.prefixo, "placa": self.placa,
             "marca": self.marca, "modelo": self.modelo, "ano": self.ano,
-            "tipo": self.tipo, "combustivel": self.combustivel,
+            "tipo": self.tipo, "eixos_traseiros": self.eixos_traseiros or 1, "combustivel": self.combustivel,
             "centro_custo": self.centro_custo, "setor": self.setor,
             "hodometro": self.hodometro, "horimetro": self.horimetro,
             "situacao": self.situacao,
@@ -956,6 +957,8 @@ class ItemOS(db.Model):
     # "Descartado" quando este item foi lançado. Guardamos a referência para
     # poder devolver o pneu a "Em uso" se este item for removido da OS.
     pneu_substituido_id = db.Column(db.Integer, db.ForeignKey("pneus.id"))
+    # Pneu individual (número de fogo) efetivamente instalado nesta OS.
+    pneu_id = db.Column(db.Integer, db.ForeignKey("pneus.id"), index=True)
     peca = db.relationship("Peca")
 
     @property
@@ -977,7 +980,8 @@ class ItemOS(db.Model):
                 "valor_total": round((self.quantidade or 0) * (self.valor_unitario or 0), 2),
                 "baixado_estoque": self.baixado_estoque,
                 "posicao_pneu": self.posicao_pneu,
-                "pneu_substituido_id": self.pneu_substituido_id}
+                "pneu_substituido_id": self.pneu_substituido_id,
+                "pneu_id": self.pneu_id}
 
 
 class ServicoTerceiro(db.Model):

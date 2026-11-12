@@ -651,3 +651,20 @@ def garantir_horario_movimentos_estoque():
         with engine.begin() as conn:
             conn.execute(text(f'ALTER TABLE "movimentos_estoque" ADD COLUMN "data_hora" {tipo}'))
 
+
+
+def garantir_vinculo_pneu_item_os():
+    """Adiciona o vínculo do pneu individual ao item da OS sem alterar dados."""
+    engine = db.engine
+    insp = inspect(engine)
+    tabelas = set(insp.get_table_names())
+    if "itens_os" in tabelas:
+        existentes = {c["name"] for c in insp.get_columns("itens_os")}
+        if "pneu_id" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "itens_os" ADD COLUMN "pneu_id" INTEGER'))
+    if "veiculos" in tabelas:
+        existentes = {c["name"] for c in insp.get_columns("veiculos")}
+        if "eixos_traseiros" not in existentes:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "veiculos" ADD COLUMN "eixos_traseiros" INTEGER NOT NULL DEFAULT 1'))
