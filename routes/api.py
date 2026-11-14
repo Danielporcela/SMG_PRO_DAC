@@ -712,11 +712,9 @@ def trocar_pneu_os(os_id):
         if not fogo:
             raise ErroNegocio("A peça do pneu está sem Referência (nº de fogo). Informe na tela Estoque.")
         novo = Pneu.query.filter(Pneu.numero_fogo == fogo).first()
-        if novo is None:   # peça de pneu antiga, sem cadastro individual: cria em Estoque
-            novo = Pneu(numero_fogo=fogo, status="Estoque", marca=peca.marca, vida="Novo",
-                        sulco_mm=0, km_instalacao=0, custo=peca.custo_unitario or 0)
-            db.session.add(novo)
-            db.session.flush()
+        if novo is None:
+            raise ErroNegocio(f"O pneu {fogo} não está cadastrado no sistema. "
+                              "Cadastre-o em Pneus (com o nº de fogo) antes de lançar na OS.")
         if novo.status != "Estoque":
             raise ErroNegocio(f"O pneu {novo.numero_fogo} não está em Estoque (status: {novo.status}). "
                               "Para mudar de posição na mesma frota, use o rodízio no mapa de pneus.")

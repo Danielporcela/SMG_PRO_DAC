@@ -60,3 +60,36 @@ def test_descarte_direto_da_lista_de_retirados(app, logado):
     assert r.status_code == 200
     assert logado.get("/api/pneus-descartados").get_json()[0]["numero_fogo"] == "F400"
     assert logado.get(f"/api/pneus/{pid}/ciclo").get_json()["eventos"][-1]["evento"] == "Descarte"
+
+
+def test_troca_na_os_exige_pneu_cadastrado_e_envia_o_retirado_para_a_lista(app, logado):
+    from models import Peca, Veiculo, OrdemServico
+    with app.app_context():
+        v = Veiculo(prefixo="T99", placa="AAA0A00", tipo="Caminhão")
+        db.session.add(v)
+        db.session.flush()
+        saida = Pneu(numero_fogo="S1", status="Em uso", veiculo_id=v.id,
+                     posicao="Dianteiro esquerdo", vida="Novo")
+        entra = Pneu(numero_fogo="E1", status="Estoque", vida="Novo")
+        peca_ok = Peca(codigo="P-E1", descricao="Pneu 295", grupo="Pneus", referencia="E1")
+        peca_nova = Peca(codigo="P-X9", descricao="Pneu 295", grupo="Pneus", referencia="X9")
+        os_ = OrdemServico(numero="OS-T1", veiculo_id=v.id, status="Aberta")
+        db.session.add_all([saida, entra, peca_ok, peca_nova, os_])
+        db.session.commit()
+        ids = dict(os=os_.id, saida=saida.id, ok=peca_ok.id, nova=peca_nova.id)
+
+    # nº de fogo não cadastrado em Pneus: recusa e não cria pneu
+    r = logado.post(f"/api/ordens/{ids['os']}/pneus/trocar",
+                    json={"peca_id": ids["nova"], "pneu_sai_id": ids["saida"]})
+    assert r.status_code == 400
+    with app.app_context():
+        assert Pneu.query.filter_by(numero_fogo="X9").first() is None
+
+    # pneu cadastrado: entra na frota e o que saiu vai para "retirados" (recapadora)
+    r = logado.post(f"/api/ordens/{ids['os']}/pneus/trocar",
+                    json={"peca_id": ids["ok"], "pneu_sai_id": ids["saida"]})
+    assert r.status_code == 201
+    lista = logado.get("/api/pneus-retirados").get_json()
+    assert [l["numero_fogo"] for l in lista] == ["S1"]
+    with app.app_context():
+        assert Pneu.query.filter_by(numero_fogo="E1").one().status == "Em uso"

@@ -17,6 +17,7 @@ import unicodedata
 
 from extensions import db
 from models import ItemOS, Pneu, Veiculo
+from services.recapagem_pneus import STATUS_RETIRADO, registrar_ciclo
 from services.tempo import hoje
 
 EIXO_DIANTEIRO = "Eixo dianteiro"
@@ -176,10 +177,17 @@ def aplicar_posicao_pneu(item: ItemOS, posicao: str, numero_fogo: str | None = N
     if pneu_antigo and pneu_antigo.id == pneu_novo.id:
         raise ValueError("O pneu selecionado já ocupa esta posição.")
 
-    # O pneu retirado permanece cadastrado e retorna ao estoque para avaliação.
+    # O pneu retirado permanece cadastrado e vai para a lista "Retirados da frota"
+    # (análise da recapadora). Ele só volta ao estoque pela NF de retorno da recapagem.
     if pneu_antigo:
+        veiculo_saida = db.session.get(Veiculo, veiculo_id)
         item.pneu_substituido_id = pneu_antigo.id
-        pneu_antigo.status = "Estoque"
+        pneu_antigo.status = STATUS_RETIRADO
+        registrar_ciclo(
+            pneu_antigo, "Retirada", data=hoje(),
+            veiculo_id=veiculo_id,
+            veiculo_rotulo=getattr(veiculo_saida, "rotulo", None),
+            posicao=valor, ordem_servico_numero=item.ordem.numero if item.ordem else None)
         pneu_antigo.veiculo_id = None
         pneu_antigo.posicao = None
 

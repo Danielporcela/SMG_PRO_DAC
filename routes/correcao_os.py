@@ -210,7 +210,7 @@ PATCH_JS = r'''
           <div class="modal-body">
             <p style="font-size:13px;color:var(--texto-suave)" class="mb-3">
               Escolha o eixo e a posição em que o pneu foi instalado e informe o número de fogo.
-              O pneu retirado retorna ao estoque para avaliação; o número de fogo instalado precisa estar cadastrado e disponível.
+              O pneu retirado vai para a lista de pneus retirados da frota (análise da recapadora); o número de fogo instalado precisa estar cadastrado e disponível no estoque.
             </p>
             <div id="${idModal}_lista"></div>
           </div>
@@ -292,7 +292,7 @@ PATCH_JS = r'''
           const ident = d.resultado?.identificacao || 'Posição registrada.';
           msg.style.color = '#166534';
           msg.textContent = d.resultado?.pneu_substituido
-            ? `${ident} · pneu ${d.resultado.pneu_substituido} retirado e mantido no histórico.`
+            ? `${ident} · pneu ${d.resultado.pneu_substituido} enviado à lista de retirados da frota.`
             : `${ident} · registrado com sucesso.`;
           await carregarPendentes(false);
           setTimeout(() => {
