@@ -82,7 +82,8 @@
           `<td><strong>${esc(l.prefixo || '—')}</strong></td>` +
           `<td>${esc(l.placa || '—')}</td>` +
           `<td>${esc(l.medida || '—')}</td>` +
-          `<td><strong>${esc(l.numero_fogo)}</strong></td>` +
+          `<td><strong>${esc(l.numero_fogo)}</strong>` +
+          (l.vida && l.vida !== 'Novo' ? `<br><small class="text-muted">${esc(l.vida)}</small>` : '') + '</td>' +
           `<td>${esc(l.marca || '—')}</td>` +
           `<td>${esc(l.posicao || '—')}</td>` +
           `<td class="cp-num">${celulaSulco(l, 'sulco_1')}</td>` +
@@ -161,13 +162,13 @@
 
   /* ------------------------------------------------------------ formulário */
   function preencherSelects() {
-    el('cpVeiculo').innerHTML = '<option value="">Selecione…</option>' +
+    el('cpVeiculo').innerHTML = '<option value="">— sem frota (Estoque) —</option>' +
       veiculos
         .slice()
         .sort((a, b) => String(a.prefixo).localeCompare(String(b.prefixo), 'pt-BR', { numeric: true }))
         .map(v => `<option value="${esc(v.id)}">${esc(v.prefixo || '—')} · ${esc(v.placa || '—')}</option>`)
         .join('');
-    el('cpPosicao').innerHTML = '<option value="">— sem posição —</option>' +
+    el('cpPosicao').innerHTML = '<option value="">Selecione a posição…</option>' +
       POSICOES.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
   }
 
@@ -236,8 +237,12 @@
       dot: el('cpDot').value.trim() || null
     };
 
-    if (!dados.veiculo_id) return SGMF.aviso('Selecione o prefixo/placa do veículo.');
+    if (dados.status !== 'Em uso' && !dados.veiculo_id) dados.posicao = null;
+    if (dados.status === 'Em uso' && !dados.veiculo_id)
+      return SGMF.aviso('Pneu em uso precisa de frota. Para pneu sem frota, use o status Estoque.');
     if (!dados.numero_fogo) return SGMF.aviso('Informe o número de fogo.');
+    if (dados.status === 'Em uso' && !dados.posicao)
+      return SGMF.aviso('Informe a posição do pneu na frota.');
     if (dados.status === 'Em uso' &&
         [dados.sulco_1, dados.sulco_2, dados.sulco_3, dados.sulco_4].every(v => v == null))
       return SGMF.aviso('Informe ao menos um sulco (mm) para o pneu em uso.');

@@ -324,10 +324,8 @@ PATCH_JS = r'''
       const atuais = new Set(pendentes.map(x => x.item_id));
       const novos = pendentes.filter(x => !idsConhecidos.has(x.item_id));
       atualizarBotao();
-      if (inicializado && abrirNovos && novos.length) {
-        montarConteudoModal();
-        bootstrap.Modal.getOrCreateInstance(document.getElementById(idModal)).show();
-      }
+      // A janela de posição não abre mais sozinha: a posição agora vem do cadastro
+      // do pneu / da troca feita na OS. O botão só aparece para itens ANTIGOS pendentes.
       idsConhecidos = atuais; inicializado = true;
     } catch (_) {}
   }

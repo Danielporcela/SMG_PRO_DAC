@@ -772,6 +772,13 @@ document.getElementById('itemPeca').addEventListener('change', async () => {
   if (!id) return;
   try {
     const peca = await SGMF.get(`/api/pecas/${id}`);
+    const semAcento = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if ([peca.grupo, peca.descricao].some(t => semAcento(t).includes('pneu'))) {
+      if (!(peca.referencia || '').trim())
+        SGMF.aviso('Esta peça é um pneu e está sem Referência. Informe o nº de fogo na Referência da peça (tela Estoque).');
+      else if (!document.getElementById('itemQuantidade').value)
+        document.getElementById('itemQuantidade').value = 1;
+    }
     if (!document.getElementById('itemValorUnitario').value)
       document.getElementById('itemValorUnitario').value = peca.custo_unitario || '';
     if (!document.getElementById('itemNcm').value) document.getElementById('itemNcm').value = peca.ncm || '';

@@ -1,16 +1,19 @@
 """Importação de planilhas, anexos e aviso por e-mail."""
 import io
+import re
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from extensions import db
 from models import (Abastecimento, Anexo, ControleTarefa, Fornecedor, ItemNotaFiscal,
-                    NotaFiscal, NotaFiscalUniforme, OrdemCompra, OrdemServico, ParcelaNotaFiscal, ParcelaNotaFiscalUniforme, Peca)
+                    NotaFiscal, NotaFiscalUniforme, OrdemCompra, OrdemServico, ParcelaNotaFiscal, ParcelaNotaFiscalUniforme, Peca, Pneu)
 from services import importacao, notificacoes
 from services.calculos import movimentar_estoque
 from services.crud import (ErroNegocio, checar_tela, editar_tela, login_obrigatorio,
                            perfil_obrigatorio, pode_escrever, registrar_log,
                            visualizar_tela)
+from services.mapa_pneus import PneuHistorico
+from services.posicoes_pneu import _sem_acento
 from services.tempo import agora, hoje
 
 bp_extras = Blueprint("extras", __name__)
@@ -362,6 +365,29 @@ def excluir_nota_fiscal(nota_id):
     return jsonify({"ok": True})
 
 
+# ---------------------------------------------------- pneus lançados por NF
+def _peca_eh_pneu(peca):
+    """Peça de pneu = 'pneu' no grupo ou na descrição (ignora acento/maiúscula)."""
+    return any("pneu" in _sem_acento(t) for t in (peca.grupo, peca.descricao) if t)
+
+
+def _fogo_da_peca(peca):
+    """O nº de fogo do pneu é a REFERÊNCIA da peça."""
+    return str(peca.referencia or "").strip().upper()
+
+
+def _validar_pneu_da_peca(peca, quantidade):
+    fogo = _fogo_da_peca(peca)
+    if not fogo:
+        raise ErroNegocio(f"A peça {peca.codigo} é um pneu e está sem Referência. "
+                          "Informe o nº de fogo no campo Referência da peça (tela Estoque).")
+    if abs(quantidade - 1) > 1e-9:
+        raise ErroNegocio("Cada pneu tem seu nº de fogo: lance um item por pneu, com quantidade 1.")
+    if Pneu.query.filter(Pneu.numero_fogo == fogo).first() is not None:
+        raise ErroNegocio(f"Já existe pneu cadastrado com o nº de fogo {fogo}.")
+    return fogo
+
+
 @bp_extras.post("/api/notas_fiscais/<int:nota_id>/itens")
 @editar_tela("notas_fiscais")
 def adicionar_item_nota(nota_id):
@@ -396,6 +422,9 @@ def adicionar_item_nota(nota_id):
         quantidade = float(dados.get("quantidade") or 0)
         if quantidade <= 0:
             raise ErroNegocio("Informe uma quantidade maior que zero.")
+
+        if _peca_eh_pneu(peca):
+            _validar_pneu_da_peca(peca, quantidade)
 
         item = ItemNotaFiscal(
             nota_fiscal_id=nota.id, peca_id=peca.id,
@@ -450,6 +479,19 @@ def remover_item_nota(nota_id, item_id):
     return jsonify(nota.to_dict(com_itens=True))
 
 
+def _criar_pneu_em_estoque(item, nota, documento):
+    fogo = _fogo_da_peca(item.peca)
+    pneu = Pneu(numero_fogo=fogo, status="Estoque", veiculo_id=None, posicao=None,
+                marca=item.peca.marca, vida="Novo", sulco_mm=0, km_instalacao=0,
+                custo=item.valor_unitario or 0)
+    db.session.add(pneu)
+    db.session.flush()
+    db.session.add(PneuHistorico(
+        pneu_id=pneu.id, numero_fogo=fogo, status="Estoque", evento="Instalação",
+        detalhe=f"Entrada em estoque pela {documento} (nota fiscal #{nota.id}).",
+        usuario=session.get("usuario_nome", "sistema")))
+
+
 @bp_extras.post("/api/notas_fiscais/<int:nota_id>/finalizar")
 @editar_tela("notas_fiscais")
 def finalizar_nota_fiscal(nota_id):
@@ -460,12 +502,21 @@ def finalizar_nota_fiscal(nota_id):
         if not nota.itens:
             raise ErroNegocio("Lance ao menos um item antes de finalizar a nota.")
         documento = f"NF {nota.numero}" + (f"/{nota.serie}" if nota.serie else "")
+        # Confere TODOS os pneus antes de mexer em qualquer coisa.
+        for item in nota.itens:
+            if item.baixado_estoque or item.peca is None or not _peca_eh_pneu(item.peca):
+                continue
+            _validar_pneu_da_peca(item.peca, item.quantidade or 0)
         for item in nota.itens:
             if item.baixado_estoque:
                 continue
             movimentar_estoque(item.peca_id, "entrada", item.quantidade,
                                item.valor_unitario, documento=documento,
                                observacao=f"Entrada pela nota fiscal #{nota.id}")
+            if item.peca is not None and _peca_eh_pneu(item.peca):
+                # Além do saldo da peça, o pneu entra individualmente (nº de fogo =
+                # referência da peça) com status "Estoque", pronto para a troca na OS.
+                _criar_pneu_em_estoque(item, nota, documento)
             item.baixado_estoque = True
         nota.status = "Finalizada"
         nota.data_entrada = hoje()

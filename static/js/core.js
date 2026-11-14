@@ -193,7 +193,8 @@ const SGMF = (() => {
     'Aberta': 'azul', 'Em execução': 'ambar', 'Aguardando peça': 'vermelha', 'Finalizada': 'verde',
     'Preventiva': 'verde', 'Corretiva': 'ambar', 'Emergencial': 'vermelha',
     'Baixa': 'cinza', 'Média': 'azul', 'Alta': 'ambar', 'Crítica': 'vermelha',
-    'Em uso': 'verde', 'Estoque': 'azul', 'Descartado': 'cinza'
+    'Em uso': 'verde', 'Estoque': 'azul', 'Descartado': 'cinza',
+    'Retirado': 'ambar', 'Em recapagem': 'ambar'
   };
   const status = (v) => v ? etiqueta(v, CORES_STATUS[v] || 'cinza') : '—';
 

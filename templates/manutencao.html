@@ -105,6 +105,42 @@
   </div>
 </div>
 
+<!-- Troca/instalação de pneu dentro da OS: escolhe pelo nº de fogo, sem digitar posição. -->
+<div class="modal fade" id="modalTrocaPneu" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Trocar / instalar pneu</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="trocaPneuOsId">
+        <div class="mb-3">
+          <label class="form-label" for="trocaPneuSai">Pneu que sai (em uso nesta frota)</label>
+          <select id="trocaPneuSai" class="form-select"></select>
+        </div>
+        <div class="mb-3" id="trocaPneuPosicaoBox" hidden>
+          <label class="form-label" for="trocaPneuPosicao">Posição livre onde o pneu será instalado *</label>
+          <select id="trocaPneuPosicao" class="form-select"></select>
+        </div>
+        <div class="mb-3" id="trocaPneuDestinoBox">
+          <label class="form-label" for="trocaPneuDestino">Destino do pneu que sai</label>
+          <select id="trocaPneuDestino" class="form-select">
+            <option value="Retirado">Retirado da frota (lista para recapagem)</option>
+            <option value="Descartado">Descartado</option>
+            <option value="Estoque">Volta para o Estoque</option>
+          </select>
+        </div>
+        <div class="alert alert-light border mb-0" id="trocaPneuAviso"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primario" id="trocaPneuConfirmar">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Aba/formulário interno do SGMF: Posto de Molas. Não usa prompt do navegador. -->
 <div class="modal fade" id="modalPostoMolas" tabindex="-1" aria-labelledby="modalPostoMolasLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -760,6 +796,61 @@ document.getElementById('salvarPostoMolas').onclick = salvarPostoMolas;
 });
 
 
+/* ---------------------------------------------- troca / instalação de pneu */
+async function abrirTrocaPneu(osId, peca) {
+  osId = osId || document.getElementById('pecasOsId').value;
+  if (!osId) return SGMF.aviso('Abra uma OS antes de lançar o pneu.');
+  const fogo = String((peca && peca.referencia) || '').trim().toUpperCase();
+  if (!fogo)
+    return SGMF.aviso('Esta peça de pneu está sem Referência. Informe o nº de fogo na Referência da peça (tela Estoque).');
+  let op;
+  try { op = await SGMF.get(`/api/ordens/${osId}/pneus/opcoes`); }
+  catch (e) { return SGMF.falha(e.message); }
+
+  const rot = p => `${p.numero_fogo} · ${p.posicao || 'sem posição'}` +
+    `${p.sulco_mm != null ? ' · ' + SGMF.numero(p.sulco_mm, 1) + ' mm' : ''}`;
+  document.getElementById('trocaPneuOsId').value = osId;
+  document.getElementById('trocaPneuSai').innerHTML =
+    '<option value="">— nenhum (instalar em posição livre) —</option>' +
+    op.em_uso.map(p => `<option value="${p.id}">${SGMF.esc(rot(p))}</option>`).join('');
+  document.getElementById('trocaPneuPosicao').innerHTML =
+    op.posicoes_livres.map(v => `<option value="${SGMF.esc(v)}">${SGMF.esc(v)}</option>`).join('');
+
+  const atualizar = () => {
+    const semSaida = !document.getElementById('trocaPneuSai').value;
+    document.getElementById('trocaPneuPosicaoBox').hidden = !semSaida;
+    document.getElementById('trocaPneuDestinoBox').hidden = semSaida;
+    document.getElementById('trocaPneuAviso').textContent = (semSaida
+      ? `O pneu nº ${fogo} entra na posição livre escolhida e fica vinculado a esta frota.`
+      : `O pneu nº ${fogo} assume a posição do pneu que sai, sem precisar informar a posição.`);
+  };
+  document.getElementById('trocaPneuSai').onchange = atualizar;
+  atualizar();
+
+  document.getElementById('trocaPneuConfirmar').onclick = async () => {
+    const sai = document.getElementById('trocaPneuSai').value;
+    const btn = document.getElementById('trocaPneuConfirmar');
+    btn.disabled = true;
+    try {
+      await SGMF.post(`/api/ordens/${osId}/pneus/trocar`, {
+        peca_id: Number(peca.id),
+        pneu_sai_id: sai ? Number(sai) : null,
+        posicao: sai ? null : document.getElementById('trocaPneuPosicao').value,
+        destino_saida: document.getElementById('trocaPneuDestino').value
+      });
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalTrocaPneu')).hide();
+      SGMF.sucesso('Pneu lançado na OS e vinculado à frota');
+      try { localStorage.setItem('sgmf_pneus_alterado', String(Date.now())); } catch (e) {}   // avisa o mapa de pneus
+      document.getElementById('itemPeca').value = '';
+      limparEscolhaPeca(false);
+      await recarregarItens(osId);
+      telaOS.carregar();
+    } catch (e) { SGMF.falha(e.message); }
+    finally { btn.disabled = false; }
+  };
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalTrocaPneu')).show();
+}
+
 document.getElementById('itemAdicionar').onclick = async () => {
   const osId = document.getElementById('pecasOsId').value;
   const tipoItem = document.getElementById('itemTipo').value;
@@ -781,6 +872,13 @@ document.getElementById('itemAdicionar').onclick = async () => {
   // existe no sistema) pede a posição e o número de fogo de cada um deles,
   // em vez de um único número para os 3.
   const ehPneu = tipoItem === 'peca' && ehItemPneu(descricao, peca);
+  // Pneu não é lançado como peça genérica: abre a troca/instalação pelo nº de fogo.
+  if (ehPneu) {
+    if (!peca) return SGMF.aviso('Selecione a peça de pneu do estoque: o nº de fogo vem da Referência da peça.');
+    if (quantidade !== 1) return SGMF.aviso('Lance um pneu por vez (cada pneu tem seu nº de fogo).');
+    abrirTrocaPneu(osId, peca);
+    return;
+  }
   const qtdItens = ehPneu ? Math.max(1, Math.round(quantidade)) : 1;
 
   if (ehPneu && qtdItens > 1) {

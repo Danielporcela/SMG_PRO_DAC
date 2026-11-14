@@ -353,8 +353,17 @@
   document.addEventListener('pneus:mapa-visivel', () => carregar(false));
 
   // Ao voltar para a janela, só recarrega se os dados estiverem velhos.
+  // A troca de pneu na OS avisa por localStorage: recarrega o mapa na hora,
+  // inclusive quando a tela de Pneus está aberta em outra aba/janela.
+  const alteradoNaOS = () => {
+    try { return Number(localStorage.getItem('sgmf_pneus_alterado')) || 0; }
+    catch (e) { return 0; }
+  };
+  window.addEventListener('storage', e => {
+    if (e.key === 'sgmf_pneus_alterado') carregar(true);
+  });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) carregar(false);
+    if (!document.hidden) carregar(alteradoNaOS() > ultimaCarga);
   });
 
   carregar(true);

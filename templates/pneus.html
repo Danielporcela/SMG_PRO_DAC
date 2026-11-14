@@ -23,6 +23,24 @@
       <i class="fa-solid fa-truck"></i> Mapa
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tabRetirados" data-bs-toggle="tab"
+            data-bs-target="#abaRetirados" type="button" role="tab">
+      <i class="fa-solid fa-arrow-right-from-bracket"></i> Retirados da frota
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tabNotasRecap" data-bs-toggle="tab"
+            data-bs-target="#abaNotasRecap" type="button" role="tab">
+      <i class="fa-solid fa-file-invoice"></i> Notas de recapagem
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tabDescartados" data-bs-toggle="tab"
+            data-bs-target="#abaDescartados" type="button" role="tab">
+      <i class="fa-solid fa-trash-can"></i> Descartados
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content">
@@ -39,6 +57,8 @@
       <select id="cpFiltroStatus" class="form-select" aria-label="Filtrar por status">
         <option value="Em uso" selected>Em uso</option>
         <option value="Estoque">Estoque</option>
+        <option value="Retirado">Retirado</option>
+        <option value="Em recapagem">Em recapagem</option>
         <option value="Descartado">Descartado</option>
         <option value="">Todos</option>
       </select>
@@ -132,6 +152,105 @@
   </div>
 </div>
 
+<div class="tab-content" id="painelCicloPneus">
+  <div class="tab-pane fade" id="abaRetirados" role="tabpanel">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      <input id="retBusca" class="form-control" style="max-width:320px" type="search" placeholder="Buscar nº de fogo, frota, OS…">
+      <button class="btn btn-primario" id="btnEnviarRecap" type="button">
+        <i class="fa-solid fa-truck-ramp-box"></i> Enviar selecionados p/ recapagem
+      </button>
+      <button class="btn btn-primario" id="btnNotaRecap" type="button">
+        <i class="fa-solid fa-file-invoice"></i> Lançar NF de retorno da recapagem
+      </button>
+    </div>
+    <div class="cp-tabela-wrap">
+      <table class="dataTable cp-tabela" id="retTabela">
+        <thead><tr>
+          <th></th><th>Nº de fogo</th><th>Marca</th><th>Medida</th><th>Vida</th>
+          <th>Saiu da frota</th><th>Posição</th><th>OS</th><th>Retirado em</th><th>Situação</th><th>Ações</th>
+        </tr></thead>
+        <tbody id="retCorpo"><tr><td colspan="11" class="cp-vazio">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="cp-rodape" id="retRodape"></div>
+  </div>
+
+  <div class="tab-pane fade" id="abaNotasRecap" role="tabpanel">
+    <div class="cp-tabela-wrap">
+      <table class="dataTable cp-tabela">
+        <thead><tr>
+          <th>Nota fiscal</th><th>Fornecedor</th><th>Emissão</th><th>Nºs de fogo (resultado)</th>
+          <th class="cp-num">Valor</th><th>Lançada por</th>
+        </tr></thead>
+        <tbody id="notasRecapCorpo"><tr><td colspan="6" class="cp-vazio">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="abaDescartados" role="tabpanel">
+    <input id="descBusca" class="form-control mb-2" style="max-width:320px" type="search" placeholder="Buscar nº de fogo, marca…">
+    <div class="cp-tabela-wrap">
+      <table class="dataTable cp-tabela">
+        <thead><tr>
+          <th>Nº de fogo</th><th>Marca</th><th>Medida</th><th>Vida ao descartar</th>
+          <th>Descartado em</th><th>Origem</th><th>Nota fiscal</th><th>Última frota</th><th>Motivo</th>
+        </tr></thead>
+        <tbody id="descCorpo"><tr><td colspan="9" class="cp-vazio">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="cp-rodape" id="descRodape"></div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalNotaRecap" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header mapa-modal-header">
+        <h5 class="modal-title">NF de retorno da recapagem</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-3"><label class="form-label">Nº da nota *</label><input id="nrNumero" class="form-control" maxlength="30"></div>
+          <div class="col-md-2"><label class="form-label">Série</label><input id="nrSerie" class="form-control" maxlength="10"></div>
+          <div class="col-md-3"><label class="form-label">Emissão</label><input id="nrEmissao" type="date" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label">Recapadora</label><select id="nrFornecedor" class="form-select"></select></div>
+          <div class="col-12"><label class="form-label">Observação</label><input id="nrObs" class="form-control" maxlength="300"></div>
+        </div>
+        <hr>
+        <p class="mb-2"><strong>Pneus da nota</strong> — escolha o nº de fogo e o resultado. Recapado volta ao Estoque
+          (1ª, 2ª… recapagem); Descartado vai para a lista de descarte.</p>
+        <div id="nrItens"></div>
+        <button class="btn btn-sm btn-contorno mt-2" id="nrAddItem" type="button"><i class="fa-solid fa-plus"></i> Adicionar nº de fogo</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="nrSalvar">Lançar nota</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalEnviarRecap" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header mapa-modal-header">
+        <h5 class="modal-title">Enviar para recapagem</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <p id="erResumo" class="mb-3"></p>
+        <label class="form-label">Recapadora</label><select id="erFornecedor" class="form-select mb-3"></select>
+        <label class="form-label">Data de envio</label><input id="erData" type="date" class="form-control">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-contorno" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primario" id="erConfirmar">Enviar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="modalControlePneu" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
@@ -144,7 +263,7 @@
         <input type="hidden" id="cpId">
         <div class="row g-3">
           <div class="col-md-6">
-            <label class="form-label">Prefixo / Placa *</label>
+            <label class="form-label">Prefixo / Placa <small class="text-muted">(obrigatório se Em uso)</small></label>
             <select id="cpVeiculo" class="form-select"></select>
           </div>
           <div class="col-md-3">
@@ -156,6 +275,8 @@
             <select id="cpStatus" class="form-select">
               <option>Em uso</option>
               <option>Estoque</option>
+              <option>Retirado</option>
+              <option>Em recapagem</option>
               <option>Descartado</option>
             </select>
           </div>
@@ -169,7 +290,7 @@
             <input id="cpMarca" class="form-control">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Posição</label>
+            <label class="form-label">Posição na frota <small class="text-muted">(obrigatória se Em uso)</small></label>
             <select id="cpPosicao" class="form-select"></select>
           </div>
 
@@ -298,4 +419,5 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/pneus.css') }}">
 <script src="{{ url_for('static', filename='js/pneus.js') }}"></script>
 <script src="{{ url_for('static', filename='js/controle_pneus.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pneus_recapagem.js') }}"></script>
 {% endblock %}

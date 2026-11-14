@@ -28,7 +28,8 @@ from services.crud import (ErroNegocio, aplicar_campos, editar_tela, editar_tela
                            registrar_crud, registrar_log, visualizar_tela)
 from services.tempo import agora, hoje, ler_data
 from services.mapa_pneus import PneuHistorico, PneuMapaDados
-from services.posicoes_pneu import normalizar_posicao
+from services.posicoes_pneu import listar_posicoes, montar_identificacao, normalizar_posicao
+from services.recapagem_pneus import STATUS_PNEU_VALIDOS, PneuCiclo, registrar_ciclo
 
 bp_api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -653,29 +654,175 @@ def remover_item(os_id, item_id):
     item = db.get_or_404(ItemOS, item_id)
     ordem = db.get_or_404(OrdemServico, os_id)
     try:
-        # Se o item representa um pneu individual instalado, desfazemos a
-        # instalação antes de excluir a linha da OS: o pneu novo volta ao
-        # estoque e o pneu substituído retorna à posição anterior.
-        if getattr(item, "pneu_id", None):
-            from models import Pneu
-            pneu_novo = db.session.get(Pneu, item.pneu_id)
-            if pneu_novo:
-                pneu_novo.status = "Estoque"
-                pneu_novo.veiculo_id = None
-                pneu_novo.posicao = None
-            if item.pneu_substituido_id:
-                pneu_antigo = db.session.get(Pneu, item.pneu_substituido_id)
-                if pneu_antigo:
-                    pneu_antigo.status = "Em uso"
-                    pneu_antigo.veiculo_id = ordem.veiculo_id
-                    pneu_antigo.posicao = item.posicao_pneu
-        devolver_item_os(item)        # devolve também a peça-base ao estoque, se baixada
+        _desfazer_troca_pneu(item, ordem)   # pneu volta ao estoque / anterior volta a "Em uso"
+        devolver_item_os(item)        # devolve ao estoque (todas as unidades vinculadas)
         db.session.delete(item)
         db.session.commit()
     except ErroNegocio as e:
         db.session.rollback()
         return jsonify({"erro": str(e)}), 400
     return jsonify(ordem.to_dict(com_itens=True))
+
+# ------------------------------------------- Troca de pneu feita dentro da OS
+def _pneu_resumo(p):
+    return {"id": p.id, "numero_fogo": p.numero_fogo,
+            "posicao": normalizar_posicao(p.posicao) or p.posicao,
+            "marca": p.marca, "medida": p.medida, "sulco_mm": p.sulco_mm,
+            "vida": p.vida, "status": p.status}
+
+
+@bp_api.get("/ordens/<int:os_id>/pneus/opcoes")
+@visualizar_tela("manutencao")
+def pneus_opcoes_os(os_id):
+    """Pneus em uso na frota da OS, pneus em Estoque e posições livres."""
+    ordem = db.get_or_404(OrdemServico, os_id)
+    em_uso = (Pneu.query.filter_by(veiculo_id=ordem.veiculo_id, status="Em uso")
+              .order_by(Pneu.posicao).all()) if ordem.veiculo_id else []
+    estoque = Pneu.query.filter_by(status="Estoque").order_by(Pneu.numero_fogo).all()
+    ocupadas = {normalizar_posicao(p.posicao) for p in em_uso}
+    livres = [p["valor"] for p in listar_posicoes() if p["valor"] not in ocupadas]
+    return jsonify({"em_uso": [_pneu_resumo(p) for p in em_uso],
+                    "estoque": [_pneu_resumo(p) for p in estoque],
+                    "posicoes_livres": livres})
+
+
+@bp_api.post("/ordens/<int:os_id>/pneus/trocar")
+@editar_tela_ou_cargo("manutencao", "ALMOXARIFADO")
+def trocar_pneu_os(os_id):
+    """Instala na frota da OS um pneu cadastrado em Estoque.
+
+    A posição vem do pneu que sai (não é digitada). Só é informada quando o
+    pneu entra numa posição livre, sem substituir nenhum outro.
+    """
+    ordem = db.get_or_404(OrdemServico, os_id)
+    if ordem.status == "Finalizada":
+        return jsonify({"erro": "A OS já está finalizada e não aceita novos itens."}), 400
+    dados = request.get_json(silent=True) or {}
+    try:
+        if not ordem.veiculo_id:
+            raise ErroNegocio("A OS não tem veículo/frota definido.")
+        # O pneu que entra vem da peça lançada na OS: o nº de fogo é a Referência dela.
+        try:
+            peca = db.session.get(Peca, int(dados.get("peca_id")))
+        except (TypeError, ValueError):
+            peca = None
+        if peca is None:
+            raise ErroNegocio("Selecione a peça de pneu do estoque.")
+        fogo = str(peca.referencia or "").strip().upper()
+        if not fogo:
+            raise ErroNegocio("A peça do pneu está sem Referência (nº de fogo). Informe na tela Estoque.")
+        novo = Pneu.query.filter(Pneu.numero_fogo == fogo).first()
+        if novo is None:   # peça de pneu antiga, sem cadastro individual: cria em Estoque
+            novo = Pneu(numero_fogo=fogo, status="Estoque", marca=peca.marca, vida="Novo",
+                        sulco_mm=0, km_instalacao=0, custo=peca.custo_unitario or 0)
+            db.session.add(novo)
+            db.session.flush()
+        if novo.status != "Estoque":
+            raise ErroNegocio(f"O pneu {novo.numero_fogo} não está em Estoque (status: {novo.status}). "
+                              "Para mudar de posição na mesma frota, use o rodízio no mapa de pneus.")
+
+        saida = None
+        if dados.get("pneu_sai_id"):
+            saida = db.session.get(Pneu, int(dados["pneu_sai_id"]))
+            if saida is None or saida.status != "Em uso" or saida.veiculo_id != ordem.veiculo_id:
+                raise ErroNegocio("O pneu que sai precisa estar em uso na frota desta OS.")
+            posicao = normalizar_posicao(saida.posicao)
+            if not posicao:
+                raise ErroNegocio(f"O pneu {saida.numero_fogo} está sem posição no cadastro. Corrija o cadastro dele antes.")
+        else:
+            posicao = normalizar_posicao(dados.get("posicao"))
+            if not posicao:
+                raise ErroNegocio("Informe qual pneu sai ou a posição livre onde o pneu será instalado.")
+            if _pneus_em_uso_mapa(ordem.veiculo_id).get(posicao) is not None:
+                raise ErroNegocio(f"A posição {posicao} já tem pneu. Selecione o pneu que sai.")
+
+        # Padrão: o pneu que sai vai para a lista de "Retirados da frota".
+        destino = str(dados.get("destino_saida") or "Retirado").strip()
+        if destino not in ("Retirado", "Descartado", "Estoque"):
+            destino = "Retirado"
+
+        veiculo = db.session.get(Veiculo, ordem.veiculo_id)
+        if saida is not None:
+            saida.status = destino
+            _registrar_historico_pneu(
+                saida, "Troca", f"Removido na OS {ordem.numero}; entrou o pneu {novo.numero_fogo}. Destino: {destino}.")
+            if destino in ("Retirado", "Descartado"):
+                # Guarda de onde o pneu saiu (frota, posição e OS) na lista de retirados/descarte.
+                registrar_ciclo(
+                    saida, "Retirada" if destino == "Retirado" else "Descarte", data=hoje(),
+                    usuario=session.get("usuario_nome", "sistema"),
+                    veiculo_id=veiculo.id if veiculo else None,
+                    veiculo_rotulo=veiculo.rotulo if veiculo else None,
+                    posicao=posicao, ordem_servico_numero=ordem.numero,
+                    motivo=None if destino == "Retirado" else f"Trocado na OS {ordem.numero}")
+            if destino in ("Estoque", "Retirado"):
+                saida.veiculo_id = None
+                saida.posicao = None
+
+        novo.veiculo_id = ordem.veiculo_id
+        novo.posicao = posicao
+        novo.status = "Em uso"
+        novo.data_instalacao = hoje()
+        novo.data_medicao = hoje()
+        novo.km_instalacao = (veiculo.hodometro if veiculo else 0) or 0
+        _registrar_historico_pneu(
+            novo, "Troca" if saida else "Instalação",
+            f"OS {ordem.numero}: posição {posicao}" + (f", no lugar do pneu {saida.numero_fogo}." if saida else "."))
+
+        # A peça de estoque do pneu tem o nº de fogo na Referência: ligando o item a ela,
+        # a baixa de estoque acontece normalmente quando a OS é finalizada.
+        item = ItemOS(
+            ordem_servico_id=ordem.id, peca_id=peca.id if peca else None, tipo_item="peca",
+            grupo=(peca.grupo if peca and peca.grupo else "Pneus"),
+            descricao=montar_identificacao(posicao, novo.numero_fogo)[:160],
+            quantidade=1, valor_unitario=(peca.custo_unitario if peca else None) or novo.custo or 0,
+            posicao_pneu=posicao, pneu_substituido_id=saida.id if saida else None)
+        db.session.add(item)
+        db.session.flush()
+        registrar_log("criar", "itens_os", item.id, f"OS {ordem.numero} · troca de pneu {novo.numero_fogo}")
+        db.session.commit()
+    except (ErroNegocio, ValueError) as e:
+        db.session.rollback()
+        return jsonify({"erro": str(e)}), 400
+    try:   # a troca pode sanar um alerta de sulco mínimo
+        from services.alertas import sincronizar_estados
+        sincronizar_estados()
+    except Exception:
+        current_app.logger.exception("Falha ao atualizar alertas após troca de pneu")
+    return jsonify(ordem.to_dict(com_itens=True)), 201
+
+
+def _desfazer_troca_pneu(item, ordem):
+    """Ao remover da OS um item criado pela troca de pneu, volta tudo como estava."""
+    import re
+    if not item.posicao_pneu:
+        return
+    achou = re.search(r"— nº (.+)$", item.descricao or "")
+    if not achou:
+        return
+    novo = Pneu.query.filter_by(numero_fogo=achou.group(1).strip()).first()
+    posicao = normalizar_posicao(item.posicao_pneu)
+    if (novo is None or novo.status != "Em uso" or novo.veiculo_id != ordem.veiculo_id
+            or normalizar_posicao(novo.posicao) != posicao):
+        return
+    novo.status = "Estoque"
+    _registrar_historico_pneu(novo, "Atualização", f"Troca desfeita (item removido da OS {ordem.numero}).")
+    novo.veiculo_id = None
+    novo.posicao = None
+    saida = db.session.get(Pneu, item.pneu_substituido_id) if item.pneu_substituido_id else None
+    if saida is not None and saida.status in ("Em recapagem",):
+        saida = None   # já foi para a recapadora: não dá para devolver à frota automaticamente
+    if saida is not None and saida.status in ("Retirado", "Descartado"):
+        (PneuCiclo.query.filter(PneuCiclo.pneu_id == saida.id,
+                                PneuCiclo.ordem_servico_numero == ordem.numero,
+                                PneuCiclo.evento.in_(("Retirada", "Descarte")),
+                                PneuCiclo.nota_id.is_(None))
+         .delete(synchronize_session=False))
+    if saida is not None and posicao and _pneus_em_uso_mapa(ordem.veiculo_id).get(posicao) is None:
+        saida.status = "Em uso"
+        saida.veiculo_id = ordem.veiculo_id
+        saida.posicao = posicao
+        _registrar_historico_pneu(saida, "Atualização", f"Voltou à posição {posicao} (troca desfeita na OS {ordem.numero}).")
 
 
 # ---------------------------------------------------- Módulo 5: combustível
@@ -1086,6 +1233,7 @@ def _linha_controle_pneu(pneu, dot_por_pneu, limite):
         "placa": veiculo.placa if veiculo else None,
         "medida": pneu.medida,
         "numero_fogo": pneu.numero_fogo,
+        "vida": pneu.vida,
         "marca": pneu.marca,
         "posicao": normalizar_posicao(pneu.posicao) or pneu.posicao,
         "sulco_1": pneu.sulco_1,
@@ -1128,13 +1276,24 @@ def _salvar_controle_pneu(pneu_id=None):
             if pneu is None:
                 return jsonify({"erro": "Pneu não encontrado."}), 404
 
-        try:
-            veiculo_id = int(dados.get("veiculo_id"))
-        except (TypeError, ValueError):
-            raise ErroNegocio("Selecione o prefixo/placa do veículo.")
-        veiculo = db.session.get(Veiculo, veiculo_id)
-        if veiculo is None:
-            raise ErroNegocio("Veículo não encontrado.")
+        status = str(dados.get("status") or "Em uso").strip()
+        if status not in STATUS_PNEU_VALIDOS:
+            raise ErroNegocio("Status inválido.")
+        status_anterior = pneu.status if pneu is not None else None
+
+        veiculo = None
+        veiculo_id = None
+        if dados.get("veiculo_id") not in (None, ""):
+            try:
+                veiculo_id = int(dados.get("veiculo_id"))
+            except (TypeError, ValueError):
+                raise ErroNegocio("Selecione o prefixo/placa do veículo.")
+            veiculo = db.session.get(Veiculo, veiculo_id)
+            if veiculo is None:
+                raise ErroNegocio("Veículo não encontrado.")
+        if status == "Em uso" and veiculo is None:
+            raise ErroNegocio("Pneu em uso precisa de frota e posição. "
+                              "Para pneu sem frota, use o status Estoque.")
 
         fogo = str(dados.get("numero_fogo") or "").strip().upper()
         if not fogo:
@@ -1149,9 +1308,13 @@ def _salvar_controle_pneu(pneu_id=None):
         posicao = normalizar_posicao(posicao_texto) if posicao_texto else None
         if posicao_texto and posicao is None:
             raise ErroNegocio("Selecione uma posição válida da lista.")
+        if status == "Em uso" and not posicao:
+            raise ErroNegocio("Informe a posição do pneu na frota.")
+        if status == "Estoque" and veiculo is None:
+            posicao = None   # pneu em estoque sem frota não tem posição
 
         status = str(dados.get("status") or "Em uso").strip()
-        if status not in ("Em uso", "Estoque", "Descartado"):
+        if status not in STATUS_PNEU_VALIDOS:
             raise ErroNegocio("Status inválido.")
 
         sulcos = {c: _numero_opcional(dados.get(c), c.replace("_", " ").capitalize())
@@ -1207,9 +1370,9 @@ def _salvar_controle_pneu(pneu_id=None):
         pneu.km_pneu = km
         pneu.km_por_sulco = km_por_sulco
         pneu.data_medicao = hoje()
-        if novo:
+        if (novo or status_anterior != "Em uso") and status == "Em uso":
             pneu.data_instalacao = hoje()
-            pneu.km_instalacao = veiculo.hodometro or 0
+            pneu.km_instalacao = (veiculo.hodometro if veiculo else 0) or 0
         db.session.flush()
 
         extra = PneuMapaDados.query.filter_by(pneu_id=pneu.id).first()

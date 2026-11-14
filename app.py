@@ -57,6 +57,7 @@ def criar_app(config=Config):
 
     from routes.api import bp_api
     from services.mapa_pneus import garantir_tabelas_mapa_pneus
+    from services.recapagem_pneus import garantir_tabelas_recapagem_pneus
     from routes.auditoria_estoque import bp_auditoria_estoque
     from routes.auth import bp_auth, bp_usuarios
     from routes.busca_pecas import bp_busca_pecas
@@ -75,6 +76,7 @@ def criar_app(config=Config):
     from routes.ferramentas_caminhoes import bp_ferramentas_caminhoes
     from routes.rastreio_pecas import bp_rastreio_pecas
     from routes.relatorio_acesso import bp_relatorio_acesso
+    from routes.pneus_recapagem import bp_pneus_recapagem
 
     app.register_blueprint(bp_auth)
     app.register_blueprint(bp_auth_senha)
@@ -96,6 +98,7 @@ def criar_app(config=Config):
     app.register_blueprint(bp_relatorios_compras)
     app.register_blueprint(bp_rastreio_pecas)
     app.register_blueprint(bp_relatorio_acesso)
+    app.register_blueprint(bp_pneus_recapagem)
 
     # Compatibilidade com bancos criados antes do módulo de compras.
     # Evita ProgrammingError quando a aplicação já possui a tela, mas o
@@ -143,6 +146,7 @@ def criar_app(config=Config):
         garantir_campos_execucao_os()
         garantir_ultimo_acesso_usuario()
         garantir_tabelas_mapa_pneus()
+        garantir_tabelas_recapagem_pneus()
         garantir_campos_controle_pneus()
         garantir_vinculo_pneu_item_os()
         garantir_ferramentas()
