@@ -26,3 +26,9 @@ OneDrive/
 !migrations/
 !migrations/versions/
 SGMF_Pro_DAC/
+
+*.pyc
+instance/
+*.db
+*.db.backup*
+*.bak
